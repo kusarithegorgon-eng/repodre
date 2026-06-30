@@ -1,0 +1,655 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Cylinder,
+  Diamond as DiamondIcon,
+  File as FileIcon,
+  FileCode2,
+  Folder,
+  FolderOpen,
+  Magnet,
+  Maximize2,
+  Minus,
+  Pill,
+  Plus,
+  RectangleHorizontal,
+  Settings2,
+  Sparkles,
+  Spline,
+  X,
+} from "lucide-react";
+import { RepodreLogo } from "@/components/RepodreLogo";
+import {
+  NODE_W,
+  NODE_H,
+  type Shape,
+  type HandleSegment,
+  type PositionedNode,
+  anchorHandles,
+  centerOf,
+  paddingFor,
+  perimeterPoint,
+  routeEdge,
+  textMaxWidth,
+} from "@/lib/canvas-geometry";
+
+export const Route = createFileRoute("/studio")({
+  head: () => ({
+    meta: [
+      { title: "Workspace Studio — Repodre" },
+      {
+        name: "description",
+        content:
+          "Infinite engineering canvas for mapping codebase execution flow with shape-aware architecture nodes.",
+      },
+    ],
+  }),
+  component: Studio,
+});
+
+type Accent = "green" | "purple" | "teal" | "blue";
+
+interface NodeData extends PositionedNode {
+  id: string;
+  label: string;
+  sub: string;
+  shape: Shape;
+  accent: Accent;
+  x: number;
+  y: number;
+}
+
+/** An edge may pin either end to a specific perimeter segment (anchor handle). */
+interface EdgeData {
+  id: string;
+  from: string;
+  to: string;
+  fromHandle?: HandleSegment;
+  toHandle?: HandleSegment;
+}
+
+const ACCENT: Record<Accent, { color: string; glow: string; label: string }> = {
+  green: { color: "var(--neon-green)", glow: "color-mix(in oklab, var(--neon-green) 40%, transparent)", label: "Neon Green" },
+  purple: { color: "var(--neon-purple)", glow: "color-mix(in oklab, var(--neon-purple) 40%, transparent)", label: "Neon Purple" },
+  teal: { color: "var(--teal)", glow: "color-mix(in oklab, var(--teal) 40%, transparent)", label: "Teal" },
+  blue: { color: "var(--neon-blue)", glow: "color-mix(in oklab, var(--neon-blue) 40%, transparent)", label: "Database Blue" },
+};
+
+const SHAPES: { id: Shape; icon: typeof Pill; label: string }[] = [
+  { id: "rectangle", icon: RectangleHorizontal, label: "Rectangle" },
+  { id: "diamond", icon: DiamondIcon, label: "Diamond" },
+  { id: "cylinder", icon: Cylinder, label: "Cylinder" },
+  { id: "pill", icon: Pill, label: "Pill" },
+];
+
+const INITIAL_NODES: NodeData[] = [
+  { id: "n1", label: "/api/webhook/stripe", sub: "API Endpoint", shape: "pill", accent: "green", x: 90, y: 80 },
+  { id: "n2", label: "verifySignature()", sub: "Middleware Guard", shape: "diamond", accent: "purple", x: 470, y: 90 },
+  { id: "n3", label: "processPayment()", sub: "Route Controller", shape: "rectangle", accent: "teal", x: 470, y: 360 },
+  { id: "n4", label: "profiles_table", sub: "Supabase Model", shape: "cylinder", accent: "blue", x: 90, y: 380 },
+];
+
+const INITIAL_EDGES: EdgeData[] = [
+  { id: "e1", from: "n1", to: "n2" },
+  { id: "e2", from: "n2", to: "n3" },
+  { id: "e3", from: "n3", to: "n4" },
+  { id: "e4", from: "n4", to: "n1" },
+];
+
+/** Resolve an edge endpoint to a canvas point: pinned handle or perimeter ray. */
+function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
+  if (handle) {
+    const h = anchorHandles(node).find((x) => x.id === handle);
+    if (h) return { x: h.x, y: h.y };
+  }
+  const c = centerOf(other);
+  return perimeterPoint(node, c.x, c.y);
+}
+
+function Studio() {
+  const [nodes, setNodes] = useState<NodeData[]>(INITIAL_NODES);
+  const [edges, setEdges] = useState<EdgeData[]>(INITIAL_EDGES);
+  const [selected, setSelected] = useState<string | null>("n1");
+  const [autoLayout, setAutoLayout] = useState(true);
+  const [smartRoute, setSmartRoute] = useState(true);
+  const [zoom, setZoom] = useState(100);
+  const [hoverHandle, setHoverHandle] = useState<string | null>(null);
+
+  const sel = nodes.find((n) => n.id === selected) ?? null;
+
+  const setShape = (id: string, shape: Shape) =>
+    setNodes((p) => p.map((n) => (n.id === id ? { ...n, shape } : n)));
+  const setAccent = (id: string, accent: Accent) =>
+    setNodes((p) => p.map((n) => (n.id === id ? { ...n, accent } : n)));
+
+  const reattach = (nodeId: string, handle: HandleSegment) =>
+    setEdges((p) =>
+      p.map((e) => {
+        if (e.from === nodeId) return { ...e, fromHandle: handle };
+        if (e.to === nodeId) return { ...e, toHandle: handle };
+        return e;
+      }),
+    );
+
+  // Precompute routed geometry for every edge (memoised on node/edge/flags).
+  const routed = useMemo(
+    () =>
+      edges.map((e) => {
+        const a = nodes.find((n) => n.id === e.from)!;
+        const b = nodes.find((n) => n.id === e.to)!;
+        const start = endpointFor(a, b, e.fromHandle);
+        const end = endpointFor(b, a, e.toHandle);
+        if (e.fromHandle || e.toHandle) {
+          // honor pinned handles: simple smooth curve between fixed points
+          const mx = (start.x + end.x) / 2;
+          return {
+            id: e.id,
+            path: `M ${start.x} ${start.y} C ${mx} ${start.y}, ${mx} ${end.y}, ${end.x} ${end.y}`,
+            detoured: false,
+          };
+        }
+        const r = routeEdge(a, b, smartRoute ? nodes : [a, b]);
+        return { id: e.id, path: r.path, detoured: r.detoured };
+      }),
+    [edges, nodes, smartRoute],
+  );
+
+  return (
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
+      {/* ===== Top ribbon ===== */}
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
+        <div className="flex items-center gap-3">
+          <Link to="/" className="flex items-center gap-2.5">
+            <RepodreLogo className="h-8 w-8" />
+            <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
+          </Link>
+          <span className="mx-1 h-5 w-px bg-border" />
+          <span className="font-mono text-xs text-muted-foreground">
+            nextjs-supabase / <span className="text-foreground">execution-flow.map</span>
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-1">
+            {SHAPES.map((s) => {
+              const active = sel?.shape === s.id;
+              return (
+                <button
+                  key={s.id}
+                  title={`Shape: ${s.label}`}
+                  disabled={!sel}
+                  onClick={() => sel && setShape(sel.id, s.id)}
+                  className={`flex h-8 w-8 items-center justify-center rounded-md transition-all duration-200 disabled:opacity-40 ${
+                    active
+                      ? "bg-teal text-teal-foreground shadow-[0_0_14px_-2px_var(--teal)]"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                >
+                  <s.icon className="h-4 w-4" />
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={() => setSmartRoute((v) => !v)}
+            title="Collision-aware connector routing"
+            className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all duration-200 ${
+              smartRoute
+                ? "border-teal/50 bg-teal/10 text-teal"
+                : "border-border bg-background text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Spline className="h-3.5 w-3.5" />
+            Smart Route
+            <span className={`ml-1 h-1.5 w-1.5 rounded-full ${smartRoute ? "bg-teal" : "bg-muted-foreground/40"}`} />
+          </button>
+
+          <button
+            onClick={() => setAutoLayout((v) => !v)}
+            className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all duration-200 ${
+              autoLayout
+                ? "border-teal/50 bg-teal/10 text-teal"
+                : "border-border bg-background text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Magnet className="h-3.5 w-3.5" />
+            Auto-Layout
+            <span className={`ml-1 h-1.5 w-1.5 rounded-full ${autoLayout ? "bg-teal" : "bg-muted-foreground/40"}`} />
+          </button>
+
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-1">
+            <button
+              onClick={() => setZoom((z) => Math.max(40, z - 10))}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </button>
+            <span className="w-11 text-center font-mono text-xs tabular-nums">{zoom}%</span>
+            <button
+              onClick={() => setZoom((z) => Math.min(200, z + 10))}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+            <span className="mx-1 h-4 w-px bg-border" />
+            <span className="px-1 font-mono text-[11px] text-muted-foreground">x:1240 y:880</span>
+            <button className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <FileTree />
+
+        <main className="relative min-w-0 flex-1">
+          <div className="grid-canvas absolute inset-0 overflow-hidden" onClick={() => setSelected(null)}>
+            <div className="relative h-full w-full origin-top-left" style={{ transform: `scale(${zoom / 100})` }}>
+              {/* edges */}
+              <svg
+                data-testid="edge-layer"
+                className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+              >
+                <defs>
+                  <marker
+                    id="arrow"
+                    viewBox="0 0 10 10"
+                    refX="8"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M0 0 L10 5 L0 10 z" fill="var(--teal)" />
+                  </marker>
+                </defs>
+                {routed.map((r) => (
+                  <path
+                    key={r.id}
+                    data-testid={`edge-${r.id}`}
+                    data-detoured={r.detoured}
+                    d={r.path}
+                    fill="none"
+                    stroke="var(--teal)"
+                    strokeWidth={2}
+                    strokeOpacity={r.detoured ? 0.75 : 0.55}
+                    strokeDasharray={r.detoured ? "6 4" : "1 0"}
+                    markerEnd="url(#arrow)"
+                  />
+                ))}
+              </svg>
+
+              {/* nodes */}
+              {nodes.map((n) => (
+                <CanvasNode
+                  key={n.id}
+                  node={n}
+                  zoom={zoom / 100}
+                  selected={selected === n.id}
+                  showHandles={selected === n.id}
+                  hoverHandle={hoverHandle}
+                  onHoverHandle={setHoverHandle}
+                  onReattach={(seg) => reattach(n.id, seg)}
+                  onSelect={(e) => {
+                    e.stopPropagation();
+                    setSelected(n.id);
+                  }}
+                  onCycleShape={() => {
+                    const idx = SHAPES.findIndex((s) => s.id === n.shape);
+                    setShape(n.id, SHAPES[(idx + 1) % SHAPES.length].id);
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="pointer-events-none absolute bottom-4 left-4 flex items-center gap-4 rounded-lg border border-border bg-surface/80 px-3 py-2 text-[11px] text-muted-foreground backdrop-blur">
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-neon-green" />Endpoint</span>
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rotate-45 bg-neon-purple" />Guard</span>
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-teal" />Controller</span>
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-neon-blue" />Model</span>
+          </div>
+
+          {sel && (
+            <NodeOptions
+              node={sel}
+              onShape={(s) => setShape(sel.id, s)}
+              onAccent={(a) => setAccent(sel.id, a)}
+              onReattach={(seg) => reattach(sel.id, seg)}
+              onClose={() => setSelected(null)}
+            />
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- File tree ---------- */
+
+interface TreeNode {
+  name: string;
+  icon?: typeof FileIcon;
+  children?: TreeNode[];
+}
+
+const TREE: TreeNode[] = [
+  {
+    name: "app",
+    children: [
+      {
+        name: "api",
+        children: [
+          { name: "webhook", children: [{ name: "stripe", children: [{ name: "route.ts", icon: FileCode2 }] }] },
+        ],
+      },
+      { name: "layout.tsx", icon: FileCode2 },
+      { name: "page.tsx", icon: FileCode2 },
+    ],
+  },
+  {
+    name: "lib",
+    children: [
+      { name: "stripe.ts", icon: FileCode2 },
+      { name: "verifySignature.ts", icon: FileCode2 },
+      { name: "payments.ts", icon: FileCode2 },
+    ],
+  },
+  {
+    name: "supabase",
+    children: [
+      { name: "client.ts", icon: FileCode2 },
+      { name: "migrations", children: [{ name: "0001_profiles.sql", icon: FileIcon }] },
+    ],
+  },
+  { name: "package.json", icon: FileIcon },
+];
+
+function FileTree() {
+  return (
+    <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Project Tree</span>
+        <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+      </div>
+      <div className="flex-1 overflow-auto p-2 font-mono text-[13px]">
+        {TREE.map((n) => (
+          <TreeRow key={n.name} node={n} depth={0} defaultOpen />
+        ))}
+      </div>
+      <div className="border-t border-border px-4 py-3 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-neon-green" />
+          12 files mapped · 4 services
+        </span>
+      </div>
+    </aside>
+  );
+}
+
+function TreeRow({ node, depth, defaultOpen }: { node: TreeNode; depth: number; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  const isFolder = !!node.children;
+  const Icon = node.icon ?? FileIcon;
+  return (
+    <div>
+      <button
+        onClick={() => isFolder && setOpen((v) => !v)}
+        className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        style={{ paddingLeft: depth * 14 + 8 }}
+      >
+        {isFolder ? (
+          <>
+            {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+            {open ? (
+              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-teal" />
+            ) : (
+              <Folder className="h-3.5 w-3.5 shrink-0 text-teal" />
+            )}
+          </>
+        ) : (
+          <>
+            <span className="w-3.5" />
+            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          </>
+        )}
+        <span className="truncate">{node.name}</span>
+      </button>
+      {isFolder && open && (
+        <div>
+          {node.children!.map((c) => (
+            <TreeRow key={c.name} node={c} depth={depth + 1} defaultOpen={depth < 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Canvas node ---------- */
+
+function CanvasNode({
+  node,
+  zoom,
+  selected,
+  showHandles,
+  hoverHandle,
+  onHoverHandle,
+  onReattach,
+  onSelect,
+  onCycleShape,
+}: {
+  node: NodeData;
+  zoom: number;
+  selected: boolean;
+  showHandles: boolean;
+  hoverHandle: string | null;
+  onHoverHandle: (id: string | null) => void;
+  onReattach: (seg: HandleSegment) => void;
+  onSelect: (e: React.MouseEvent) => void;
+  onCycleShape: () => void;
+}) {
+  const a = ACCENT[node.accent];
+  const isDiamond = node.shape === "diamond";
+  const pad = paddingFor(node.shape);
+  const wrapWidth = textMaxWidth(node.shape, zoom);
+
+  const radius = node.shape === "pill" ? "9999px" : "12px";
+
+  const ringStyle: React.CSSProperties = {
+    borderColor: a.color,
+    boxShadow: selected
+      ? `0 0 0 1px ${a.color}, 0 0 30px -4px ${a.glow}`
+      : `0 0 22px -8px ${a.glow}`,
+    borderRadius: isDiamond ? "12px" : radius,
+  };
+
+  // Handles are positioned relative to the node center, offset to the perimeter.
+  const handles = anchorHandles({ shape: node.shape, x: 0, y: 0 });
+  const cx = NODE_W / 2;
+  const cy = NODE_H / 2;
+
+  return (
+    <div
+      className="group absolute"
+      style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
+      onClick={onSelect}
+    >
+      {node.shape === "cylinder" && (
+        <div
+          className="absolute left-3 right-3 top-1 h-4 rounded-[50%] border"
+          style={{ borderColor: a.color, background: "var(--surface-raised)" }}
+        />
+      )}
+
+      <div
+        className={`relative flex h-full w-full cursor-pointer flex-col items-center justify-center border-2 bg-surface-raised text-center transition-all duration-300 group-hover:-translate-y-0.5 ${
+          isDiamond ? "rotate-45" : ""
+        }`}
+        style={ringStyle}
+      >
+        <div
+          className={isDiamond ? "-rotate-45" : ""}
+          style={{
+            width: wrapWidth,
+            paddingLeft: pad.x,
+            paddingRight: pad.x,
+            paddingTop: pad.y,
+            paddingBottom: pad.y,
+          }}
+        >
+          <span
+            className="mb-1 block text-[10px] font-semibold uppercase tracking-wider leading-tight"
+            style={{ color: a.color }}
+          >
+            {node.sub}
+          </span>
+          <span className="block break-words font-mono text-sm font-medium leading-tight text-foreground">
+            {node.label}
+          </span>
+        </div>
+      </div>
+
+      {/* interactive anchor handles */}
+      {showHandles &&
+        handles.map((h) => {
+          const key = `${node.id}:${h.id}`;
+          const hot = hoverHandle === key;
+          return (
+            <button
+              key={h.id}
+              title={`Reattach connector · ${h.label}`}
+              onMouseEnter={() => onHoverHandle(key)}
+              onMouseLeave={() => onHoverHandle(null)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onReattach(h.id);
+              }}
+              className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-all duration-150"
+              style={{
+                left: cx + (h.x - cx),
+                top: cy + (h.y - cy),
+                width: hot ? 18 : 12,
+                height: hot ? 18 : 12,
+                background: hot ? a.color : "var(--surface)",
+                borderColor: a.color,
+                boxShadow: hot ? `0 0 14px 1px ${a.glow}` : "none",
+              }}
+            >
+              <span className="sr-only">{h.label}</span>
+            </button>
+          );
+        })}
+
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onCycleShape();
+        }}
+        title="Cycle shape"
+        className={`absolute -right-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground opacity-0 transition-all duration-200 hover:text-teal group-hover:opacity-100 ${
+          selected ? "opacity-100" : ""
+        }`}
+      >
+        <Sparkles className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+/* ---------- Floating options panel ---------- */
+
+const SEGMENTS: { id: HandleSegment; label: string }[] = [
+  { id: "n", label: "Top" },
+  { id: "e", label: "Right" },
+  { id: "s", label: "Bottom" },
+  { id: "w", label: "Left" },
+];
+
+function NodeOptions({
+  node,
+  onShape,
+  onAccent,
+  onReattach,
+  onClose,
+}: {
+  node: NodeData;
+  onShape: (s: Shape) => void;
+  onAccent: (a: Accent) => void;
+  onReattach: (seg: HandleSegment) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute right-4 top-4 w-64 rounded-xl border border-border bg-popover/95 p-4 shadow-2xl backdrop-blur">
+      <div className="mb-3 flex items-start justify-between">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Node Settings</p>
+          <p className="mt-0.5 max-w-[180px] truncate font-mono text-xs text-foreground">{node.label}</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <p className="mb-2 text-[11px] font-medium text-muted-foreground">Geometric shape</p>
+      <div className="mb-4 grid grid-cols-4 gap-1.5">
+        {SHAPES.map((s) => {
+          const active = node.shape === s.id;
+          return (
+            <button
+              key={s.id}
+              onClick={() => onShape(s.id)}
+              title={s.label}
+              className={`flex h-10 items-center justify-center rounded-lg border transition-all duration-200 ${
+                active
+                  ? "border-teal bg-teal/10 text-teal shadow-[0_0_14px_-4px_var(--teal)]"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <s.icon className="h-4 w-4" />
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="mb-2 text-[11px] font-medium text-muted-foreground">Connector anchor</p>
+      <div className="mb-4 grid grid-cols-4 gap-1.5">
+        {SEGMENTS.map((seg) => (
+          <button
+            key={seg.id}
+            onClick={() => onReattach(seg.id)}
+            title={`Reattach to ${seg.label.toLowerCase()} ${node.shape === "diamond" ? "vertex" : "edge"}`}
+            className="flex h-9 items-center justify-center rounded-lg border border-border bg-background text-[11px] font-medium text-muted-foreground transition-all duration-200 hover:border-teal/60 hover:text-teal"
+          >
+            {seg.label}
+          </button>
+        ))}
+      </div>
+
+      <p className="mb-2 text-[11px] font-medium text-muted-foreground">Accent</p>
+      <div className="flex gap-2">
+        {(Object.keys(ACCENT) as Accent[]).map((key) => {
+          const active = node.accent === key;
+          return (
+            <button
+              key={key}
+              onClick={() => onAccent(key)}
+              title={ACCENT[key].label}
+              className={`h-7 w-7 rounded-full border-2 transition-all duration-200 ${
+                active ? "scale-110" : "border-transparent opacity-70 hover:opacity-100"
+              }`}
+              style={{ background: ACCENT[key].color, borderColor: active ? "var(--foreground)" : "transparent" }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
