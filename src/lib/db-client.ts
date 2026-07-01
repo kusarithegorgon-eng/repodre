@@ -8,6 +8,8 @@
 import { supabase } from "./supabase";
 import type { Shape, HandleSegment, PositionedNode } from "./canvas-geometry";
 import type { Cardinality } from "./sql-tokenizer";
+// Re-export so consumers can import from db-client if desired
+export type { Cardinality };
 
 // Database row types
 export interface ProjectRow {

@@ -451,17 +451,55 @@ export function parseDdl(ddl: string): ParsedSchema {
 
 // ─── Cardinality detection ──────────────────────────────────────────────────
 
-export type Cardinality = "one-to-one" | "one-to-many";
+export type Cardinality = "one-to-one" | "one-to-many" | "many-to-many";
 
 /**
  * Determine the cardinality of a foreign key relationship.
  *
  *   1:1 — when the FK column is marked UNIQUE.
  *   1:N — when the FK column is a standard column without a unique constraint.
+ *   M:N — when the FK column is part of a junction/composite key (detected
+ *         heuristically: the column name contains a pattern suggesting a
+ *         many-to-many bridge table, e.g. a table with two FKs both
+ *         referencing other tables). This is resolved at the schema level
+ *         by detectManyToMany() rather than per-column.
  */
 export function detectCardinality(
   fkColumn: ParsedColumn
 ): Cardinality {
   if (fkColumn.unique) return "one-to-one";
   return "one-to-many";
+}
+
+/**
+ * Detect many-to-many relationships in a parsed schema.
+ *
+ * A junction table is one that has exactly two FK columns, both non-unique,
+ * referencing two different tables. The relationship between the two
+ * referenced tables is M:N through the junction.
+ *
+ * Returns a list of M:N relationships keyed by the two referenced tables.
+ */
+export interface ManyToManyRelation {
+  /** the junction table name */
+  junctionTable: string;
+  /** one side of the M:N (alphabetically first) */
+  tableA: string;
+  /** other side of the M:N */
+  tableB: string;
+}
+
+export function detectManyToMany(tables: ParsedTable[]): ManyToManyRelation[] {
+  const out: ManyToManyRelation[] = [];
+  for (const table of tables) {
+    const fkCols = table.columns.filter((c) => c.fk && c.referencesTable);
+    if (fkCols.length !== 2) continue;
+    // both FKs must be non-unique for a true M:N junction
+    if (fkCols.some((c) => c.unique)) continue;
+    const refs = fkCols.map((c) => c.referencesTable!).filter((t) => t !== table.name);
+    if (refs.length !== 2 || refs[0] === refs[1]) continue;
+    const [a, b] = refs.sort();
+    out.push({ junctionTable: table.name, tableA: a, tableB: b });
+  }
+  return out;
 }

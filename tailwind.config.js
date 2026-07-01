@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  darkMode: ["class", '[data-theme="dark"]'],
   theme: {
     extend: {
       colors: {
@@ -13,10 +14,14 @@ export default {
         "muted-foreground": "var(--muted-foreground)",
         accent: "var(--accent)",
         popover: "var(--popover)",
-        "neon-green": "#22c55e",
-        "neon-purple": "#a855f7",
-        "neon-blue": "#3b82f6",
-        teal: "#14b8a6",
+        "neon-green": "var(--neon-green)",
+        "neon-purple": "var(--neon-purple)",
+        "neon-blue": "var(--neon-blue)",
+        teal: "var(--teal)",
+        orange: "var(--orange)",
+        blue: "var(--blue)",
+        purple: "var(--purple)",
+        red: "var(--red)",
       },
       fontFamily: {
         display: ["Inter", "system-ui", "sans-serif"],

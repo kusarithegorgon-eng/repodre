@@ -13,6 +13,8 @@ import { AuthButton } from "@/components/AuthButton";
 import { RepoInput } from "@/components/RepoInput";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { AccessRestrictedState } from "@/components/AccessRestrictedState";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { PrivacyShield } from "@/components/PrivacyShield";
 import { analyzeRepository, type AnalysisResult, type AnalysisProgress as AnalysisProgressType } from "@/lib/repository-analyzer";
 import { signInWithGitHub } from "@/lib/github-auth";
 import { createProject, batchCreateNodes, batchCreateEdges } from "@/lib/db-client";
@@ -103,8 +105,14 @@ export function HomePage() {
           <RepodreLogo className="h-8 w-8" />
           <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
         </Link>
-        <AuthButton />
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <AuthButton />
+        </div>
       </header>
+
+      {/* Privacy Shield banner */}
+      <PrivacyShield />
 
       {/* Hero */}
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
@@ -124,7 +132,8 @@ export function HomePage() {
 
           <p className="mb-8 text-lg text-muted-foreground">
             Paste any GitHub repository URL and instantly generate an interactive
-            execution flow diagram showing modules, dependencies, and data paths.
+            execution flow diagram and database ERD blueprint — with Crow's Foot
+            notation, multi-engine SQL export, and a FigJam-inspired canvas.
           </p>
 
           {/* Repository Input */}

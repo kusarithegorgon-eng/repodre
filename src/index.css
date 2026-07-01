@@ -2,7 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* ─── Dark theme (default) ─────────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
   --background: #0a0a0f;
   --foreground: #f8f8f2;
   --surface: #12121a;
@@ -12,10 +14,54 @@
   --muted-foreground: #b0b0c8;
   --accent: #1a1a2e;
   --popover: #16161f;
+
+  /* FigJam palette */
+  --teal: #5ad8cc;
+  --orange: #ff9e42;
+  --blue: #b6ecf7;
+  --purple: #e4ccff;
   --neon-green: #22c55e;
   --neon-purple: #a855f7;
   --neon-blue: #3b82f6;
+  --red: #ef4444;
+
+  /* Semantic aliases for shape accents */
+  --accent-green: #22c55e;
+  --accent-purple: #a855f7;
+  --accent-teal: #5ad8cc;
+  --accent-blue: #3b82f6;
+  --accent-orange: #ff9e42;
+  --accent-red: #ef4444;
+}
+
+/* ─── Light theme ──────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --background: #f7f7f5;
+  --foreground: #1a1a2e;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border: #e0e0e6;
+  --muted: #9999a8;
+  --muted-foreground: #6b6b80;
+  --accent: #f0f0f5;
+  --popover: #ffffff;
+
+  /* FigJam palette — slightly deeper for light-bg contrast */
   --teal: #14b8a6;
+  --orange: #f97316;
+  --blue: #0ea5e9;
+  --purple: #8b5cf6;
+  --neon-green: #16a34a;
+  --neon-purple: #8b5cf6;
+  --neon-blue: #0ea5e9;
+  --red: #dc2626;
+
+  --accent-green: #16a34a;
+  --accent-purple: #8b5cf6;
+  --accent-teal: #14b8a6;
+  --accent-blue: #0ea5e9;
+  --accent-orange: #f97316;
+  --accent-red: #dc2626;
 }
 
 * {
@@ -38,13 +84,14 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: var(--background);
   color: var(--foreground);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Grid background for canvas */
 .grid-canvas {
   background-image:
-    linear-gradient(to right, rgba(42, 42, 58, 0.3) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(42, 42, 58, 0.3) 1px, transparent 1px);
+    linear-gradient(to right, color-mix(in oklab, var(--border) 50%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--border) 50%, transparent) 1px, transparent 1px);
   background-size: 20px 20px;
 }
 
@@ -104,6 +151,11 @@ body {
   }
 }
 
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
 }
@@ -114,4 +166,9 @@ body {
 
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Theme transition */
+.theme-transition * {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }

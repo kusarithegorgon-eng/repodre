@@ -23,6 +23,8 @@ import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { ErdCanvas } from "@/components/ErdCanvas";
 import { SchemaInput } from "@/components/SchemaInput";
 import { ExportSchemaButton } from "@/components/ExportSchemaButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { PrivacyShield } from "@/components/PrivacyShield";
 import {
   NODE_W,
   NODE_H,
@@ -100,24 +102,29 @@ const ALL_SHAPES: Shape[] = [
   "document",
 ];
 
-// ─── Demo seed data ────────────────────────────────────────────────────────
+// ─── Demo seed data: E-Commerce System ─────────────────────────────────────
+// Journey: Landing -> Login -> Validation Diamond -> Role-based Dashboard split
+// ERD: Users 1:1 Profiles, Users 1:N Products, Products 1:N Sales
 
 const INITIAL_NODES: NodeData[] = [
-  { id: "n1", label: "/api/webhook/stripe", sub: "API Endpoint",    shape: "pill",         accent: "green",  x: 90,  y: 80,  workspace: "app" },
-  { id: "n2", label: "verifySignature()",  sub: "Middleware Guard", shape: "diamond",      accent: "purple", x: 470, y: 90,  workspace: "app" },
-  { id: "n3", label: "processPayment()",  sub: "Route Controller", shape: "rectangle",    accent: "teal",   x: 470, y: 360, workspace: "app" },
-  { id: "n4", label: "profiles_table",    sub: "Supabase Model",   shape: "cylinder",     accent: "blue",   x: 90,  y: 380, workspace: "app" },
-  { id: "n5", label: "stripe.ts",         sub: "I/O Data Block",   shape: "parallelogram",accent: "orange", x: 280, y: 220, workspace: "app" },
-  { id: "n6", label: "event.type",        sub: "Branch Decision",  shape: "triangle",     accent: "red",    x: 750, y: 220, workspace: "app" },
+  { id: "n1", label: "/ (Landing)",       sub: "View · Entry",      shape: "pill",         accent: "green",  x: 60,   y: 80,  workspace: "app" },
+  { id: "n2", label: "/login",            sub: "View · Auth",       shape: "pill",         accent: "green",  x: 60,   y: 240, workspace: "app" },
+  { id: "n3", label: "validateLogin()",   sub: "Zod Schema",        shape: "diamond",      accent: "purple", x: 380,  y: 240, workspace: "app" },
+  { id: "n4", label: "/api/auth/login",   sub: "POST · Controller", shape: "rectangle",    accent: "teal",   x: 700,  y: 240, workspace: "app" },
+  { id: "n5", label: "users",             sub: "Supabase Table",    shape: "cylinder",     accent: "blue",   x: 1020, y: 240, workspace: "app" },
+  { id: "n6", label: "/dashboard/manager",sub: "View · Manager",    shape: "pill",         accent: "green",  x: 700,  y: 80,  workspace: "app" },
+  { id: "n7", label: "/dashboard/staff",  sub: "View · Staff",      shape: "pill",         accent: "green",  x: 700,  y: 400, workspace: "app" },
+  { id: "n8", label: "Show error",        sub: "Validation failure",shape: "triangle",     accent: "red",    x: 380,  y: 400, workspace: "app" },
 ];
 
 const INITIAL_EDGES: EdgeData[] = [
   { id: "e1", from: "n1", to: "n2" },
   { id: "e2", from: "n2", to: "n3" },
-  { id: "e3", from: "n3", to: "n4" },
-  { id: "e4", from: "n4", to: "n1" },
-  { id: "e5", from: "n1", to: "n5" },
-  { id: "e6", from: "n2", to: "n6" },
+  { id: "e3", from: "n3", to: "n4", fromHandle: "e", toHandle: "w" },
+  { id: "e4", from: "n4", to: "n5", fromHandle: "e", toHandle: "w" },
+  { id: "e5", from: "n3", to: "n6", fromHandle: "n", toHandle: "w" },
+  { id: "e6", from: "n3", to: "n7", fromHandle: "s", toHandle: "w" },
+  { id: "e7", from: "n3", to: "n8", fromHandle: "s", toHandle: "n" },
 ];
 
 // ─── Text layout helper ─────────────────────────────────────────────────────
@@ -514,7 +521,7 @@ export function StudioPage() {
           <WorkspaceSwitcher workspace={workspace} onChange={handleWorkspaceChange} />
           <span className="mx-1 h-5 w-px bg-border" />
           <span className="font-mono text-xs text-muted-foreground">
-            {project?.name ?? (workspace === "app" ? "nextjs-supabase" : "blog-schema")}{" "}
+            {project?.name ?? (workspace === "app" ? "ecommerce-system" : "ecommerce-schema")}{" "}
             / <span className="text-foreground">{workspace === "app" ? "execution-flow.map" : "schema.erd"}</span>
           </span>
         </div>
@@ -612,9 +619,13 @@ export function StudioPage() {
             </button>
           </div>
 
+          <ThemeToggle />
           <AuthButton />
         </div>
       </header>
+
+      {/* Privacy Shield banner */}
+      <PrivacyShield />
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div className="flex min-h-0 flex-1">
@@ -697,12 +708,12 @@ export function StudioPage() {
 
               {/* Legend */}
               <div className="pointer-events-none absolute bottom-4 left-4 flex items-center gap-4 rounded-lg border border-border bg-surface/80 px-3 py-2 text-[11px] text-muted-foreground backdrop-blur">
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{background:"var(--neon-green)"}} />Endpoint</span>
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rotate-45 inline-block" style={{background:"var(--neon-purple)"}} />Guard</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{background:"var(--neon-green)"}} />View</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rotate-45 inline-block" style={{background:"var(--neon-purple)"}} />Validation</span>
                 <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{background:"var(--teal)"}} />Controller</span>
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{background:"var(--neon-blue)"}} />Model</span>
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2" style={{background:"#f97316"}} />I/O</span>
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2" style={{background:"#ef4444", clipPath:"polygon(50% 0, 100% 100%, 0 100%)"}} />Branch</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{background:"var(--neon-blue)"}} />Database</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2" style={{background:"var(--orange)"}} />I/O</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2" style={{background:"var(--red)", clipPath:"polygon(50% 0, 100% 100%, 0 100%)"}} />Error</span>
               </div>
 
               {/* Node settings panel */}
@@ -745,7 +756,12 @@ const TREE: TreeNode[] = [
   {
     name: "app",
     children: [
-      { name: "api", children: [{ name: "webhook", children: [{ name: "stripe", children: [{ name: "route.ts", icon: FileCode2 }] }] }] },
+      { name: "api", children: [{ name: "auth", children: [{ name: "login", children: [{ name: "route.ts", icon: FileCode2 }] }] }] },
+      { name: "dashboard", children: [
+        { name: "manager", children: [{ name: "page.tsx", icon: FileCode2 }] },
+        { name: "staff", children: [{ name: "page.tsx", icon: FileCode2 }] },
+      ]},
+      { name: "login", children: [{ name: "page.tsx", icon: FileCode2 }] },
       { name: "layout.tsx", icon: FileCode2 },
       { name: "page.tsx", icon: FileCode2 },
     ],
@@ -753,16 +769,15 @@ const TREE: TreeNode[] = [
   {
     name: "lib",
     children: [
-      { name: "stripe.ts", icon: FileCode2 },
-      { name: "verifySignature.ts", icon: FileCode2 },
-      { name: "payments.ts", icon: FileCode2 },
+      { name: "auth.ts", icon: FileCode2 },
+      { name: "validation.ts", icon: FileCode2 },
     ],
   },
   {
     name: "supabase",
     children: [
       { name: "client.ts", icon: FileCode2 },
-      { name: "migrations", children: [{ name: "0001_profiles.sql", icon: FileIcon }] },
+      { name: "migrations", children: [{ name: "0001_ecommerce.sql", icon: FileIcon }] },
     ],
   },
   { name: "package.json", icon: FileIcon },

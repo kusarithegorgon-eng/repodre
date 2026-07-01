@@ -198,7 +198,12 @@ function EdgeLabel({ edge }: { edge: ErdEdge }) {
   // Extract the midpoint from the path's L commands
   const midX = (edge.fromMarker.x + edge.toMarker.x) / 2;
   const midY = (edge.fromMarker.y + edge.toMarker.y) / 2;
-  const label = edge.cardinality === "one-to-one" ? "1:1" : "1:N";
+  const label =
+    edge.cardinality === "one-to-one"
+      ? "1:1"
+      : edge.cardinality === "many-to-many"
+      ? "M:N"
+      : "1:N";
   return (
     <g pointerEvents="none">
       <rect

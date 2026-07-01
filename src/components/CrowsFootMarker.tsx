@@ -70,8 +70,10 @@ export function CrowsFootMarker({ idPrefix = "erd" }: CrowsFootMarkerProps) {
 
 /**
  * Resolve which marker ids to attach to the start/end of an edge based on
- * its cardinality. For 1:1 both ends get the "one" bar; for 1:N the source
- * (FK side) gets "one" and the target (PK side) gets "many".
+ * its cardinality.
+ *   1:1 — single bar (||) on each end
+ *   1:N — bar on the "one" end, three-pronged fork on the "many" end
+ *   M:N — three-pronged fork on both ends
  */
 export function markerForCardinality(
   cardinality: Cardinality,
@@ -81,6 +83,9 @@ export function markerForCardinality(
   const many = `url(#${idPrefix}-marker-many)`;
   if (cardinality === "one-to-one") {
     return { markerStart: one, markerEnd: one };
+  }
+  if (cardinality === "many-to-many") {
+    return { markerStart: many, markerEnd: many };
   }
   // one-to-many: source = one bar, target = crow's foot
   return { markerStart: one, markerEnd: many };
