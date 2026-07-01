@@ -7,9 +7,19 @@
  *
  * Coordinate convention: node-local space has its origin at the node CENTER,
  * +x to the right and +y downward (matching SVG/screen space).
+ *
+ * Supported shapes: rectangle · pill · diamond · cylinder ·
+ *                   triangle · parallelogram · document
  */
 
-export type Shape = "rectangle" | "diamond" | "cylinder" | "pill";
+export type Shape =
+  | "rectangle"
+  | "diamond"
+  | "cylinder"
+  | "pill"
+  | "triangle"
+  | "parallelogram"
+  | "document";
 
 /** Base node footprint (unscaled, pre-zoom). */
 export const NODE_W = 240;
@@ -38,6 +48,10 @@ export interface PositionedNode {
   h?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Hull half-extents (for AABB-based collision detection and routing)
+// ---------------------------------------------------------------------------
+
 /** Half-width / half-height of the *collision/anchor* hull for a shape. */
 export function halfExtents(shape: Shape, w = NODE_W, h = NODE_H) {
   const hw = w / 2;
@@ -58,10 +72,105 @@ export function boundingBox(n: PositionedNode): Box {
   return { x: n.x, y: n.y - extraTop, w, h: h + (n.shape === "cylinder" ? CYLINDER_CAP : 0) };
 }
 
+// ---------------------------------------------------------------------------
+// Polygon helpers — shapes defined in node-local space centred on (0, 0)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the canonical polygon vertices for a shape in node-local space
+ * (origin at node center, +x right, +y down).
+ * Vertices are listed clockwise.
+ */
+export function shapePolygon(shape: Shape, w = NODE_W, h = NODE_H): Point[] {
+  const hw = w / 2;
+  const hh = h / 2;
+
+  switch (shape) {
+    case "diamond":
+      return [
+        { x: 0, y: -hh },   // top vertex
+        { x: hw, y: 0 },    // right vertex
+        { x: 0, y: hh },    // bottom vertex
+        { x: -hw, y: 0 },   // left vertex
+      ];
+
+    case "triangle":
+      return [
+        { x: 0, y: -hh },         // apex
+        { x: hw, y: hh },         // bottom-right
+        { x: -hw, y: hh },        // bottom-left
+      ];
+
+    case "parallelogram": {
+      // Classic Input/Output block — right-leaning skew of ~20% of width
+      const skew = w * 0.18;
+      return [
+        { x: -hw + skew, y: -hh },  // top-left
+        { x: hw, y: -hh },          // top-right
+        { x: hw - skew, y: hh },    // bottom-right
+        { x: -hw, y: hh },          // bottom-left
+      ];
+    }
+
+    // document, rectangle, cylinder, pill all use a rectangular AABB hull for routing
+    default: {
+      const hh2 = (shape === "cylinder" ? h + CYLINDER_CAP : h) / 2;
+      return [
+        { x: -hw, y: -hh2 },
+        { x: hw, y: -hh2 },
+        { x: hw, y: hh2 },
+        { x: -hw, y: hh2 },
+      ];
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ray – polygon intersection (Figma-style perimeter snapping)
+// ---------------------------------------------------------------------------
+
+/**
+ * Given a ray from (0,0) in direction (dx, dy), find the smallest positive t
+ * at which it crosses any edge of the polygon.
+ *
+ * Returns t, so the hit point is (dx*t, dy*t).
+ */
+function rayPolygonScale(dx: number, dy: number, verts: Point[]): number {
+  let bestT = Infinity;
+  const n = verts.length;
+
+  for (let i = 0; i < n; i++) {
+    const p1 = verts[i];
+    const p2 = verts[(i + 1) % n];
+
+    // Edge direction
+    const ex = p2.x - p1.x;
+    const ey = p2.y - p1.y;
+
+    // Solve: t*dx - s*ex = p1.x
+    //        t*dy - s*ey = p1.y
+    const denom = dx * ey - dy * ex;
+    if (Math.abs(denom) < 1e-10) continue; // parallel
+
+    const t = (p1.x * ey - p1.y * ex) / denom;
+    const s = (p1.x * dy - p1.y * dx) / denom;
+
+    if (t > 1e-6 && s >= -1e-6 && s <= 1 + 1e-6) {
+      if (t < bestT) bestT = t;
+    }
+  }
+
+  return bestT === Infinity ? 1 : bestT;
+}
+
+// ---------------------------------------------------------------------------
+// Public perimeter API
+// ---------------------------------------------------------------------------
+
 /**
  * Shape-aware perimeter intersection.
  * Returns the point on the node boundary that lies along the ray from the node
- * center toward (tx, ty) in CANVAS space.
+ * centre toward (tx, ty) in CANVAS space.
  */
 export function perimeterPoint(n: PositionedNode, tx: number, ty: number): Point {
   const c = centerOf(n);
@@ -69,17 +178,29 @@ export function perimeterPoint(n: PositionedNode, tx: number, ty: number): Point
   const dy = ty - c.y;
   if (dx === 0 && dy === 0) return { ...c };
 
-  const { hw, hh } = halfExtents(n.shape, n.w ?? NODE_W, n.h ?? NODE_H);
+  const w = n.w ?? NODE_W;
+  const h = n.h ?? NODE_H;
+  const { hw, hh } = halfExtents(n.shape, w, h);
+
   let s: number;
 
-  if (n.shape === "diamond") {
-    // Rhombus boundary: |x|/hw + |y|/hh = 1
-    s = 1 / (Math.abs(dx) / hw + Math.abs(dy) / hh);
-  } else if (n.shape === "pill") {
-    s = stadiumRayScale(dx, dy, hw, hh);
-  } else {
-    // rectangle + cylinder => axis-aligned box
-    s = 1 / Math.max(Math.abs(dx) / hw, Math.abs(dy) / hh);
+  switch (n.shape) {
+    case "pill":
+      s = stadiumRayScale(dx, dy, hw, hh);
+      break;
+
+    case "diamond":
+    case "triangle":
+    case "parallelogram": {
+      const verts = shapePolygon(n.shape, w, h);
+      s = rayPolygonScale(dx, dy, verts);
+      break;
+    }
+
+    default:
+      // rectangle, cylinder, document => axis-aligned box
+      s = 1 / Math.max(Math.abs(dx) / hw, Math.abs(dy) / hh);
+      break;
   }
 
   return { x: c.x + dx * s, y: c.y + dy * s };
@@ -117,6 +238,10 @@ export function anchorBetween(from: PositionedNode, to: PositionedNode): Point {
   return perimeterPoint(from, c.x, c.y);
 }
 
+// ---------------------------------------------------------------------------
+// Anchor handles
+// ---------------------------------------------------------------------------
+
 export type HandleSegment = "n" | "e" | "s" | "w" | "ne" | "se" | "sw" | "nw";
 
 export interface AnchorHandle {
@@ -129,74 +254,137 @@ export interface AnchorHandle {
 }
 
 /**
- * Named anchor handles around a node's true perimeter. Diamonds expose their
- * four vertices (the corners that connectors should snap to); box-like shapes
- * expose edge midpoints.
+ * Named anchor handles placed on a node's true perimeter.
+ * Polygon shapes expose their vertices; box-like shapes expose edge midpoints.
  */
 export function anchorHandles(n: PositionedNode): AnchorHandle[] {
   const c = centerOf(n);
-  const { hw, hh } = halfExtents(n.shape, n.w ?? NODE_W, n.h ?? NODE_H);
-  const make = (id: HandleSegment, ox: number, oy: number, label: string): AnchorHandle => ({
-    id,
-    x: c.x + ox,
-    y: c.y + oy,
-    label,
+  const w = n.w ?? NODE_W;
+  const h = n.h ?? NODE_H;
+  const { hw, hh } = halfExtents(n.shape, w, h);
+  const at = (id: HandleSegment, ox: number, oy: number, label: string): AnchorHandle => ({
+    id, x: c.x + ox, y: c.y + oy, label,
   });
 
-  if (n.shape === "diamond") {
-    return [
-      make("n", 0, -hh, "Top vertex"),
-      make("e", hw, 0, "Right vertex"),
-      make("s", 0, hh, "Bottom vertex"),
-      make("w", -hw, 0, "Left vertex"),
-    ];
+  switch (n.shape) {
+    case "diamond":
+      return [
+        at("n", 0, -hh, "Top vertex"),
+        at("e", hw, 0, "Right vertex"),
+        at("s", 0, hh, "Bottom vertex"),
+        at("w", -hw, 0, "Left vertex"),
+      ];
+
+    case "triangle": {
+      const hw2 = w / 2;
+      const hh2 = h / 2;
+      return [
+        at("n", 0, -hh2, "Apex"),
+        at("se", hw2, hh2, "Right corner"),
+        at("sw", -hw2, hh2, "Left corner"),
+        at("s", 0, hh2, "Base midpoint"),
+      ];
+    }
+
+    case "parallelogram": {
+      const skew = w * 0.18;
+      const hw2 = w / 2;
+      const hh2 = h / 2;
+      return [
+        at("n", skew / 2, -hh2, "Top midpoint"),
+        at("e", hw2, 0, "Right midpoint"),
+        at("s", -skew / 2, hh2, "Bottom midpoint"),
+        at("w", -hw2, 0, "Left midpoint"),
+      ];
+    }
+
+    default:
+      // rectangle / pill / cylinder / document: edge midpoints
+      return [
+        at("n", 0, -hh, "Top edge"),
+        at("e", hw, 0, "Right edge"),
+        at("s", 0, hh, "Bottom edge"),
+        at("w", -hw, 0, "Left edge"),
+      ];
   }
-  // rectangle / pill / cylinder: edge midpoints
-  return [
-    make("n", 0, -hh, "Top edge"),
-    make("e", hw, 0, "Right edge"),
-    make("s", 0, hh, "Bottom edge"),
-    make("w", -hw, 0, "Left edge"),
-  ];
 }
 
-/** Internal padding (px) so text never clips inside the shape's narrow corners. */
+// ---------------------------------------------------------------------------
+// Text padding / wrapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Internal padding (px) so text never clips inside the shape's narrow corners.
+ * These values define the inset from the node's bounding rect.
+ */
 export function paddingFor(shape: Shape): { x: number; y: number } {
   switch (shape) {
     case "diamond":
-      // narrow corners: small inset; the inscribed-rect maxWidth does the heavy
-      // lifting so the label never reaches the angled faces.
-      return { x: 10, y: 8 };
+      return { x: 12, y: 10 };
     case "cylinder":
-      // leave room for top + bottom elliptical caps
-      return { x: 18, y: 20 };
+      return { x: 18, y: 24 };
     case "pill":
-      return { x: 26, y: 12 };
+      return { x: 28, y: 14 };
+    case "triangle":
+      // text lives in the lower ~60 % of the triangle; wide bottom margin
+      return { x: 20, y: 14 };
+    case "parallelogram":
+      // account for horizontal skew on both sides
+      return { x: 32, y: 12 };
+    case "document":
+      // leave room for folded corner decoration (bottom-right)
+      return { x: 16, y: 14 };
     default:
       return { x: 16, y: 12 };
   }
 }
 
 /**
- * Max text width (px) that fits without clipping, accounting for the shape and
- * the current zoom factor (1 = 100%). The diamond uses its inscribed rectangle
- * (half the diagonal) so labels never spill past the angled faces.
+ * Max text width (px) that fits inside the shape without clipping.
+ *
+ * Shape-specific inscribed-rectangle rules:
+ *   diamond      → inscribed square width = w / √2
+ *   triangle     → at the vertical mid-point, available width = w / 2
+ *                  (conservative; keeps text safely inside the slanted faces)
+ *   parallelogram → full width minus both skew offsets
+ *   others       → full width minus side padding
  */
-export function textMaxWidth(shape: Shape, zoom = 1, w = NODE_W, h = NODE_H): number {
-  const pad = paddingFor(shape);
-  let base: number;
-  if (shape === "diamond") {
-    // inscribed axis-aligned rect of a rhombus is ~w/2 wide at center height
-    base = w / 2 - pad.x;
-  } else {
-    base = w - pad.x * 2;
+export function textMaxWidth(shape: Shape, _zoom = 1, w = NODE_W, _h = NODE_H): number {
+  switch (shape) {
+    case "diamond": {
+      // Safe text width = horizontal half-diagonal minus padding.
+      // At the centre row the diamond spans its full half-width (hw = w/2);
+      // the inscribed rect width is bounded by hw so text never reaches the faces.
+      const pad = paddingFor("diamond");
+      return Math.max(24, w / 2 - pad.x);
+    }
+
+    case "triangle":
+      // at mid-height the available horizontal span is w/2
+      return Math.max(24, w * 0.5 - 16);
+
+    case "parallelogram": {
+      const skew = w * 0.18;
+      return Math.max(24, w - skew * 2 - 16);
+    }
+
+    case "pill":
+      return Math.max(24, w - 56);
+
+    case "cylinder":
+      return Math.max(24, w - 36);
+
+    case "document":
+      return Math.max(24, w - 40);
+
+    default:
+      return Math.max(24, w - 32);
   }
-  // zoom never reduces the *logical* wrap width (text scales with the canvas),
-  // but we clamp to a sane minimum so tiny zooms don't produce 0/negative.
-  return Math.max(24, base);
 }
 
-// ---------- collision-aware routing ----------
+// ---------------------------------------------------------------------------
+// Collision-aware routing
+// ---------------------------------------------------------------------------
 
 /** Does segment p->q intersect axis-aligned box b (with optional padding)? */
 export function segmentIntersectsBox(p: Point, q: Point, b: Box, pad = 0): boolean {
@@ -246,7 +434,7 @@ export interface RoutedEdge {
 
 /**
  * Build a connector path between two nodes that:
- *  - anchors on each node's true perimeter (shape-aware),
+ *  - anchors on each node's true perimeter (shape-aware polygon snapping),
  *  - bends around any *other* node boxes it would otherwise pierce/overlap.
  */
 export function routeEdge(
@@ -272,19 +460,17 @@ export function routeEdge(
   let detoured = false;
 
   if (!blocked) {
-    // smooth horizontal-biased bezier (matches original aesthetic)
+    // smooth horizontal-biased bezier
     c1 = { x: mx, y: start.y };
     c2 = { x: mx, y: end.y };
   } else {
     detoured = true;
-    // perpendicular offset direction
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const len = Math.hypot(dx, dy) || 1;
     const nx = -dy / len;
     const ny = dx / len;
 
-    // try increasing offsets on both sides until clear
     let bestOffset = 0;
     outer: for (const mag of [60, 100, 150, 210, 280]) {
       for (const sign of [1, -1]) {
@@ -298,7 +484,7 @@ export function routeEdge(
         }
       }
     }
-    if (bestOffset === 0) bestOffset = 140; // fallback bend
+    if (bestOffset === 0) bestOffset = 140;
     const bend: Point = { x: mx + nx * bestOffset, y: my + ny * bestOffset };
     c1 = { x: (start.x + bend.x) / 2, y: (start.y + bend.y) / 2 };
     c2 = { x: (end.x + bend.x) / 2, y: (end.y + bend.y) / 2 };

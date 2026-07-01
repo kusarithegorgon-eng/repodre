@@ -20,13 +20,15 @@ export interface ProjectRow {
   updated_at: string;
 }
 
+export type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red";
+
 export interface NodeRow {
   id: string;
   project_id: string;
   label: string;
   sub: string;
   shape: Shape;
-  accent: "green" | "purple" | "teal" | "blue";
+  accent: Accent;
   x: number;
   y: number;
   w: number | null;
@@ -63,7 +65,7 @@ export interface Node extends PositionedNode {
   label: string;
   sub: string;
   shape: Shape;
-  accent: "green" | "purple" | "teal" | "blue";
+  accent: Accent;
   projectId: string;
 }
 
