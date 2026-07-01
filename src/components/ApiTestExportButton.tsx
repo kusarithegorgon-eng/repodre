@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { FileCode2, ChevronDown, Check, Loader2, Send } from "lucide-react";
+import { FileCode2, ChevronDown, Check, Loader as Loader2, Send } from "lucide-react";
 import type { DetectedController } from "@/lib/blueprint-analyzer";
 import type { ParsedModule } from "@/lib/ast-parser";
 import {

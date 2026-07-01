@@ -6,7 +6,7 @@
  */
 
 import { useState } from "react";
-import { AlertTriangle, X, Zap, Clock, Database, Mail, CreditCard } from "lucide-react";
+import { TriangleAlert as AlertTriangle, X, Zap, Clock, Database, Mail, CreditCard } from "lucide-react";
 import type { BottleneckWarning } from "@/lib/bottleneck-analyzer";
 
 interface BottleneckBadgeProps {

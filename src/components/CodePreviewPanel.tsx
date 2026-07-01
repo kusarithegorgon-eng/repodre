@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { X, FileCode, Database, Code2, FileText, Copy, Check, ExternalLink } from "lucide-react";
+import { X, FileCode, Database, Code as Code2, FileText, Copy, Check, ExternalLink } from "lucide-react";
 import type { BlueprintNode } from "@/lib/blueprint-analyzer";
 import type { ParsedModule } from "@/lib/ast-parser";
 

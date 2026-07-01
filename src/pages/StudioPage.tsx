@@ -1,22 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, type CSSProperties } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  File as FileIcon,
-  FileCode2,
-  Folder,
-  FolderOpen,
-  Magnet,
-  Minus,
-  Plus,
-  Settings2,
-  Sparkles,
-  Spline,
-  X,
-  Loader as Loader2,
-  AlertTriangle,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, X, Loader as Loader2, TriangleAlert as AlertTriangle } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
