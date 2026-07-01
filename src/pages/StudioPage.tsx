@@ -1,26 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Cylinder,
-  Diamond as DiamondIcon,
-  File as FileIcon,
-  FileCode2,
-  Folder,
-  FolderOpen,
-  Magnet,
-  Maximize2,
-  Minus,
-  Pill,
-  Plus,
-  RectangleHorizontal,
-  Settings2,
-  Sparkles,
-  Spline,
-  X,
-} from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import { ChevronDown, ChevronRight, Cylinder, Diamond as DiamondIcon, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Maximize2, Minus, Pill, Plus, RectangleHorizontal, Settings2, Sparkles, Spline, X, Loader as Loader2 } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
+import { AuthButton } from "@/components/AuthButton";
 import {
   NODE_W,
   NODE_H,
@@ -34,20 +16,7 @@ import {
   routeEdge,
   textMaxWidth,
 } from "@/lib/canvas-geometry";
-
-export const Route = createFileRoute("/studio")({
-  head: () => ({
-    meta: [
-      { title: "Workspace Studio — Repodre" },
-      {
-        name: "description",
-        content:
-          "Infinite engineering canvas for mapping codebase execution flow with shape-aware architecture nodes.",
-      },
-    ],
-  }),
-  component: Studio,
-});
+import { loadFullProject, updateNode, updateProject, type Node, type Edge, type Project } from "@/lib/db-client";
 
 type Accent = "green" | "purple" | "teal" | "blue";
 
@@ -61,7 +30,6 @@ interface NodeData extends PositionedNode {
   y: number;
 }
 
-/** An edge may pin either end to a specific perimeter segment (anchor handle). */
 interface EdgeData {
   id: string;
   from: string;
@@ -84,6 +52,7 @@ const SHAPES: { id: Shape; icon: typeof Pill; label: string }[] = [
   { id: "pill", icon: Pill, label: "Pill" },
 ];
 
+// Demo initial data (used if no database connection)
 const INITIAL_NODES: NodeData[] = [
   { id: "n1", label: "/api/webhook/stripe", sub: "API Endpoint", shape: "pill", accent: "green", x: 90, y: 80 },
   { id: "n2", label: "verifySignature()", sub: "Middleware Guard", shape: "diamond", accent: "purple", x: 470, y: 90 },
@@ -98,7 +67,6 @@ const INITIAL_EDGES: EdgeData[] = [
   { id: "e4", from: "n4", to: "n1" },
 ];
 
-/** Resolve an edge endpoint to a canvas point: pinned handle or perimeter ray. */
 function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
   if (handle) {
     const h = anchorHandles(node).find((x) => x.id === handle);
@@ -108,7 +76,9 @@ function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
   return perimeterPoint(node, c.x, c.y);
 }
 
-function Studio() {
+export function StudioPage() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [project, setProject] = useState<Project | null>(null);
   const [nodes, setNodes] = useState<NodeData[]>(INITIAL_NODES);
   const [edges, setEdges] = useState<EdgeData[]>(INITIAL_EDGES);
   const [selected, setSelected] = useState<string | null>("n1");
@@ -117,14 +87,81 @@ function Studio() {
   const [zoom, setZoom] = useState(100);
   const [hoverHandle, setHoverHandle] = useState<string | null>(null);
 
+  // Load project from database on mount
+  useEffect(() => {
+    async function loadProject() {
+      try {
+        // Load the demo project (ID from seed data)
+        const fullProject = await loadFullProject("00000000-0000-0000-0000-000000000001");
+
+        if (fullProject) {
+          setProject(fullProject.project);
+          setNodes(fullProject.nodes.map((n) => ({
+            id: n.id,
+            label: n.label,
+            sub: n.sub,
+            shape: n.shape,
+            accent: n.accent,
+            x: n.x,
+            y: n.y,
+            w: n.w,
+            h: n.h,
+          })));
+          setEdges(fullProject.edges.map((e) => ({
+            id: e.id,
+            from: e.from,
+            to: e.to,
+            fromHandle: e.fromHandle,
+            toHandle: e.toHandle,
+          })));
+          setZoom(fullProject.project.zoom);
+          setAutoLayout(fullProject.project.autoLayout);
+          setSmartRoute(fullProject.project.smartRoute);
+        }
+      } catch (error) {
+        console.error("Failed to load project:", error);
+        // Fall back to initial data
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadProject();
+  }, []);
+
   const sel = nodes.find((n) => n.id === selected) ?? null;
 
-  const setShape = (id: string, shape: Shape) =>
+  // Update node shape with database persistence
+  const setShape = useCallback(async (id: string, shape: Shape) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, shape } : n)));
-  const setAccent = (id: string, accent: Accent) =>
-    setNodes((p) => p.map((n) => (n.id === id ? { ...n, accent } : n)));
+    try {
+      await updateNode(id, { shape });
+    } catch (error) {
+      console.error("Failed to update shape:", error);
+    }
+  }, []);
 
-  const reattach = (nodeId: string, handle: HandleSegment) =>
+  // Update node accent with database persistence
+  const setAccent = useCallback(async (id: string, accent: Accent) => {
+    setNodes((p) => p.map((n) => (n.id === id ? { ...n, accent } : n)));
+    try {
+      await updateNode(id, { accent });
+    } catch (error) {
+      console.error("Failed to update accent:", error);
+    }
+  }, []);
+
+  // Update node position with database persistence
+  const setPosition = useCallback(async (id: string, x: number, y: number) => {
+    setNodes((p) => p.map((n) => (n.id === id ? { ...n, x, y } : n)));
+    try {
+      await updateNode(id, { x, y });
+    } catch (error) {
+      console.error("Failed to update position:", error);
+    }
+  }, []);
+
+  const reattach = useCallback((nodeId: string, handle: HandleSegment) => {
     setEdges((p) =>
       p.map((e) => {
         if (e.from === nodeId) return { ...e, fromHandle: handle };
@@ -132,8 +169,20 @@ function Studio() {
         return e;
       }),
     );
+  }, []);
 
-  // Precompute routed geometry for every edge (memoised on node/edge/flags).
+  // Update zoom in database
+  const handleZoomChange = useCallback(async (newZoom: number) => {
+    setZoom(newZoom);
+    if (project) {
+      try {
+        await updateProject(project.id, { zoom: newZoom });
+      } catch (error) {
+        console.error("Failed to update zoom:", error);
+      }
+    }
+  }, [project]);
+
   const routed = useMemo(
     () =>
       edges.map((e) => {
@@ -142,7 +191,6 @@ function Studio() {
         const start = endpointFor(a, b, e.fromHandle);
         const end = endpointFor(b, a, e.toHandle);
         if (e.fromHandle || e.toHandle) {
-          // honor pinned handles: simple smooth curve between fixed points
           const mx = (start.x + end.x) / 2;
           return {
             id: e.id,
@@ -156,6 +204,14 @@ function Studio() {
     [edges, nodes, smartRoute],
   );
 
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background text-foreground">
+        <Loader2 className="h-8 w-8 animate-spin text-teal" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
       {/* ===== Top ribbon ===== */}
@@ -167,7 +223,7 @@ function Studio() {
           </Link>
           <span className="mx-1 h-5 w-px bg-border" />
           <span className="font-mono text-xs text-muted-foreground">
-            nextjs-supabase / <span className="text-foreground">execution-flow.map</span>
+            {project?.name || "nextjs-supabase"} / <span className="text-foreground">execution-flow.map</span>
           </span>
         </div>
 
@@ -194,7 +250,13 @@ function Studio() {
           </div>
 
           <button
-            onClick={() => setSmartRoute((v) => !v)}
+            onClick={() => {
+              setSmartRoute((v) => {
+                const newVal = !v;
+                if (project) updateProject(project.id, { smartRoute: newVal });
+                return newVal;
+              });
+            }}
             title="Collision-aware connector routing"
             className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all duration-200 ${
               smartRoute
@@ -208,7 +270,13 @@ function Studio() {
           </button>
 
           <button
-            onClick={() => setAutoLayout((v) => !v)}
+            onClick={() => {
+              setAutoLayout((v) => {
+                const newVal = !v;
+                if (project) updateProject(project.id, { autoLayout: newVal });
+                return newVal;
+              });
+            }}
             className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all duration-200 ${
               autoLayout
                 ? "border-teal/50 bg-teal/10 text-teal"
@@ -222,29 +290,26 @@ function Studio() {
 
           <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-1">
             <button
-              onClick={() => setZoom((z) => Math.max(40, z - 10))}
+              onClick={() => handleZoomChange(Math.max(40, zoom - 10))}
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
             <span className="w-11 text-center font-mono text-xs tabular-nums">{zoom}%</span>
             <button
-              onClick={() => setZoom((z) => Math.min(200, z + 10))}
+              onClick={() => handleZoomChange(Math.min(200, zoom + 10))}
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
-            <span className="mx-1 h-4 w-px bg-border" />
-            <span className="px-1 font-mono text-[11px] text-muted-foreground">x:1240 y:880</span>
-            <button className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
-              <Maximize2 className="h-3.5 w-3.5" />
-            </button>
           </div>
+
+          <AuthButton />
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <FileTree />
+        <FileTree nodes={nodes} />
 
         <main className="relative min-w-0 flex-1">
           <div className="grid-canvas absolute inset-0 overflow-hidden" onClick={() => setSelected(null)}>
@@ -302,6 +367,7 @@ function Studio() {
                     const idx = SHAPES.findIndex((s) => s.id === n.shape);
                     setShape(n.id, SHAPES[(idx + 1) % SHAPES.length].id);
                   }}
+                  onDragEnd={(x, y) => setPosition(n.id, x, y)}
                 />
               ))}
             </div>
@@ -337,39 +403,40 @@ interface TreeNode {
   children?: TreeNode[];
 }
 
-const TREE: TreeNode[] = [
-  {
-    name: "app",
-    children: [
-      {
-        name: "api",
-        children: [
-          { name: "webhook", children: [{ name: "stripe", children: [{ name: "route.ts", icon: FileCode2 }] }] },
-        ],
-      },
-      { name: "layout.tsx", icon: FileCode2 },
-      { name: "page.tsx", icon: FileCode2 },
-    ],
-  },
-  {
-    name: "lib",
-    children: [
-      { name: "stripe.ts", icon: FileCode2 },
-      { name: "verifySignature.ts", icon: FileCode2 },
-      { name: "payments.ts", icon: FileCode2 },
-    ],
-  },
-  {
-    name: "supabase",
-    children: [
-      { name: "client.ts", icon: FileCode2 },
-      { name: "migrations", children: [{ name: "0001_profiles.sql", icon: FileIcon }] },
-    ],
-  },
-  { name: "package.json", icon: FileIcon },
-];
+function FileTree({ nodes }: { nodes: NodeData[] }) {
+  // Build tree from node labels
+  const tree: TreeNode[] = [
+    {
+      name: "app",
+      children: [
+        {
+          name: "api",
+          children: [
+            { name: "webhook", children: [{ name: "stripe", children: [{ name: "route.ts", icon: FileCode2 }] }] },
+          ],
+        },
+        { name: "layout.tsx", icon: FileCode2 },
+        { name: "page.tsx", icon: FileCode2 },
+      ],
+    },
+    {
+      name: "lib",
+      children: [
+        { name: "stripe.ts", icon: FileCode2 },
+        { name: "verifySignature.ts", icon: FileCode2 },
+        { name: "payments.ts", icon: FileCode2 },
+      ],
+    },
+    {
+      name: "supabase",
+      children: [
+        { name: "client.ts", icon: FileCode2 },
+        { name: "migrations", children: [{ name: "0001_profiles.sql", icon: FileIcon }] },
+      ],
+    },
+    { name: "package.json", icon: FileIcon },
+  ];
 
-function FileTree() {
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -377,19 +444,21 @@ function FileTree() {
         <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
       <div className="flex-1 overflow-auto p-2 font-mono text-[13px]">
-        {TREE.map((n) => (
+        {tree.map((n) => (
           <TreeRow key={n.name} node={n} depth={0} defaultOpen />
         ))}
       </div>
       <div className="border-t border-border px-4 py-3 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-neon-green" />
-          12 files mapped · 4 services
+          {nodes.length} nodes · {edges.length} connections
         </span>
       </div>
     </aside>
   );
 }
+
+const edges = INITIAL_EDGES;
 
 function TreeRow({ node, depth, defaultOpen }: { node: TreeNode; depth: number; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(!!defaultOpen);
@@ -442,6 +511,7 @@ function CanvasNode({
   onReattach,
   onSelect,
   onCycleShape,
+  onDragEnd,
 }: {
   node: NodeData;
   zoom: number;
@@ -452,6 +522,7 @@ function CanvasNode({
   onReattach: (seg: HandleSegment) => void;
   onSelect: (e: React.MouseEvent) => void;
   onCycleShape: () => void;
+  onDragEnd: (x: number, y: number) => void;
 }) {
   const a = ACCENT[node.accent];
   const isDiamond = node.shape === "diamond";
@@ -468,16 +539,59 @@ function CanvasNode({
     borderRadius: isDiamond ? "12px" : radius,
   };
 
-  // Handles are positioned relative to the node center, offset to the perimeter.
   const handles = anchorHandles({ shape: node.shape, x: 0, y: 0 });
   const cx = NODE_W / 2;
   const cy = NODE_H / 2;
 
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [tempPosition, setTempPosition] = useState({ x: node.x, y: node.y });
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const nodeStartX = node.x;
+    const nodeStartY = node.y;
+
+    setIsDragging(true);
+    setDragOffset({ x: 0, y: 0 });
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const dx = (moveEvent.clientX - startX) / zoom;
+      const dy = (moveEvent.clientY - startY) / zoom;
+      setTempPosition({ x: nodeStartX + dx, y: nodeStartY + dy });
+      setDragOffset({ x: dx, y: dy });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      onDragEnd(tempPosition.x, tempPosition.y);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
   return (
     <div
       className="group absolute"
-      style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
+      style={{
+        left: isDragging ? tempPosition.x : node.x,
+        top: isDragging ? tempPosition.y : node.y,
+        width: NODE_W,
+        height: NODE_H,
+        zIndex: isDragging ? 1000 : undefined,
+        cursor: isDragging ? "grabbing" : "grab",
+      }}
       onClick={onSelect}
+      onMouseDown={handleMouseDown}
     >
       {node.shape === "cylinder" && (
         <div
