@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState, useEffect, useCallback, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, X, Loader as Loader2, TriangleAlert as AlertTriangle } from "lucide-react";
+import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, X, Loader as Loader2 } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
@@ -12,15 +12,16 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
 import { ApiTestExportButton } from "@/components/ApiTestExportButton";
 import { CodePreviewPanel, CodePreviewToggle } from "@/components/CodePreviewPanel";
-import { BottleneckBadge, BottleneckSummary } from "@/components/BottleneckBadge";
-import { detectInfrastructure, type DetectedInfrastructure } from "@/lib/infrastructure-parser";
+import { BottleneckBadge } from "@/components/BottleneckBadge";
+import { EditableLabel } from "@/components/InlineLabelEditor";
+import { DragToConnectHandle, LiveEdgeDrawing, useDragToConnect } from "@/components/DragToConnectHandles";
+import { NodeSpawnerPopover, useNodeSpawner, createNewNodeConfig } from "@/components/NodeSpawnerPopover";
 import { analyzeBottlenecks, type BottleneckWarning } from "@/lib/bottleneck-analyzer";
-import type { DetectedController, BlueprintNode } from "@/lib/blueprint-analyzer";
+import type { DetectedController } from "@/lib/blueprint-analyzer";
 import type { ParsedModule } from "@/lib/ast-parser";
 import {
   NODE_W,
   NODE_H,
-  CYLINDER_CAP,
   type Shape,
   type HandleSegment,
   type PositionedNode,
@@ -36,12 +37,12 @@ import {
   updateNode,
   updateProject,
   createProject,
+  createNode,
+  createEdge,
   batchCreateNodes,
   batchCreateEdges,
   type Project,
   type Workspace,
-  type Node as DbNode,
-  type Edge as DbEdge,
 } from "@/lib/db-client";
 import { detectCardinality, type ParsedTable } from "@/lib/sql-tokenizer";
 
@@ -274,6 +275,55 @@ export function StudioPage() {
   const [codePreviewOpen, setCodePreviewOpen] = useState(false);
   const [bottleneckWarnings, setBottleneckWarnings] = useState<BottleneckWarning[]>([]);
 
+  // ─── 30% Manual Override: Canvas interaction state ───────────────────────
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [nodeIdCounter, setNodeIdCounter] = useState(1000);
+  const [edgeIdCounter, setEdgeIdCounter] = useState(1000);
+
+  // Drag-to-connect hook
+  const dragToConnect = useDragToConnect({
+    nodes: nodes.map((n) => ({ ...n, w: n.w ?? NODE_W, h: n.h ?? NODE_H })),
+    zoom: zoom / 100,
+    canvasRef,
+    onConnect: useCallback((fromId, fromHandle, toId, toHandle) => {
+      const newEdge: EdgeData = {
+        id: `edge_${edgeIdCounter}`,
+        from: fromId,
+        to: toId,
+        fromHandle,
+        toHandle,
+      };
+      setEdges((prev) => [...prev, newEdge]);
+      setEdgeIdCounter((c) => c + 1);
+      // Persist to DB (fire-and-forget)
+      createEdge(project?.id ?? "demo", newEdge).catch(() => {});
+    }, [edgeIdCounter, project?.id]),
+  });
+
+  // Node spawner hook
+  const nodeSpawner = useNodeSpawner({
+    canvasRef,
+    zoom: zoom / 100,
+    onSpawnNode: useCallback((type, position) => {
+      const config = createNewNodeConfig(type, position);
+      const newNode: NodeData = {
+        id: `node_${nodeIdCounter}`,
+        label: config.label,
+        sub: config.sub,
+        shape: config.shape,
+        accent: config.accent,
+        x: config.x,
+        y: config.y,
+        workspace,
+      };
+      setNodes((prev) => [...prev, newNode]);
+      setNodeIdCounter((c) => c + 1);
+      setSelected(newNode.id);
+      // Persist to DB (fire-and-forget)
+      createNode(project?.id ?? "demo", newNode).catch(() => {});
+    }, [nodeIdCounter, workspace, project?.id]),
+  });
+
   // Mock controllers and modules for API test export (demo)
   const mockControllers: DetectedController[] = useMemo(() => [
     { key: "/api/auth/login", label: "/api/auth/login", path: "app/api/auth/login/route.ts", methods: ["POST"] },
@@ -392,6 +442,16 @@ export async function POST(req: Request) {
   const setPosition = useCallback(async (id: string, x: number, y: number) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, x, y } : n)));
     try { await updateNode(id, { x, y }); } catch { /* ignore */ }
+  }, []);
+
+  // ─── Inline label editing handler (30% Manual Override) ──────────────────
+  const setLabel = useCallback(async (id: string, label: string) => {
+    setNodes((p) => p.map((n) => (n.id === id ? { ...n, label } : n)));
+    try { await updateNode(id, { label }); } catch { /* ignore */ }
+  }, []);
+
+  const setSub = useCallback(async (id: string, sub: string) => {
+    setNodes((p) => p.map((n) => (n.id === id ? { ...n, sub } : n)));
   }, []);
 
   const reattach = useCallback((nodeId: string, handle: HandleSegment) => {
@@ -698,6 +758,7 @@ export async function POST(req: Request) {
             <>
               {/* App Journey Canvas */}
               <div
+                ref={canvasRef}
                 className="grid-canvas absolute inset-0 overflow-hidden"
                 onClick={() => setSelected(null)}
               >
@@ -763,8 +824,20 @@ export async function POST(req: Request) {
                         setShape(n.id, ALL_SHAPES[(idx + 1) % ALL_SHAPES.length]);
                       }}
                       onDragEnd={(x, y) => setPosition(n.id, x, y)}
+                      onStartDragConnect={(handleId, startPos) => dragToConnect.startDrag(n.id, handleId, startPos)}
+                      onSetLabel={(label) => setLabel(n.id, label)}
                     />
                   ))}
+
+                  {/* ── 30% Manual Override: Live edge drawing ── */}
+                  <LiveEdgeDrawing
+                    isActive={dragToConnect.isDragging}
+                    startNode={dragToConnect.fromNodeId ? nodes.find((n) => n.id === dragToConnect.fromNodeId) ?? null : null}
+                    startHandle={dragToConnect.fromHandle}
+                    currentMousePos={dragToConnect.mousePos}
+                    zoom={zoom / 100}
+                    accentColor="var(--teal)"
+                  />
                 </div>
               </div>
 
@@ -817,6 +890,14 @@ export async function POST(req: Request) {
           key: sel.id,
         } : null}
         modules={mockModules}
+      />
+
+      {/* ── 30% Manual Override: Node Spawner Popover ── */}
+      <NodeSpawnerPopover
+        isOpen={nodeSpawner.isOpen}
+        position={nodeSpawner.position}
+        onSelect={nodeSpawner.handleSelect}
+        onClose={nodeSpawner.closeSpawner}
       />
     </div>
   );
@@ -931,6 +1012,8 @@ function CanvasNode({
   onSelect,
   onCycleShape,
   onDragEnd,
+  onStartDragConnect,
+  onSetLabel,
 }: {
   node: NodeData;
   zoom: number;
@@ -942,6 +1025,8 @@ function CanvasNode({
   onSelect: (e: React.MouseEvent) => void;
   onCycleShape: () => void;
   onDragEnd: (x: number, y: number) => void;
+  onStartDragConnect?: (handleId: HandleSegment, startPos: { x: number; y: number }) => void;
+  onSetLabel?: (label: string) => void;
 }) {
   const a = ACCENT[node.accent];
 
@@ -1029,13 +1114,30 @@ function CanvasNode({
         >
           {node.sub}
         </span>
-        <span
+        {/* ── 30% Manual Override: Double-click to edit label ── */}
+        <EditableLabel
+          value={node.label}
+          onSave={(newLabel) => onSetLabel?.(newLabel)}
           className="block break-words font-mono text-sm font-medium leading-tight text-foreground"
-          style={{ maxWidth: "100%", textAlign: "center" }}
-        >
-          {node.label}
-        </span>
+          maxWidth={textMaxWidth(node.shape)}
+          editHint="Double-click to rename"
+        />
       </div>
+
+      {/* ── 30% Manual Override: Drag-to-connect handles (always visible on hover) ── */}
+      <DragToConnectHandle
+        nodeId={node.id}
+        shape={node.shape}
+        x={isDragging ? tempPos.x : node.x}
+        y={isDragging ? tempPos.y : node.y}
+        w={node.w ?? NODE_W}
+        h={node.h ?? NODE_H}
+        accentColor={a.color}
+        accentGlow={a.glow}
+        visible={true} // Always show on hover via CSS
+        zoom={zoom}
+        onStartDrag={(handleId, startPos) => onStartDragConnect?.(handleId, startPos)}
+      />
 
       {/* ── Perimeter anchor handles (shown when selected) ── */}
       {showHandles &&
