@@ -88,6 +88,8 @@ export function layoutErd(
     id: string;
     name: string;
     columns: ErdColumnRow[];
+    x?: number;
+    y?: number;
   }>,
   edges: Array<{
     id: string;
@@ -98,7 +100,8 @@ export function layoutErd(
     cardinality: Cardinality;
   }>
 ): LaidOutErd {
-  // Sort tables by name for deterministic placement
+  // Sort tables by name for deterministic grid placement (used only for
+  // tables that don't have a live position yet)
   const sorted = [...tables].sort((a, b) => a.name.localeCompare(b.name));
 
   const positioned: ErdTableNode[] = sorted.map((t, i) => {
@@ -110,8 +113,8 @@ export function layoutErd(
       id: t.id,
       name: t.name,
       columns: t.columns,
-      x: ERD_START_X + col * (ERD_TABLE_WIDTH + ERD_GRID_GAP_X),
-      y: ERD_START_Y + row * (height + ERD_GRID_GAP_Y),
+      x: t.x ?? ERD_START_X + col * (ERD_TABLE_WIDTH + ERD_GRID_GAP_X),
+      y: t.y ?? ERD_START_Y + row * (height + ERD_GRID_GAP_Y),
       width,
       height,
     };

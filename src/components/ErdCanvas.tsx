@@ -6,7 +6,7 @@
  * Connections snap to the row height of the foreign-key column on each table.
  */
 
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { EntityCard } from "./EntityCard";
 import { CrowsFootMarker, markerForCardinality } from "./CrowsFootMarker";
 import {
@@ -30,7 +30,8 @@ export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, zoom }:
   // Filter to ERD table nodes only
   const tableNodes = nodes.filter((n) => n.workspace === "erd" && n.columns);
 
-  // Build the layout input from the live node/edge state
+  // Build the layout input from the live node/edge state.
+  // Pass live x/y so edges anchor on the actual (possibly dragged) positions.
   const laidOut: LaidOutErd = useMemo(() => {
     const tables = tableNodes.map((n) => ({
       id: n.id,
@@ -43,6 +44,8 @@ export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, zoom }:
         unique: c.unique,
         nullable: c.nullable,
       })),
+      x: n.x,
+      y: n.y,
     }));
 
     const erdEdges = edges
@@ -59,15 +62,14 @@ export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, zoom }:
     return layoutErd(tables, erdEdges);
   }, [tableNodes, edges]);
 
-  // Merge laid-out positions back with the live node state so dragging works
   const tableById = new Map(laidOut.tables.map((t) => [t.id, t]));
 
   // Track which column is hovered (for highlight)
   const [hoveredColumn, setHoveredColumn] = useState<string | null>(null);
 
-  // Drag state
+  // Drag state — delta-based positioning (same pattern as CanvasNode)
   const [dragId, setDragId] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const dragOrigin = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, table: ErdTableNode) => {
@@ -76,32 +78,36 @@ export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, zoom }:
       e.stopPropagation();
       onSelect(table.id);
       setDragId(table.id);
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      setDragOffset({
-        x: (e.clientX - rect.left) / zoom,
-        y: (e.clientY - rect.top) / zoom,
-      });
+      dragOrigin.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        originX: table.x,
+        originY: table.y,
+      };
     },
-    [onSelect, zoom]
+    [onSelect]
   );
 
   useEffect(() => {
     if (!dragId) return;
     const onMove = (mv: MouseEvent) => {
-      const table = tableById.get(dragId);
-      if (!table) return;
-      const newX = (mv.clientX - dragOffset.x * zoom) / zoom;
-      const newY = (mv.clientY - dragOffset.y * zoom) / zoom;
+      const origin = dragOrigin.current;
+      if (!origin) return;
+      const newX = origin.originX + (mv.clientX - origin.startX) / (zoom / 100);
+      const newY = origin.originY + (mv.clientY - origin.startY) / (zoom / 100);
       onDragEnd(dragId, newX, newY);
     };
-    const onUp = () => setDragId(null);
+    const onUp = () => {
+      setDragId(null);
+      dragOrigin.current = null;
+    };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [dragId, dragOffset, zoom, onDragEnd, tableById]);
+  }, [dragId, zoom, onDragEnd]);
 
   if (tableNodes.length === 0) {
     return (
@@ -165,18 +171,14 @@ export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, zoom }:
 
         {/* Table entity cards */}
         {laidOut.tables.map((table) => {
-          // Use the live node position if it's being dragged, otherwise the laid-out position
-          const liveNode = tableNodes.find((n) => n.id === table.id);
-          const x = liveNode ? liveNode.x : table.x;
-          const y = liveNode ? liveNode.y : table.y;
           return (
             <div
               key={table.id}
-              onMouseDown={(e) => handleMouseDown(e, { ...table, x, y })}
+              onMouseDown={(e) => handleMouseDown(e, table)}
               onMouseEnter={() => setHoveredColumn(null)}
             >
               <EntityCard
-                table={{ ...table, x, y }}
+                table={table}
                 selected={selected === table.id}
                 onSelect={(e) => {
                   e.stopPropagation();
