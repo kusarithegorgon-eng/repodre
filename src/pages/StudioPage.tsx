@@ -15,6 +15,7 @@ import {
   Spline,
   X,
   Loader as Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
@@ -25,6 +26,13 @@ import { SchemaInput } from "@/components/SchemaInput";
 import { ExportSchemaButton } from "@/components/ExportSchemaButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
+import { ApiTestExportButton } from "@/components/ApiTestExportButton";
+import { CodePreviewPanel, CodePreviewToggle } from "@/components/CodePreviewPanel";
+import { BottleneckBadge, BottleneckSummary } from "@/components/BottleneckBadge";
+import { detectInfrastructure, type DetectedInfrastructure } from "@/lib/infrastructure-parser";
+import { analyzeBottlenecks, type BottleneckWarning } from "@/lib/bottleneck-analyzer";
+import type { DetectedController, BlueprintNode } from "@/lib/blueprint-analyzer";
+import type { ParsedModule } from "@/lib/ast-parser";
 import {
   NODE_W,
   NODE_H,
@@ -279,6 +287,53 @@ export function StudioPage() {
   const [zoom, setZoom] = useState(100);
   const [hoverHandle, setHoverHandle] = useState<string | null>(null);
   const [schemaSource, setSchemaSource] = useState<string>("");
+  const [codePreviewOpen, setCodePreviewOpen] = useState(false);
+  const [bottleneckWarnings, setBottleneckWarnings] = useState<BottleneckWarning[]>([]);
+
+  // Mock controllers and modules for API test export (demo)
+  const mockControllers: DetectedController[] = useMemo(() => [
+    { key: "/api/auth/login", label: "/api/auth/login", path: "app/api/auth/login/route.ts", methods: ["POST"] },
+    { key: "/api/auth/logout", label: "/api/auth/logout", path: "app/api/auth/logout/route.ts", methods: ["POST"] },
+    { key: "/api/users", label: "/api/users", path: "app/api/users/route.ts", methods: ["GET", "POST"] },
+  ], []);
+
+  const mockModules: ParsedModule[] = useMemo(() => [
+    {
+      path: "app/api/auth/login/route.ts",
+      source: `import { z } from "zod";
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+});
+
+export async function POST(req: Request) {
+  const body = await req.json();
+  const validated = loginSchema.parse(body);
+
+  // Simulated synchronous bottleneck: multiple DB operations
+  await supabase.from("users").select("*").eq("email", validated.email);
+  await supabase.from("sessions").insert({ userId: user.id });
+  await supabase.from("audit_log").insert({ action: "login" });
+
+  // Synchronous payment check
+  const subscription = await stripe.customers.retrieve(user.stripeId);
+
+  // Synchronous email dispatch
+  await sendgrid.send({ to: user.email, template: "login-notify" });
+
+  return Response.json({ success: true });
+}`,
+      imports: [],
+      exports: [],
+    },
+  ], []);
+
+  // Detect infrastructure and bottlenecks on mount
+  useEffect(() => {
+    const analysis = analyzeBottlenecks(mockModules);
+    setBottleneckWarnings(analysis.warnings);
+  }, [mockModules]);
 
   // Project IDs for the two demo workspaces
   const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
@@ -619,6 +674,29 @@ export function StudioPage() {
             </button>
           </div>
 
+          {/* API Test Export (App viewport only) */}
+          {workspace === "app" && (
+            <ApiTestExportButton
+              controllers={mockControllers}
+              modules={mockModules}
+              projectName={project?.name || "ecommerce-system"}
+            />
+          )}
+
+          {/* Code Preview Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <CodePreviewToggle
+              onClick={() => setCodePreviewOpen(!codePreviewOpen)}
+              isOpen={codePreviewOpen}
+              hasSelection={!!sel}
+            />
+          )}
+
+          {/* Bottleneck Summary (App viewport only) */}
+          {workspace === "app" && bottleneckWarnings.length > 0 && (
+            <BottleneckBadge warnings={bottleneckWarnings} />
+          )}
+
           <ThemeToggle />
           <AuthButton />
         </div>
@@ -740,6 +818,22 @@ export function StudioPage() {
           )}
         </main>
       </div>
+
+      {/* Code Preview Panel (slide-out drawer) */}
+      <CodePreviewPanel
+        isOpen={codePreviewOpen}
+        onClose={() => setCodePreviewOpen(false)}
+        selectedNode={sel ? {
+          id: sel.id,
+          type: sel.shape === "pill" ? "view" : sel.shape === "diamond" ? "validation" : sel.shape === "rectangle" ? "controller" : sel.shape === "cylinder" ? "database" : "view",
+          label: sel.label,
+          sub: sel.sub,
+          shape: sel.shape,
+          accent: sel.accent,
+          key: sel.id,
+        } : null}
+        modules={mockModules}
+      />
     </div>
   );
 }
