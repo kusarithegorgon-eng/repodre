@@ -13,6 +13,7 @@ import { parseGitHubUrl, checkRepositoryAccess, fetchRepositoryTree, fetchMultip
 import { parseModule } from "./ast-parser";
 import { analyzeBlueprint, type Blueprint } from "./blueprint-analyzer";
 import { layoutBlueprint, type LaidOutBlueprint } from "./system-blueprint";
+import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
 import type { AccessCheckResult } from "./github-api";
 import type { HandleSegment, Shape } from "./canvas-geometry";
 
@@ -34,6 +35,8 @@ export interface AnalysisGraph {
   edges: AnalysisGraphEdge[];
   blueprint: Blueprint;
   layout: LaidOutBlueprint;
+  /** zero-knowledge crawler graph (routes, interactions, validations) */
+  crawlerGraph?: FlowchartGraph;
 }
 
 export interface AnalysisGraphNode {
@@ -198,6 +201,17 @@ export async function analyzeRepository(
   // Run the blueprint analyzer: routes → validation → controllers → DB
   const blueprint = analyzeBlueprint(modules);
 
+  // ── Zero-knowledge local crawler: scan file tree + raw contents ──────
+  // The crawler runs alongside the AST-based blueprint analyzer, providing
+  // a lightweight directory-structure-first scan that catches routes and
+  // interactions the AST parser might miss.
+  const filePaths = Array.from(files.keys());
+  const fileContents = new Map<string, string>();
+  for (const [path, content] of files) {
+    fileContents.set(path, content);
+  }
+  const crawlerGraph = crawlRepository(filePaths, fileContents);
+
   onProgress?.({
     phase: "building",
     message: "Laying out user-journey timeline...",
@@ -240,7 +254,7 @@ export async function analyzeRepository(
   return {
     success: true,
     repo: accessCheck.repo,
-    graph,
+    graph: { ...graph, crawlerGraph },
   };
 }
 
