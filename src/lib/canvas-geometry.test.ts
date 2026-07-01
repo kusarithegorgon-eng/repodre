@@ -16,6 +16,11 @@ import {
   segmentIntersectsBox,
   stadiumRayScale,
   textMaxWidth,
+  boundaryPorts,
+  portForHandle,
+  pickHandles,
+  bezierPathBetween,
+  snappedEdgePath,
 } from "./canvas-geometry";
 
 /** node positioned by its TOP-LEFT corner */
@@ -29,6 +34,7 @@ const cn = (shape: Shape, cx = 0, cy = 0): PositionedNode => ({
 
 const ZOOMS = [0.4, 0.75, 1, 1.5, 2];
 const SHAPES: Shape[] = ["rectangle", "diamond", "cylinder", "pill"];
+const ALL_SHAPES: Shape[] = ["rectangle", "diamond", "cylinder", "pill", "triangle", "parallelogram", "document"];
 
 describe("geometry primitives", () => {
   it("centers a node on its footprint", () => {
@@ -201,7 +207,6 @@ describe("collision-aware routing", () => {
     const blocker = cn("rectangle", 400, 250);
     const r = routeEdge(a, b, [a, b, blocker]);
     expect(r.detoured).toBe(true);
-    // control points must leave the straight center line (y=250)
     const off = Math.abs(r.c1.y - 250) + Math.abs(r.c2.y - 250);
     expect(off).toBeGreaterThan(10);
   });
@@ -210,8 +215,8 @@ describe("collision-aware routing", () => {
     const a = cn("pill", 0, 0);
     const b = cn("diamond", 600, 0);
     const r = routeEdge(a, b, [a, b]);
-    expect(r.start.x).toBeCloseTo(NODE_W / 2); // a's right perimeter
-    expect(r.end.x).toBeCloseTo(600 - NODE_W / 2); // b's left vertex
+    expect(r.start.x).toBeCloseTo(NODE_W / 2);
+    expect(r.end.x).toBeCloseTo(600 - NODE_W / 2);
   });
 });
 
@@ -221,5 +226,138 @@ describe("boundingBox", () => {
   });
   it("leaves other shapes at base height", () => {
     expect(boundingBox(node("rectangle", 0, 0)).h).toBe(NODE_H);
+  });
+});
+
+// ─── Edge-Snapping Path Engine tests ───────────────────────────────────────
+
+describe("boundaryPorts — explicit left/right port lookup", () => {
+  it("exposes left and right ports for every shape", () => {
+    for (const shape of ALL_SHAPES) {
+      const n = cn(shape, 400, 300);
+      const { left, right } = boundaryPorts(n);
+      expect(left.side).toBe("left");
+      expect(right.side).toBe("right");
+      expect(right.x).toBeGreaterThan(left.x);
+    }
+  });
+
+  it("places rectangle ports on the bounding-box edges", () => {
+    const n = cn("rectangle", 400, 300);
+    const { left, right } = boundaryPorts(n);
+    expect(left.x).toBeCloseTo(400 - NODE_W / 2);
+    expect(right.x).toBeCloseTo(400 + NODE_W / 2);
+    expect(left.y).toBeCloseTo(300);
+    expect(right.y).toBeCloseTo(300);
+  });
+
+  it("places diamond ports on the true vertices", () => {
+    const n = cn("diamond", 400, 300);
+    const { left, right } = boundaryPorts(n);
+    expect(left.x).toBeCloseTo(400 - NODE_W / 2);
+    expect(right.x).toBeCloseTo(400 + NODE_W / 2);
+  });
+
+  it("ports are translation-invariant in offset", () => {
+    for (const shape of ALL_SHAPES) {
+      const a = cn(shape, 0, 0);
+      const b = cn(shape, 500, 300);
+      const pa = boundaryPorts(a);
+      const pb = boundaryPorts(b);
+      expect(pb.right.x - pa.right.x).toBeCloseTo(500);
+      expect(pb.right.y - pa.right.y).toBeCloseTo(300);
+    }
+  });
+});
+
+describe("portForHandle — resolve handle to absolute port", () => {
+  it("resolves 'w' to the left port", () => {
+    const n = cn("rectangle", 400, 300);
+    const p = portForHandle(n, "w");
+    expect(p.x).toBeCloseTo(400 - NODE_W / 2);
+  });
+
+  it("resolves 'e' to the right port", () => {
+    const n = cn("rectangle", 400, 300);
+    const p = portForHandle(n, "e");
+    expect(p.x).toBeCloseTo(400 + NODE_W / 2);
+  });
+
+  it("resolves 'n' to the top edge midpoint", () => {
+    const n = cn("rectangle", 400, 300);
+    const p = portForHandle(n, "n");
+    expect(p.y).toBeLessThan(300);
+  });
+});
+
+describe("pickHandles — automatic handle selection", () => {
+  it("picks e→w for left-to-right flow", () => {
+    const a = cn("rectangle", 0, 0);
+    const b = cn("rectangle", 600, 0);
+    const { fromHandle, toHandle } = pickHandles(a, b);
+    expect(fromHandle).toBe("e");
+    expect(toHandle).toBe("w");
+  });
+
+  it("picks w→e for right-to-left flow", () => {
+    const a = cn("rectangle", 600, 0);
+    const b = cn("rectangle", 0, 0);
+    const { fromHandle, toHandle } = pickHandles(a, b);
+    expect(fromHandle).toBe("w");
+    expect(toHandle).toBe("e");
+  });
+});
+
+describe("bezierPathBetween — smooth cubic-bezier path", () => {
+  it("produces a valid SVG path string", () => {
+    const path = bezierPathBetween({ x: 0, y: 100 }, { x: 400, y: 200 });
+    expect(path).toContain("M 0 100");
+    expect(path).toContain("C ");
+    expect(path).toContain("400 200");
+  });
+
+  it("control points depart horizontally from the start port", () => {
+    const start = { x: 100, y: 50 };
+    const end = { x: 500, y: 150 };
+    const path = bezierPathBetween(start, end, 80);
+    expect(path).toContain("180 50");
+  });
+
+  it("handles backward (right-to-left) direction", () => {
+    const start = { x: 500, y: 50 };
+    const end = { x: 100, y: 150 };
+    const path = bezierPathBetween(start, end, 80);
+    expect(path).toContain("M 500 50");
+    expect(path).toContain("420 50");
+  });
+});
+
+describe("snappedEdgePath — full edge path with port snapping", () => {
+  it("snaps to boundary ports when no handles are provided", () => {
+    const a = cn("rectangle", 0, 0);
+    const b = cn("rectangle", 600, 0);
+    const { path, start, end } = snappedEdgePath(a, b);
+    expect(start.x).toBeCloseTo(NODE_W / 2);
+    expect(end.x).toBeCloseTo(600 - NODE_W / 2);
+    expect(path).toContain("M ");
+    expect(path).toContain("C ");
+  });
+
+  it("respects explicit handles when provided", () => {
+    const a = cn("rectangle", 0, 0);
+    const b = cn("rectangle", 600, 0);
+    const { start, end } = snappedEdgePath(a, b, "e", "w");
+    expect(start.x).toBeCloseTo(NODE_W / 2);
+    expect(end.x).toBeCloseTo(600 - NODE_W / 2);
+  });
+
+  it("produces paths that start and end on the boundary, not the center", () => {
+    for (const shape of ALL_SHAPES) {
+      const a = cn(shape, 0, 0);
+      const b = cn(shape, 600, 200);
+      const { start, end } = snappedEdgePath(a, b);
+      expect(start.x).toBeGreaterThanOrEqual(0);
+      expect(end.x).toBeLessThanOrEqual(600);
+    }
   });
 });

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, X, Loader as Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2 } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
@@ -30,6 +30,7 @@ import {
   paddingFor,
   perimeterPoint,
   routeEdge,
+  snappedEdgePath,
   textMaxWidth,
 } from "@/lib/canvas-geometry";
 import {
@@ -39,12 +40,16 @@ import {
   createProject,
   createNode,
   createEdge,
+  deleteNode,
+  deleteEdge,
   batchCreateNodes,
   batchCreateEdges,
   type Project,
   type Workspace,
+  type Edge,
 } from "@/lib/db-client";
 import { detectCardinality, type ParsedTable } from "@/lib/sql-tokenizer";
+import { useEdgeSnap } from "@/hooks/useEdgeSnap";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -450,6 +455,34 @@ export async function POST(req: Request) {
     try { await updateNode(id, { label }); } catch { /* ignore */ }
   }, []);
 
+  // ── Canvas State Sync & Entity Cleanup ──────────────────────────────────
+  // Deleting a node cascades: all edges referencing the deleted node's ID
+  // are instantly purged from local state AND the database, preventing
+  // layout rendering exceptions from orphaned edge endpoints.
+  const handleDeleteNode = useCallback(async (id: string) => {
+    // 1. Cascade-filter: remove all edges pointing to this node
+    const orphanedEdges = edges.filter((e) => e.from === id || e.to === id);
+    setEdges((prev) => prev.filter((e) => e.from !== id && e.to !== id));
+
+    // 2. Remove the node itself
+    setNodes((prev) => prev.filter((n) => n.id !== id));
+
+    // 3. Clear selection if the deleted node was selected
+    setSelected((prev) => (prev === id ? null : prev));
+
+    // 4. Persist deletions to the database (fire-and-forget)
+    try {
+      await deleteNode(id);
+      await Promise.all(orphanedEdges.map((e) => deleteEdge(e.id)));
+    } catch { /* ignore — local state is already clean */ }
+  }, [edges]);
+
+  // Delete a single edge (used by the edge cleanup loop and manual deletion)
+  const handleDeleteEdge = useCallback(async (id: string) => {
+    setEdges((prev) => prev.filter((e) => e.id !== id));
+    try { await deleteEdge(id); } catch { /* ignore */ }
+  }, []);
+
   const setSub = useCallback(async (id: string, sub: string) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, sub } : n)));
   }, []);
@@ -517,7 +550,7 @@ export async function POST(req: Request) {
         tables.forEach((t, i) => tableIdMap.set(t.name, savedNodes[i].id));
 
         // Build FK edges with cardinality
-        const fkEdges: Omit<DbEdge, "id" | "projectId">[] = [];
+        const fkEdges: Omit<Edge, "id" | "projectId">[] = [];
         for (const t of tables) {
           for (const col of t.columns) {
             if (col.fk && col.referencesTable && tableIdMap.has(col.referencesTable)) {
@@ -574,28 +607,33 @@ export async function POST(req: Request) {
   );
 
   // Pre-compute routed paths (memoised)
+  // ── Edge-Snapping Path Engine: dynamic port-based bezier recalculation ──
+  // The useEdgeSnap hook resolves explicit left/right boundary ports for each
+  // node and builds a smooth cubic-bezier path that snaps exactly to the port
+  // coordinates. Paths recalculate on every render (including during drag),
+  // so wires always track node positions without clipping into geometry.
+  const snapResult = useEdgeSnap(
+    nodes.map((n) => ({ ...n, w: n.w ?? NODE_W, h: n.h ?? NODE_H })),
+    edges,
+  );
+
+  // For edges without explicit handles, fall back to the collision-aware
+  // routeEdge (which may detour around obstacles). Edges with handles use
+  // the snapped port path from useEdgeSnap.
   const routed = useMemo(
     () =>
       edges.map((e) => {
+        const snap = snapResult.edges.get(e.id);
+        if (snap && snap.path) {
+          return { id: e.id, path: snap.path, detoured: false };
+        }
         const a = nodes.find((n) => n.id === e.from);
         const b = nodes.find((n) => n.id === e.to);
         if (!a || !b) return { id: e.id, path: "", detoured: false };
-
-        const start = endpointFor(a, b, e.fromHandle);
-        const end   = endpointFor(b, a, e.toHandle);
-
-        if (e.fromHandle || e.toHandle) {
-          const mx = (start.x + end.x) / 2;
-          return {
-            id: e.id,
-            path: `M ${start.x} ${start.y} C ${mx} ${start.y}, ${mx} ${end.y}, ${end.x} ${end.y}`,
-            detoured: false,
-          };
-        }
         const r = routeEdge(a, b, smartRoute ? nodes : [a, b]);
         return { id: e.id, path: r.path, detoured: r.detoured };
       }),
-    [edges, nodes, smartRoute]
+    [edges, nodes, smartRoute, snapResult],
   );
 
   if (isLoading) {
@@ -859,6 +897,7 @@ export async function POST(req: Request) {
                   onAccent={(a) => setAccent(sel.id, a)}
                   onReattach={(seg) => reattach(sel.id, seg)}
                   onClose={() => setSelected(null)}
+                  onDelete={() => handleDeleteNode(sel.id)}
                 />
               )}
             </>
@@ -870,6 +909,7 @@ export async function POST(req: Request) {
               selected={selected}
               onSelect={setSelected}
               onDragEnd={setPosition}
+              onDeleteNode={handleDeleteNode}
               zoom={zoom}
             />
           )}
@@ -1196,12 +1236,14 @@ function NodeOptions({
   onAccent,
   onReattach,
   onClose,
+  onDelete,
 }: {
   node: NodeData;
   onShape: (s: Shape) => void;
   onAccent: (a: Accent) => void;
   onReattach: (seg: HandleSegment) => void;
   onClose: () => void;
+  onDelete: () => void;
 }) {
   const a = ACCENT[node.accent];
 
@@ -1212,12 +1254,21 @@ function NodeOptions({
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Node Settings</p>
           <p className="mt-0.5 max-w-[200px] truncate font-mono text-xs text-foreground">{node.label}</p>
         </div>
-        <button
-          onClick={onClose}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onDelete}
+            title="Delete node (cascades edges)"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={onClose}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Shape dictionary — all 7 shapes */}

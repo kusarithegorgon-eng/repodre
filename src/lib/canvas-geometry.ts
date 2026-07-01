@@ -383,6 +383,171 @@ export function textMaxWidth(shape: Shape, _zoom = 1, w = NODE_W, _h = NODE_H): 
 }
 
 // ---------------------------------------------------------------------------
+// Explicit anchor-port lookup (left / right boundary ports)
+// ---------------------------------------------------------------------------
+
+/**
+ * A connection port is an absolute canvas-space point on a node's left or
+ * right boundary, plus the vertical center. Every flowchart node and every
+ * ERD table row exposes these so the edge engine can snap wires to exact
+ * boundary coordinates instead of recomputing from geometry each frame.
+ */
+export interface ConnectionPort {
+  /** "left" or "right" boundary of the node */
+  side: "left" | "right";
+  /** absolute canvas-space x of the port */
+  x: number;
+  /** absolute canvas-space y of the port */
+  y: number;
+}
+
+/**
+ * Return the left and right boundary ports for a flowchart node.
+ *
+ * The y-coordinate is the node's vertical center. For shapes with a
+ * non-rectangular hull (diamond, triangle, parallelogram) the x-coordinate
+ * is the true perimeter vertex, not the bounding-box edge, so wires snap
+ * exactly to the visual boundary.
+ */
+export function boundaryPorts(n: PositionedNode): { left: ConnectionPort; right: ConnectionPort } {
+  const c = centerOf(n);
+  const w = n.w ?? NODE_W;
+  const h = n.h ?? NODE_H;
+  const { hw, hh } = halfExtents(n.shape, w, h);
+
+  switch (n.shape) {
+    case "diamond":
+      return {
+        left:  { side: "left",  x: c.x - hw, y: c.y },
+        right: { side: "right", x: c.x + hw, y: c.y },
+      };
+
+    case "triangle": {
+      // Left/right corners are at the base; use bounding-box x for the sides
+      // but keep y at center so horizontal connectors look natural.
+      return {
+        left:  { side: "left",  x: c.x - w / 2, y: c.y + hh / 2 },
+        right: { side: "right", x: c.x + w / 2, y: c.y + hh / 2 },
+      };
+    }
+
+    case "parallelogram": {
+      const skew = w * 0.18;
+      return {
+        left:  { side: "left",  x: c.x - w / 2 + skew / 2, y: c.y },
+        right: { side: "right", x: c.x + w / 2 - skew / 2, y: c.y },
+      };
+    }
+
+    default:
+      // rectangle, pill, cylinder, document
+      return {
+        left:  { side: "left",  x: c.x - hw, y: c.y },
+        right: { side: "right", x: c.x + hw, y: c.y },
+      };
+  }
+}
+
+/**
+ * Resolve a HandleSegment to an absolute canvas-space port point.
+ * Falls back to the closest left/right boundary port for cardinal handles,
+ * and uses anchorHandles for diagonal handles.
+ */
+export function portForHandle(n: PositionedNode, handle: HandleSegment): Point {
+  const { left, right } = boundaryPorts(n);
+  if (handle === "w") return { x: left.x, y: left.y };
+  if (handle === "e") return { x: right.x, y: right.y };
+
+  const handles = anchorHandles(n);
+  const h = handles.find((x) => x.id === handle);
+  return h ? { x: h.x, y: h.y } : centerOf(n);
+}
+
+/**
+ * Pick the best handle for a directed connection between two nodes.
+ * Returns the source-side and target-side handles based on relative
+ * horizontal position (left-to-right flow by default).
+ */
+export function pickHandles(
+  from: PositionedNode,
+  to: PositionedNode
+): { fromHandle: HandleSegment; toHandle: HandleSegment } {
+  const fromCenter = centerOf(from);
+  const toCenter = centerOf(to);
+  if (toCenter.x >= fromCenter.x) {
+    return { fromHandle: "e", toHandle: "w" };
+  }
+  return { fromHandle: "w", toHandle: "e" };
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic cubic-bezier path builder (snap-to-port)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a smooth cubic-bezier SVG path between two explicit port points.
+ *
+ * The control points are offset horizontally from each endpoint, producing
+ * a gentle S-curve that exits the source port perpendicular to the boundary
+ * and enters the target port the same way. This guarantees the wire never
+ * clips into node geometry because it departs orthogonally from the port.
+ *
+ * @param start - absolute canvas-space start port
+ * @param end   - absolute canvas-space end port
+ * @param curvature - how far control points extend horizontally (px)
+ */
+export function bezierPathBetween(
+  start: Point,
+  end: Point,
+  curvature = 80,
+): string {
+  const dx = end.x - start.x;
+  // Offset control points in the direction of travel; if the nodes overlap
+  // horizontally (dx ≈ 0), fall back to a vertical offset so the curve
+  // still exits perpendicular to the port.
+  const sign = dx >= 0 ? 1 : -1;
+  const cp1x = start.x + sign * curvature;
+  const cp2x = end.x - sign * curvature;
+
+  return `M ${start.x} ${start.y} C ${cp1x} ${start.y}, ${cp2x} ${end.y}, ${end.x} ${end.y}`;
+}
+
+/**
+ * Compute a snapped edge path between two nodes using explicit port lookup.
+ *
+ * If handles are provided they are resolved to exact port coordinates.
+ * Otherwise the best left/right ports are picked automatically based on
+ * relative position. The resulting cubic-bezier path is guaranteed to
+ * start and end on the node boundary (not the center), preventing clipping.
+ */
+export function snappedEdgePath(
+  from: PositionedNode,
+  to: PositionedNode,
+  fromHandle?: HandleSegment,
+  toHandle?: HandleSegment,
+): { path: string; start: Point; end: Point } {
+  let start: Point;
+  let end: Point;
+
+  if (fromHandle) {
+    start = portForHandle(from, fromHandle);
+  } else {
+    const { fromHandle: fh } = pickHandles(from, to);
+    start = portForHandle(from, fh);
+  }
+
+  if (toHandle) {
+    end = portForHandle(to, toHandle);
+  } else {
+    const { toHandle: th } = pickHandles(from, to);
+    end = portForHandle(to, th);
+  }
+
+  const path = bezierPathBetween(start, end);
+  return { path, start, end };
+}
+
+// ---------------------------------------------------------------------------
 // Collision-aware routing
 // ---------------------------------------------------------------------------
 

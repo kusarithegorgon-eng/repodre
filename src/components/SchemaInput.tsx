@@ -9,7 +9,8 @@
 
 import { useState, useCallback } from "react";
 import { Database, Loader as Loader2, Sparkles, X } from "lucide-react";
-import { parseDdl, detectDialect, type ParsedTable } from "@/lib/sql-tokenizer";
+import { parseDdlLexed } from "@/lib/sql-lexer";
+import { detectDialect, type ParsedTable } from "@/lib/sql-tokenizer";
 
 interface SchemaInputProps {
   onSubmit: (tables: ParsedTable[], ddl: string) => void;
@@ -36,7 +37,7 @@ export function SchemaInput({ onSubmit, isLoading, value, onValueChange }: Schem
     if (!ddl.trim() || isLoading) return;
     setError(null);
     try {
-      const schema = parseDdl(ddl);
+      const schema = parseDdlLexed(ddl);
       if (schema.tables.length === 0) {
         setError("No CREATE TABLE statements found. Paste a valid DDL script.");
         return;

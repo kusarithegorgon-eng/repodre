@@ -7,7 +7,7 @@
  * accent border matching the canvas palette.
  */
 
-import { Key, Link2, Shield } from "lucide-react";
+import { Key, Link2, Shield, Trash2 } from "lucide-react";
 import type { ErdTableNode } from "@/lib/erd-layout";
 import { ERD_HEADER_HEIGHT, ERD_ROW_HEIGHT } from "@/lib/erd-layout";
 
@@ -16,9 +16,10 @@ interface EntityCardProps {
   selected: boolean;
   highlightedColumn?: string;
   onSelect: (e: React.MouseEvent) => void;
+  onDelete?: () => void;
 }
 
-export function EntityCard({ table, selected, highlightedColumn, onSelect }: EntityCardProps) {
+export function EntityCard({ table, selected, highlightedColumn, onSelect, onDelete }: EntityCardProps) {
   return (
     <div
       className="group absolute rounded-lg border bg-surface-raised shadow-lg transition-all duration-200"
@@ -58,6 +59,15 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect }: Ent
         <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           {table.columns.length} cols
         </span>
+        {onDelete && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            title="Delete table (cascades edges)"
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-500"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
       </div>
 
       {/* Column rows */}

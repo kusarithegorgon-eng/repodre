@@ -23,10 +23,11 @@ interface ErdCanvasProps {
   selected: string | null;
   onSelect: (id: string | null) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
+  onDeleteNode?: (id: string) => void;
   zoom: number;
 }
 
-export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, zoom }: ErdCanvasProps) {
+export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, onDeleteNode, zoom }: ErdCanvasProps) {
   // Filter to ERD table nodes only
   const tableNodes = nodes.filter((n) => n.workspace === "erd" && n.columns);
 
@@ -184,6 +185,7 @@ export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, zoom }:
                   e.stopPropagation();
                   onSelect(table.id);
                 }}
+                onDelete={onDeleteNode ? () => onDeleteNode(table.id) : undefined}
               />
             </div>
           );
