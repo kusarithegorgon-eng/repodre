@@ -44,9 +44,11 @@ export interface CrawlerNode {
   line?: number;
   /** the route path this page represents (for page nodes only) */
   route?: string;
+  /** true if this page's route contains dynamic parameters (dashed border) */
+  dynamic?: boolean;
 }
 
-export type EdgeKind = "navigation" | "action" | "success" | "failure";
+export type EdgeKind = "navigation" | "action" | "success" | "failure" | "reference";
 
 export interface CrawlerEdge {
   id: string;
@@ -54,6 +56,8 @@ export interface CrawlerEdge {
   to: string;
   kind: EdgeKind;
   label?: string;
+  /** low-opacity for fuzzy/inferred reference edges */
+  inferred?: boolean;
 }
 
 export interface FlowchartGraph {
@@ -76,6 +80,8 @@ interface RawRoute {
   file: string;
   /** which framework pattern matched */
   pattern: "app-router" | "pages-router" | "vite-index";
+  /** true if the route contains dynamic parameters */
+  dynamic: boolean;
 }
 
 /**
@@ -95,10 +101,10 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
     // ── Next.js App Router: app/**/page.{tsx,ts,js,jsx} ────────────────
     let m = p.match(/(?:^|\/)app\/(.+)\/page\.(tsx|ts|js|jsx)$/);
     if (m) {
-      const route = normalizeRoute(m[1]);
+      const { route, dynamic } = normalizeRoute(m[1]);
       if (!seen.has(route)) {
         seen.add(route);
-        routes.push({ route, file: p, pattern: "app-router" });
+        routes.push({ route, file: p, pattern: "app-router", dynamic });
       }
       continue;
     }
@@ -107,7 +113,7 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
     if (/(?:^|\/)app\/page\.(tsx|ts|js|jsx)$/.test(p)) {
       if (!seen.has("/")) {
         seen.add("/");
-        routes.push({ route: "/", file: p, pattern: "app-router" });
+        routes.push({ route: "/", file: p, pattern: "app-router", dynamic: false });
       }
       continue;
     }
@@ -119,10 +125,10 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
       // Skip API routes and special files
       if (seg.startsWith("api/") || seg.startsWith("_")) continue;
       if (["_app", "_document", "_error", "404", "500"].includes(seg)) continue;
-      const route = normalizeRoute(seg);
+      const { route, dynamic } = normalizeRoute(seg);
       if (!seen.has(route)) {
         seen.add(route);
-        routes.push({ route, file: p, pattern: "pages-router" });
+        routes.push({ route, file: p, pattern: "pages-router", dynamic });
       }
       continue;
     }
@@ -131,7 +137,7 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
     if (/(?:^|\/)src\/index\.(js|jsx)$/.test(p)) {
       if (!seen.has("/")) {
         seen.add("/");
-        routes.push({ route: "/", file: p, pattern: "vite-index" });
+        routes.push({ route: "/", file: p, pattern: "vite-index", dynamic: false });
       }
       continue;
     }
@@ -143,10 +149,10 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
     if (m) {
       const dir = m[1];
       if (isRouteLikeDirectory(dir)) {
-        const route = normalizeRoute(dir);
+        const { route, dynamic } = normalizeRoute(dir);
         if (!seen.has(route)) {
           seen.add(route);
-          routes.push({ route, file: p, pattern: "vite-index" });
+          routes.push({ route, file: p, pattern: "vite-index", dynamic });
         }
       }
     }
@@ -159,21 +165,37 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
  * Convert a file path segment into a route path.
  *   "billing/history"    → "/billing/history"
  *   "auth/login"          → "/auth/login"
- *   "[id]"                → "/:param"
+ *   "[id]"                → "/:id"
+ *   "[slug]"              → "/:slug"
+ *   "[...slug]"           → "/:slug"
  *   "(auth)/login"        → "/login"
  *   "index"               → "/"
+ *
+ * Returns the normalized route and whether it contains dynamic parameters.
  */
-function normalizeRoute(seg: string): string {
-  if (seg === "index" || seg === "") return "/";
+function normalizeRoute(seg: string): { route: string; dynamic: boolean } {
+  if (seg === "index" || seg === "") return { route: "/", dynamic: false };
   let s = seg.replace(/\/index$/, "");
-  // Dynamic segments: [id] → :param, [[...slug]] → :param
-  s = s.replace(/\[\[?[\w.]+\]?\]/g, ":param");
+  let dynamic = false;
+
+  // Catch-all segments: [...slug] → :slug
+  s = s.replace(/\[\.\.\.([\w]+)\]/g, (_match, name) => {
+    dynamic = true;
+    return `:${name}`;
+  });
+
+  // Dynamic segments: [id] → :id, [slug] → :slug
+  s = s.replace(/\[([\w]+)\]/g, (_match, name) => {
+    dynamic = true;
+    return `:${name}`;
+  });
+
   // Route groups: (auth) → removed
   s = s.replace(/\(([^)]+)\)/g, "");
   if (!s.startsWith("/")) s = "/" + s;
   s = s.replace(/\/+/g, "/");
   if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1);
-  return s || "/";
+  return { route: s || "/", dynamic };
 }
 
 /**
@@ -343,6 +365,240 @@ export function detectValidationGates(source: string): DetectedValidationGate[] 
   return out;
 }
 
+// ─── Component Recursive Dependency Resolver ─────────────────────────────────
+
+export interface ResolvedImport {
+  /** the import specifier as written, e.g. "./components/LoginForm" or "@/lib/auth" */
+  specifier: string;
+  /** the resolved file path in the repo, or null if unresolvable */
+  resolvedPath: string | null;
+  /** the raw source content of the imported file, or empty string */
+  content: string;
+  /** line number of the import statement */
+  line: number;
+}
+
+/**
+ * Parse import statements from a source file and return the specifiers.
+ *
+ * Matches:
+ *   import X from "path"
+ *   import { X } from "path"
+ *   import X, { Y } from "path"
+ *   import "path"  (side-effect import)
+ *   const X = require("path")
+ */
+export function parseImports(source: string): ResolvedImport[] {
+  const out: ResolvedImport[] = [];
+  const seen = new Set<string>();
+
+  // import ... from "specifier"
+  const importRe = /\bimport\s+(?:[^'";]+\s+from\s+)?['"`]([^'"`]+)['"`]/g;
+  let m: RegExpExecArray | null;
+  while ((m = importRe.exec(source)) !== null) {
+    const specifier = m[1];
+    if (seen.has(specifier)) continue;
+    seen.add(specifier);
+    const line = source.substring(0, m.index).split("\n").length;
+    out.push({ specifier, resolvedPath: null, content: "", line });
+  }
+
+  // require("specifier")
+  const requireRe = /\brequire\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
+  while ((m = requireRe.exec(source)) !== null) {
+    const specifier = m[1];
+    if (seen.has(specifier)) continue;
+    seen.add(specifier);
+    const line = source.substring(0, m.index).split("\n").length;
+    out.push({ specifier, resolvedPath: null, content: "", line });
+  }
+
+  return out;
+}
+
+/**
+ * Resolve an import specifier to a file path in the repository.
+ *
+ * Handles:
+ *   - Relative paths: "./components/Button" → "app/billing/components/Button.tsx"
+ *   - Path aliases: "@/components/Button" → "src/components/Button.tsx"
+ *   - Extension resolution: tries .tsx, .ts, .jsx, .js, /index.tsx, /index.ts, etc.
+ *
+ * @param specifier - the import specifier string
+ * @param importerPath - the file path of the importing file (for relative resolution)
+ * @param filePaths - set of all file paths in the repository
+ */
+export function resolveImportPath(
+  specifier: string,
+  importerPath: string,
+  filePaths: Set<string>,
+): string | null {
+  // Skip bare module imports (react, next, lodash, etc.)
+  if (!specifier.startsWith(".") && !specifier.startsWith("@/")) {
+    return null;
+  }
+
+  // Resolve relative to the importing file's directory
+  let basePath: string;
+  if (specifier.startsWith("@/")) {
+    // Path alias: @/ → src/
+    basePath = "src/" + specifier.slice(2);
+  } else if (specifier.startsWith("./")) {
+    const dir = importerPath.includes("/")
+      ? importerPath.slice(0, importerPath.lastIndexOf("/"))
+      : "";
+    basePath = dir ? `${dir}/${specifier.slice(2)}` : specifier.slice(2);
+  } else if (specifier.startsWith("../")) {
+    const dir = importerPath.includes("/")
+      ? importerPath.slice(0, importerPath.lastIndexOf("/"))
+      : "";
+    const parts = dir.split("/");
+    const relParts = specifier.split("/");
+    let up = 0;
+    while (relParts[up] === "..") {
+      up++;
+      parts.pop();
+    }
+    basePath = [...parts, ...relParts.slice(up)].join("/");
+  } else {
+    return null;
+  }
+
+  // Try extensions and index files
+  const extensions = [".tsx", ".ts", ".jsx", ".js", ".mjs", ".cjs"];
+  for (const ext of extensions) {
+    const candidate = basePath + ext;
+    if (filePaths.has(candidate)) return candidate;
+  }
+  for (const ext of extensions) {
+    const candidate = `${basePath}/index${ext}`;
+    if (filePaths.has(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+/**
+ * Recursively resolve all imports for a page file and build a consolidated
+ * source string that includes the page's own source plus all transitively
+ * imported local components.
+ *
+ * This consolidated context is what the interaction extractor and validation
+ * detector run against, so interactions defined in imported child components
+ * (e.g., a <Link> inside a shared LoginForm.tsx) are captured.
+ *
+ * @param pagePath - the entry page file path
+ * @param fileContents - map of all file paths to their raw source
+ * @param filePaths - set of all file paths in the repo
+ * @param maxDepth - recursion depth limit (default 5)
+ */
+export function buildConsolidatedSource(
+  pagePath: string,
+  fileContents: Map<string, string>,
+  filePaths: Set<string>,
+  maxDepth = 5,
+): string {
+  const visited = new Set<string>();
+  const parts: string[] = [];
+
+  function visit(path: string, depth: number) {
+    if (depth > maxDepth) return;
+    if (visited.has(path)) return;
+    visited.add(path);
+
+    const content = fileContents.get(path);
+    if (!content) return;
+
+    parts.push(content);
+
+    // Parse and resolve imports
+    const imports = parseImports(content);
+    for (const imp of imports) {
+      const resolved = resolveImportPath(imp.specifier, path, filePaths);
+      if (resolved) {
+        visit(resolved, depth + 1);
+      }
+    }
+  }
+
+  visit(pagePath, 0);
+  return parts.join("\n\n");
+}
+
+// ─── Fuzzy Accelerated Route Matcher ─────────────────────────────────────────
+
+/**
+ * Extract all string literals from source code that look like route paths.
+ *
+ * Matches strings starting with "/" that contain path-like characters.
+ * Excludes strings that look like file paths (have extensions), URLs with
+ * protocols, or are too short to be routes.
+ */
+export function extractRouteLikeStrings(source: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  // Match single-quoted, double-quoted, and backtick strings starting with /
+  const stringRe = /['"`](\/[a-zA-Z0-9_\-\/:{}.@?=&+~%]+)['"`]/g;
+  let m: RegExpExecArray | null;
+  while ((m = stringRe.exec(source)) !== null) {
+    const s = m[1];
+    // Skip file paths (have extensions like .png, .css)
+    if (/\.[a-z0-9]{2,5}$/i.test(s)) continue;
+    // Skip URLs with protocols
+    if (s.startsWith("//")) continue;
+    // Skip API endpoints that are too long (likely not routes)
+    if (s.length > 100) continue;
+    if (!seen.has(s)) {
+      seen.add(s);
+      out.push(s);
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Fuzzy-match a string against known routes.
+ *
+ * Handles:
+ *   - Exact match: "/billing" matches "/billing"
+ *   - Dynamic segment match: "/users/123" matches "/users/:id"
+ *   - Prefix match: "/billing/history" matches "/billing"
+ *   - Substring match: "billing" matches "/billing"
+ */
+export function fuzzyMatchRoute(
+  candidate: string,
+  knownRoutes: string[],
+): string | null {
+  // Exact match
+  if (knownRoutes.includes(candidate)) return candidate;
+
+  for (const route of knownRoutes) {
+    if (route === "/") continue;
+
+    // Dynamic segment matching: /users/123 → /users/:id
+    if (route.includes(":")) {
+      const pattern = route.replace(/:[\w]+/g, "[^/]+");
+      if (new RegExp("^" + pattern + "$").test(candidate)) return route;
+    }
+  }
+
+  // Prefix match: candidate starts with a known route
+  for (const route of knownRoutes) {
+    if (route === "/") continue;
+    if (candidate.startsWith(route + "/")) return route;
+  }
+
+  // Substring match: candidate contains the route path
+  for (const route of knownRoutes) {
+    if (route === "/" || route.length < 3) continue;
+    if (candidate.includes(route) && candidate !== route) return route;
+  }
+
+  return null;
+}
+
 // ─── Graph builder ──────────────────────────────────────────────────────────
 
 let nodeCounter = 0;
@@ -375,8 +631,9 @@ export function crawlRepository(
 
   const nodes: CrawlerNode[] = [];
   const edges: CrawlerEdge[] = [];
-  const routeNodeIds = new Map<string, string>(); // route → node id
-  const pageFileToNodeId = new Map<string, string>(); // file path → page node id
+  const routeNodeIds = new Map<string, string>();
+  const pageFileToNodeId = new Map<string, string>();
+  const filePathSet = new Set(filePaths);
 
   // ── 1. ROUTE CRAWL: instantiate Page View Nodes ─────────────────────
   const routes = crawlRoutes(filePaths);
@@ -390,34 +647,48 @@ export function crawlRepository(
       id,
       type: "page",
       label: r.route,
-      sub: r.pattern === "app-router" ? "App Router" : r.pattern === "pages-router" ? "Pages Router" : "Entry",
+      sub: r.dynamic
+        ? `Dynamic ${r.pattern === "app-router" ? "App Router" : r.pattern === "pages-router" ? "Pages Router" : "Entry"}`
+        : r.pattern === "app-router" ? "App Router" : r.pattern === "pages-router" ? "Pages Router" : "Entry",
       shape: "rectangle",
       accent: "blue",
       sourcePath: r.file,
       route: r.route,
+      dynamic: r.dynamic,
     });
   }
 
-  // ── 2. INTERACTION EXTRACTION: wires & action nodes ──────────────────
+  const knownRoutes = Array.from(routeNodeIds.keys());
+
+  // ── 2. INTERACTION EXTRACTION + CONSOLIDATED SOURCE ──────────────────
   for (const r of routes) {
-    const source = fileContents.get(r.file);
-    if (!source) continue;
+    const pageSource = fileContents.get(r.file);
+    if (!pageSource) continue;
 
     const sourcePageId = pageFileToNodeId.get(r.file);
     if (!sourcePageId) continue;
 
-    const interactions = extractInteractions(source);
+    // Build consolidated source: page + all transitively imported components
+    const consolidatedSource = buildConsolidatedSource(
+      r.file,
+      fileContents,
+      filePathSet,
+    );
+
+    // Run interaction extraction on the consolidated source
+    const interactions = extractInteractions(consolidatedSource);
+    const explicitTargets = new Set<string>();
 
     for (const interaction of interactions) {
       const target = interaction.target;
+      explicitTargets.add(target);
 
-      // Check if the target matches a known route
       const targetRoute = resolveTargetRoute(target, routeNodeIds);
       const targetPageId = targetRoute ? routeNodeIds.get(targetRoute) : undefined;
 
       if (targetPageId && targetPageId !== sourcePageId) {
-        // ── Check for validation gates between source and target ──────
-        const validations = detectValidationGates(source);
+        // ── Check for validation gates ──────────────────────────────
+        const validations = detectValidationGates(consolidatedSource);
         const relevantValidation = validations.find(
           (v) => v.line < interaction.line,
         );
@@ -436,7 +707,6 @@ export function crawlRepository(
             line: relevantValidation.line,
           });
 
-          // Source page → validation diamond
           edges.push({
             id: nextEdgeId(),
             from: sourcePageId,
@@ -445,7 +715,6 @@ export function crawlRepository(
             label: interaction.kind === "link" ? "Link" : interaction.kind === "router-push" ? "Redirect" : "Submit",
           });
 
-          // Validation → target page (Success Path)
           edges.push({
             id: nextEdgeId(),
             from: valId,
@@ -454,7 +723,6 @@ export function crawlRepository(
             label: "Success Path",
           });
 
-          // Validation → error/failure node (Failure Path)
           const failId = nextNodeId("err");
           nodes.push({
             id: failId,
@@ -474,8 +742,7 @@ export function crawlRepository(
             label: "Failure Path",
           });
         } else {
-          // ── Direct edge: source page → target page ──────────────────
-          // If it's an onClick/onSubmit, insert an Action Node
+          // ── Direct edge or action node ──────────────────────────────
           if (interaction.kind === "on-click" || interaction.kind === "on-submit") {
             const actionId = nextNodeId("action");
             nodes.push({
@@ -489,7 +756,6 @@ export function crawlRepository(
               line: interaction.line,
             });
 
-            // Source page → action node
             edges.push({
               id: nextEdgeId(),
               from: sourcePageId,
@@ -498,7 +764,6 @@ export function crawlRepository(
               label: interaction.kind === "on-click" ? "onClick" : "onSubmit",
             });
 
-            // Action node → target page
             edges.push({
               id: nextEdgeId(),
               from: actionId,
@@ -507,7 +772,6 @@ export function crawlRepository(
               label: "Navigate",
             });
           } else {
-            // Direct navigation edge (Link or router.push)
             edges.push({
               id: nextEdgeId(),
               from: sourcePageId,
@@ -518,7 +782,6 @@ export function crawlRepository(
           }
         }
       } else if (interaction.kind === "on-click" || interaction.kind === "on-submit") {
-        // Interaction doesn't target a known route — still create an Action Node
         const actionId = nextNodeId("action");
         nodes.push({
           id: actionId,
@@ -539,6 +802,44 @@ export function crawlRepository(
         });
       }
     }
+
+    // ── 3. FUZZY ACCELERATED ROUTE MATCHER (fallback) ───────────────────
+    // If no explicit Link/router.push was found, sweep all string literals
+    // in the consolidated source for route-like paths and fuzzy-match them
+    // against known routes. Create low-opacity reference edges.
+    const hasExplicitNavigation = interactions.some(
+      (i) => i.kind === "link" || i.kind === "router-push",
+    );
+
+    if (!hasExplicitNavigation) {
+      const routeStrings = extractRouteLikeStrings(consolidatedSource);
+      const seenFuzzy = new Set<string>();
+
+      for (const candidate of routeStrings) {
+        // Skip strings already handled by explicit interactions
+        if (explicitTargets.has(candidate)) continue;
+
+        const matched = fuzzyMatchRoute(candidate, knownRoutes);
+        if (!matched) continue;
+
+        const targetPageId = routeNodeIds.get(matched);
+        if (!targetPageId || targetPageId === sourcePageId) continue;
+
+        // Avoid duplicate fuzzy edges
+        const fuzzyKey = `${sourcePageId}->${targetPageId}`;
+        if (seenFuzzy.has(fuzzyKey)) continue;
+        seenFuzzy.add(fuzzyKey);
+
+        edges.push({
+          id: nextEdgeId(),
+          from: sourcePageId,
+          to: targetPageId,
+          kind: "reference",
+          label: "Reference",
+          inferred: true,
+        });
+      }
+    }
   }
 
   return {
@@ -555,37 +856,27 @@ export function crawlRepository(
 
 /**
  * Resolve a target string (from a Link href or router.push) to a known
- * route in the project. Handles:
- *   - Exact match: "/billing" matches "/billing"
- *   - Dynamic segments: "/users/123" matches "/users/:param"
- *   - Relative paths: "./billing" → "/billing"
+ * route in the project.
  */
 function resolveTargetRoute(target: string, routeNodeIds: Map<string, string>): string | null {
-  // Normalize the target
   let t = target.trim();
-
-  // Remove query strings and fragments
   t = t.replace(/[?#].*$/, "");
 
-  // Resolve relative paths
   if (t.startsWith("./")) t = "/" + t.slice(2);
   if (t.startsWith("../")) t = "/" + t.slice(3);
-
-  // Ensure leading slash
   if (!t.startsWith("/")) t = "/" + t;
 
-  // Exact match
   if (routeNodeIds.has(t)) return t;
 
-  // Try matching dynamic segments: /users/123 → /users/:param
+  // Dynamic segment matching
   for (const route of routeNodeIds.keys()) {
-    if (route.includes(":param")) {
-      const pattern = route.replace(":param", "[^/]+");
-      if (new RegExp(`^${pattern}$`).test(t)) return route;
+    if (route.includes(":")) {
+      const pattern = route.replace(/:[\w]+/g, "[^/]+");
+      if (new RegExp("^" + pattern + "$").test(t)) return route;
     }
   }
 
-  // Try prefix match: /billing/history matches /billing
+  // Prefix match
   for (const route of routeNodeIds.keys()) {
     if (route !== "/" && t.startsWith(route + "/")) return route;
   }

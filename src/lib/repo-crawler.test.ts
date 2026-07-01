@@ -4,6 +4,11 @@ import {
   extractInteractions,
   detectValidationGates,
   crawlRepository,
+  parseImports,
+  resolveImportPath,
+  buildConsolidatedSource,
+  extractRouteLikeStrings,
+  fuzzyMatchRoute,
 } from "./repo-crawler";
 
 // ─── Route Crawler tests ────────────────────────────────────────────────────
@@ -22,7 +27,7 @@ describe("crawlRoutes — directory file listing scanner", () => {
       "/",
       "/billing",
       "/billing/history",
-      "/users/:param",
+      "/users/:id",
     ]);
   });
 
@@ -39,7 +44,7 @@ describe("crawlRoutes — directory file listing scanner", () => {
       "pages/users/[id].tsx",
     ];
     const routes = crawlRoutes(files);
-    expect(routes.map((r) => r.route).sort()).toEqual(["/", "/about", "/users/:param"]);
+    expect(routes.map((r) => r.route).sort()).toEqual(["/", "/about", "/users/:id"]);
   });
 
   it("skips API routes and special files in Pages Router", () => {
@@ -64,13 +69,31 @@ describe("crawlRoutes — directory file listing scanner", () => {
     expect(routes.map((r) => r.route).sort()).toEqual(["/login", "/register"]);
   });
 
-  it("handles dynamic segments", () => {
+  it("handles dynamic segments with named parameters", () => {
     const files = [
       "app/posts/[id]/page.tsx",
-      "app/shop/[...slug]/page.tsx",
+      "app/shop/[slug]/page.tsx",
     ];
     const routes = crawlRoutes(files);
-    expect(routes.map((r) => r.route).sort()).toEqual(["/posts/:param", "/shop/:param"]);
+    expect(routes.map((r) => r.route).sort()).toEqual(["/posts/:id", "/shop/:slug"]);
+  });
+
+  it("handles catch-all dynamic segments", () => {
+    const files = ["app/docs/[...slug]/page.tsx"];
+    const routes = crawlRoutes(files);
+    expect(routes[0].route).toBe("/docs/:slug");
+  });
+
+  it("marks dynamic routes with the dynamic flag", () => {
+    const files = [
+      "app/static-page/page.tsx",
+      "app/users/[id]/page.tsx",
+    ];
+    const routes = crawlRoutes(files);
+    const staticRoute = routes.find((r) => r.route === "/static-page");
+    const dynamicRoute = routes.find((r) => r.route === "/users/:id");
+    expect(staticRoute?.dynamic).toBe(false);
+    expect(dynamicRoute?.dynamic).toBe(true);
   });
 
   it("detects Vite/CRA src/index.js entry", () => {
@@ -243,6 +266,193 @@ describe("detectValidationGates — schema and if/else detection", () => {
   });
 });
 
+// ─── Component Recursive Dependency Resolver tests ───────────────────────────
+
+describe("parseImports — import statement extraction", () => {
+  it("extracts default imports", () => {
+    const source = `import Link from 'next/link';`;
+    const imports = parseImports(source);
+    expect(imports).toHaveLength(1);
+    expect(imports[0].specifier).toBe("next/link");
+  });
+
+  it("extracts named imports", () => {
+    const source = `import { useState } from 'react';`;
+    const imports = parseImports(source);
+    expect(imports[0].specifier).toBe("react");
+  });
+
+  it("extracts side-effect imports", () => {
+    const source = `import './globals.css';`;
+    const imports = parseImports(source);
+    expect(imports[0].specifier).toBe("./globals.css");
+  });
+
+  it("extracts require() calls", () => {
+    const source = `const fs = require('fs');`;
+    const imports = parseImports(source);
+    expect(imports[0].specifier).toBe("fs");
+  });
+
+  it("deduplicates identical specifiers", () => {
+    const source = `
+      import { foo } from './utils';
+      import { bar } from './utils';
+    `;
+    const imports = parseImports(source);
+    expect(imports).toHaveLength(1);
+  });
+
+  it("reports correct line numbers", () => {
+    const source = `\n\nimport { x } from './mod';`;
+    const imports = parseImports(source);
+    expect(imports[0].line).toBe(3);
+  });
+});
+
+describe("resolveImportPath — specifier to file path resolution", () => {
+  it("resolves relative imports with extension", () => {
+    const filePaths = new Set(["app/components/Button.tsx"]);
+    const result = resolveImportPath("./components/Button", "app/page.tsx", filePaths);
+    expect(result).toBe("app/components/Button.tsx");
+  });
+
+  it("resolves path alias @/ imports", () => {
+    const filePaths = new Set(["src/components/Form.tsx"]);
+    const result = resolveImportPath("@/components/Form", "app/page.tsx", filePaths);
+    expect(result).toBe("src/components/Form.tsx");
+  });
+
+  it("resolves parent directory imports", () => {
+    const filePaths = new Set(["app/lib/auth.ts"]);
+    const result = resolveImportPath("../lib/auth", "app/billing/page.tsx", filePaths);
+    expect(result).toBe("app/lib/auth.ts");
+  });
+
+  it("resolves index files", () => {
+    const filePaths = new Set(["app/components/index.tsx"]);
+    const result = resolveImportPath("./components", "app/page.tsx", filePaths);
+    expect(result).toBe("app/components/index.tsx");
+  });
+
+  it("returns null for bare module imports", () => {
+    const filePaths = new Set(["app/page.tsx"]);
+    const result = resolveImportPath("react", "app/page.tsx", filePaths);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for unresolvable paths", () => {
+    const filePaths = new Set(["app/page.tsx"]);
+    const result = resolveImportPath("./nonexistent", "app/page.tsx", filePaths);
+    expect(result).toBeNull();
+  });
+});
+
+describe("buildConsolidatedSource — recursive dependency resolution", () => {
+  it("includes the page's own source", () => {
+    const contents = new Map([
+      ["app/page.tsx", "export default function Page() { return <div>Home</div>; }"],
+    ]);
+    const filePaths = new Set(["app/page.tsx"]);
+    const result = buildConsolidatedSource("app/page.tsx", contents, filePaths);
+    expect(result).toContain("Home");
+  });
+
+  it("includes transitively imported components", () => {
+    const contents = new Map([
+      ["app/page.tsx", `import LoginForm from './components/LoginForm'; export default function Page() { return <LoginForm />; }`],
+      ["app/components/LoginForm.tsx", `export default function LoginForm() { return <form onSubmit={handleSubmit}>Login</form>; }`],
+    ]);
+    const filePaths = new Set(["app/page.tsx", "app/components/LoginForm.tsx"]);
+    const result = buildConsolidatedSource("app/page.tsx", contents, filePaths);
+    expect(result).toContain("LoginForm");
+    expect(result).toContain("handleSubmit");
+  });
+
+  it("handles nested imports (A → B → C)", () => {
+    const contents = new Map([
+      ["app/page.tsx", `import A from './A';`],
+      ["app/A.tsx", `import B from './B';`],
+      ["app/B.tsx", `export default function B() { return <div>Deep</div>; }`],
+    ]);
+    const filePaths = new Set(["app/page.tsx", "app/A.tsx", "app/B.tsx"]);
+    const result = buildConsolidatedSource("app/page.tsx", contents, filePaths);
+    expect(result).toContain("Deep");
+  });
+
+  it("handles circular imports without infinite loop", () => {
+    const contents = new Map([
+      ["app/page.tsx", `import A from './A';`],
+      ["app/A.tsx", `import B from './B';`],
+      ["app/B.tsx", `import A from './A';`],
+    ]);
+    const filePaths = new Set(["app/page.tsx", "app/A.tsx", "app/B.tsx"]);
+    const result = buildConsolidatedSource("app/page.tsx", contents, filePaths);
+    // Should not hang — just return what it can
+    expect(result).toBeDefined();
+  });
+});
+
+// ─── Fuzzy Accelerated Route Matcher tests ───────────────────────────────────
+
+describe("extractRouteLikeStrings — route path literal extraction", () => {
+  it("extracts path-like strings starting with /", () => {
+    const source = `const x = "/billing/history";`;
+    const result = extractRouteLikeStrings(source);
+    expect(result).toContain("/billing/history");
+  });
+
+  it("extracts from template literals", () => {
+    const source = 'const x = `/dashboard`;';
+    const result = extractRouteLikeStrings(source);
+    expect(result).toContain("/dashboard");
+  });
+
+  it("skips file paths with extensions", () => {
+    const source = `const img = "/logo.png";`;
+    const result = extractRouteLikeStrings(source);
+    expect(result).not.toContain("/logo.png");
+  });
+
+  it("skips protocol URLs", () => {
+    const source = `const url = "https://example.com";`;
+    const result = extractRouteLikeStrings(source);
+    expect(result).not.toContain("https://example.com");
+  });
+
+  it("deduplicates identical strings", () => {
+    const source = `const a = "/billing"; const b = "/billing";`;
+    const result = extractRouteLikeStrings(source);
+    expect(result.filter((s) => s === "/billing")).toHaveLength(1);
+  });
+});
+
+describe("fuzzyMatchRoute — fuzzy route matching", () => {
+  it("matches exact routes", () => {
+    expect(fuzzyMatchRoute("/billing", ["/billing", "/profile"])).toBe("/billing");
+  });
+
+  it("matches dynamic segment routes", () => {
+    expect(fuzzyMatchRoute("/users/123", ["/users/:id"])).toBe("/users/:id");
+  });
+
+  it("matches by prefix", () => {
+    expect(fuzzyMatchRoute("/billing/history", ["/billing"])).toBe("/billing");
+  });
+
+  it("matches by substring", () => {
+    expect(fuzzyMatchRoute("/some/billing/path", ["/billing"])).toBe("/billing");
+  });
+
+  it("returns null for no match", () => {
+    expect(fuzzyMatchRoute("/unknown", ["/billing"])).toBeNull();
+  });
+
+  it("skips root route for prefix matching", () => {
+    expect(fuzzyMatchRoute("/anything", ["/"])).toBeNull();
+  });
+});
+
 // ─── Full crawlRepository pipeline tests ─────────────────────────────────────
 
 describe("crawlRepository — full pipeline", () => {
@@ -261,6 +471,19 @@ describe("crawlRepository — full pipeline", () => {
       "/billing",
       "/profile",
     ]);
+  });
+
+  it("marks dynamic route pages with dynamic flag", () => {
+    const files = ["app/page.tsx", "app/users/[id]/page.tsx"];
+    const contents = new Map([
+      ["app/page.tsx", "export default function() { return <div>Home</div>; }"],
+      ["app/users/[id]/page.tsx", "export default function() { return <div>User</div>; }"],
+    ]);
+    const graph = crawlRepository(files, contents);
+    const dynamicPage = graph.nodes.find((n) => n.route === "/users/:id");
+    expect(dynamicPage?.dynamic).toBe(true);
+    const staticPage = graph.nodes.find((n) => n.route === "/");
+    expect(staticPage?.dynamic).toBe(false);
   });
 
   it("creates directional wires for Link interactions between known routes", () => {
@@ -302,12 +525,10 @@ describe("crawlRepository — full pipeline", () => {
     ]);
     const graph = crawlRepository(files, contents);
 
-    // Should have a validation diamond node
     const diamonds = graph.nodes.filter((n) => n.type === "validation");
     expect(diamonds.length).toBeGreaterThanOrEqual(1);
     expect(diamonds[0].shape).toBe("diamond");
 
-    // Should have success and failure edges
     expect(graph.edges.some((e) => e.kind === "success")).toBe(true);
     expect(graph.edges.some((e) => e.kind === "failure")).toBe(true);
     expect(graph.edges.some((e) => e.label === "Success Path")).toBe(true);
@@ -346,5 +567,44 @@ describe("crawlRepository — full pipeline", () => {
     expect(graph.stats.pages).toBe(2);
     expect(graph.stats.validations).toBeGreaterThanOrEqual(1);
     expect(graph.stats.edges).toBeGreaterThanOrEqual(1);
+  });
+
+  it("captures interactions from imported child components", () => {
+    const files = [
+      "app/page.tsx",
+      "app/billing/page.tsx",
+      "app/components/LoginForm.tsx",
+    ];
+    const contents = new Map([
+      ["app/page.tsx", `import LoginForm from './components/LoginForm';`],
+      ["app/components/LoginForm.tsx", `export default function LoginForm() { return <Link href="/billing">Go to Billing</Link>; }`],
+      ["app/billing/page.tsx", "export default function() { return <div>Billing</div>; }"],
+    ]);
+    const graph = crawlRepository(files, contents);
+    // The Link inside LoginForm.tsx should be detected via consolidated source
+    expect(graph.edges.some((e) => e.kind === "navigation")).toBe(true);
+  });
+
+  it("creates low-opacity reference edges via fuzzy matching", () => {
+    const files = ["app/page.tsx", "app/billing/page.tsx"];
+    const contents = new Map([
+      ["app/page.tsx", `const route = "/billing"; console.log(route);`],
+      ["app/billing/page.tsx", "export default function() { return <div>Billing</div>; }"],
+    ]);
+    const graph = crawlRepository(files, contents);
+    // No explicit Link/router.push, but "/billing" appears as a string literal
+    const refEdges = graph.edges.filter((e) => e.kind === "reference");
+    expect(refEdges.length).toBeGreaterThanOrEqual(1);
+    expect(refEdges[0].inferred).toBe(true);
+  });
+
+  it("does not create fuzzy reference edges when explicit navigation exists", () => {
+    const files = ["app/page.tsx", "app/billing/page.tsx"];
+    const contents = new Map([
+      ["app/page.tsx", `<Link href="/billing">Billing</Link>`],
+      ["app/billing/page.tsx", "export default function() { return <div>Billing</div>; }"],
+    ]);
+    const graph = crawlRepository(files, contents);
+    expect(graph.edges.some((e) => e.kind === "reference")).toBe(false);
   });
 });
