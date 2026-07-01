@@ -1,17 +1,20 @@
 /**
  * Repository Analysis Engine
  *
- * Orchestrates the complete analysis pipeline:
+ * Orchestrates the complete app-mapping pipeline:
  * 1. Fetch repository metadata and tree from GitHub
  * 2. Parse source files with the AST parser
- * 3. Build the dependency graph
- * 4. Return a complete project structure for visualization
+ * 3. Run the blueprint analyzer to detect routes, validation, API hooks, DB
+ * 4. Lay out the resulting graph as a left-to-right user-journey timeline
+ * 5. Return a complete project structure for visualization
  */
 
 import { parseGitHubUrl, checkRepositoryAccess, fetchRepositoryTree, fetchMultipleFiles, filterSourceFiles, getDefaultBranch, type GitHubRepo } from "./github-api";
 import { parseModule } from "./ast-parser";
-import { buildDependencyGraph, type DependencyGraph } from "./dependency-graph";
+import { analyzeBlueprint, type Blueprint } from "./blueprint-analyzer";
+import { layoutBlueprint, type LaidOutBlueprint } from "./system-blueprint";
 import type { AccessCheckResult } from "./github-api";
+import type { HandleSegment, Shape } from "./canvas-geometry";
 
 export interface AnalysisProgress {
   phase: "connecting" | "fetching" | "parsing" | "building" | "complete" | "error";
@@ -21,10 +24,40 @@ export interface AnalysisProgress {
   totalFiles?: number;
 }
 
+/**
+ * The graph returned to the UI. It mirrors the shape consumed by HomePage
+ * (nodes with label/sub/shape/accent/x/y, edges with from/to/handles) but
+ * is produced by the blueprint pipeline rather than the old import-graph.
+ */
+export interface AnalysisGraph {
+  nodes: AnalysisGraphNode[];
+  edges: AnalysisGraphEdge[];
+  blueprint: Blueprint;
+  layout: LaidOutBlueprint;
+}
+
+export interface AnalysisGraphNode {
+  id: string;
+  label: string;
+  sub: string;
+  shape: Shape;
+  accent: "green" | "purple" | "teal" | "blue" | "orange" | "red";
+  x: number;
+  y: number;
+}
+
+export interface AnalysisGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  fromHandle?: HandleSegment;
+  toHandle?: HandleSegment;
+}
+
 export interface AnalysisResult {
   success: boolean;
   repo?: GitHubRepo;
-  graph?: DependencyGraph;
+  graph?: AnalysisGraph;
   error?: string;
   accessIssue?: AccessCheckResult;
 }
@@ -158,17 +191,47 @@ export async function analyzeRepository(
   // Phase: Building
   onProgress?.({
     phase: "building",
-    message: "Building dependency graph...",
-    percent: 85,
+    message: "Detecting routes, validation, and API hooks...",
+    percent: 80,
   });
 
-  // Build the dependency graph
-  const graph = buildDependencyGraph(modules, "");
+  // Run the blueprint analyzer: routes → validation → controllers → DB
+  const blueprint = analyzeBlueprint(modules);
+
+  onProgress?.({
+    phase: "building",
+    message: "Laying out user-journey timeline...",
+    percent: 92,
+  });
+
+  // Lay out the blueprint left-to-right
+  const layout = layoutBlueprint(blueprint);
+
+  const graph: AnalysisGraph = {
+    nodes: layout.nodes.map((n) => ({
+      id: n.id,
+      label: n.label,
+      sub: n.sub,
+      shape: n.shape,
+      accent: n.accent,
+      x: n.x,
+      y: n.y,
+    })),
+    edges: layout.edges.map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      fromHandle: e.fromHandle,
+      toHandle: e.toHandle,
+    })),
+    blueprint,
+    layout,
+  };
 
   // Phase: Complete
   onProgress?.({
     phase: "complete",
-    message: "Analysis complete!",
+    message: `Mapped ${blueprint.stats.routes} routes, ${blueprint.stats.validations} validations, ${blueprint.stats.controllers} controllers, ${blueprint.stats.databases} tables`,
     percent: 100,
     filesProcessed: modules.length,
     totalFiles: files.size,

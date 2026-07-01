@@ -29,6 +29,7 @@ export interface ParsedFunctionCall {
 
 export interface ParsedModule {
   path: string;
+  source: string;
   exports: ParsedExport[];
   imports: ParsedImport[];
   calls: ParsedFunctionCall[];
@@ -236,10 +237,11 @@ export function parseModule(source: string, path: string): ParsedModule {
       onCall: (call) => calls.push(call),
     });
 
-    return { path, exports, imports, calls };
+    return { path, source, exports, imports, calls };
   } catch (error) {
     return {
       path,
+      source,
       exports,
       imports,
       calls,
