@@ -19,6 +19,10 @@ import {
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
+import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
+import { ErdCanvas } from "@/components/ErdCanvas";
+import { SchemaInput } from "@/components/SchemaInput";
+import { ExportSchemaButton } from "@/components/ExportSchemaButton";
 import {
   NODE_W,
   NODE_H,
@@ -37,8 +41,15 @@ import {
   loadFullProject,
   updateNode,
   updateProject,
+  createProject,
+  batchCreateNodes,
+  batchCreateEdges,
   type Project,
+  type Workspace,
+  type Node as DbNode,
+  type Edge as DbEdge,
 } from "@/lib/db-client";
+import { detectCardinality, type ParsedTable } from "@/lib/sql-tokenizer";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -52,6 +63,9 @@ interface NodeData extends PositionedNode {
   accent: Accent;
   x: number;
   y: number;
+  workspace: Workspace;
+  columns?: import("@/lib/db-client").ErdColumnRow[] | null;
+  tableName?: string | null;
 }
 
 interface EdgeData {
@@ -60,6 +74,9 @@ interface EdgeData {
   to: string;
   fromHandle?: HandleSegment;
   toHandle?: HandleSegment;
+  cardinality?: "one-to-one" | "one-to-many";
+  fromColumn?: string;
+  toColumn?: string;
 }
 
 // ─── Design tokens ─────────────────────────────────────────────────────────
@@ -86,12 +103,12 @@ const ALL_SHAPES: Shape[] = [
 // ─── Demo seed data ────────────────────────────────────────────────────────
 
 const INITIAL_NODES: NodeData[] = [
-  { id: "n1", label: "/api/webhook/stripe", sub: "API Endpoint",    shape: "pill",         accent: "green",  x: 90,  y: 80  },
-  { id: "n2", label: "verifySignature()",  sub: "Middleware Guard", shape: "diamond",      accent: "purple", x: 470, y: 90  },
-  { id: "n3", label: "processPayment()",  sub: "Route Controller", shape: "rectangle",    accent: "teal",   x: 470, y: 360 },
-  { id: "n4", label: "profiles_table",    sub: "Supabase Model",   shape: "cylinder",     accent: "blue",   x: 90,  y: 380 },
-  { id: "n5", label: "stripe.ts",         sub: "I/O Data Block",   shape: "parallelogram",accent: "orange", x: 280, y: 220 },
-  { id: "n6", label: "event.type",        sub: "Branch Decision",  shape: "triangle",     accent: "red",    x: 750, y: 220 },
+  { id: "n1", label: "/api/webhook/stripe", sub: "API Endpoint",    shape: "pill",         accent: "green",  x: 90,  y: 80,  workspace: "app" },
+  { id: "n2", label: "verifySignature()",  sub: "Middleware Guard", shape: "diamond",      accent: "purple", x: 470, y: 90,  workspace: "app" },
+  { id: "n3", label: "processPayment()",  sub: "Route Controller", shape: "rectangle",    accent: "teal",   x: 470, y: 360, workspace: "app" },
+  { id: "n4", label: "profiles_table",    sub: "Supabase Model",   shape: "cylinder",     accent: "blue",   x: 90,  y: 380, workspace: "app" },
+  { id: "n5", label: "stripe.ts",         sub: "I/O Data Block",   shape: "parallelogram",accent: "orange", x: 280, y: 220, workspace: "app" },
+  { id: "n6", label: "event.type",        sub: "Branch Decision",  shape: "triangle",     accent: "red",    x: 750, y: 220, workspace: "app" },
 ];
 
 const INITIAL_EDGES: EdgeData[] = [
@@ -246,6 +263,7 @@ function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
 export function StudioPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [project, setProject] = useState<Project | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace>("app");
   const [nodes, setNodes] = useState<NodeData[]>(INITIAL_NODES);
   const [edges, setEdges] = useState<EdgeData[]>(INITIAL_EDGES);
   const [selected, setSelected] = useState<string | null>("n1");
@@ -253,12 +271,20 @@ export function StudioPage() {
   const [smartRoute, setSmartRoute] = useState(true);
   const [zoom, setZoom] = useState(100);
   const [hoverHandle, setHoverHandle] = useState<string | null>(null);
+  const [schemaSource, setSchemaSource] = useState<string>("");
 
-  // Load demo project from database on mount
+  // Project IDs for the two demo workspaces
+  const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
+  const ERD_PROJECT_ID = "00000000-0000-0000-0000-000000000002";
+
+  // Load the project for the active workspace
   useEffect(() => {
     async function loadProject() {
+      setIsLoading(true);
+      setSelected(null);
+      const projectId = workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID;
       try {
-        const fullProject = await loadFullProject("00000000-0000-0000-0000-000000000001");
+        const fullProject = await loadFullProject(projectId);
         if (fullProject) {
           setProject(fullProject.project);
           setNodes(
@@ -272,6 +298,9 @@ export function StudioPage() {
               y: n.y,
               w: n.w,
               h: n.h,
+              workspace: n.workspace,
+              columns: n.columns,
+              tableName: n.tableName,
             }))
           );
           setEdges(
@@ -281,11 +310,15 @@ export function StudioPage() {
               to: e.to,
               fromHandle: e.fromHandle,
               toHandle: e.toHandle,
+              cardinality: e.cardinality,
+              fromColumn: e.fromColumn,
+              toColumn: e.toColumn,
             }))
           );
           setZoom(fullProject.project.zoom);
           setAutoLayout(fullProject.project.autoLayout);
           setSmartRoute(fullProject.project.smartRoute);
+          setSchemaSource(fullProject.project.schemaSource ?? "");
         }
       } catch (err) {
         console.error("DB load failed, using demo data:", err);
@@ -294,7 +327,7 @@ export function StudioPage() {
       }
     }
     loadProject();
-  }, []);
+  }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID]);
 
   const sel = nodes.find((n) => n.id === selected) ?? null;
 
@@ -306,9 +339,7 @@ export function StudioPage() {
   const setAccent = useCallback(async (id: string, accent: Accent) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, accent } : n)));
     try {
-      if (["green","purple","teal","blue"].includes(accent)) {
-        await updateNode(id, { accent: accent as "green"|"purple"|"teal"|"blue" });
-      }
+      await updateNode(id, { accent });
     } catch { /* ignore */ }
   }, []);
 
@@ -333,6 +364,108 @@ export function StudioPage() {
       try { await updateProject(project.id, { zoom: z }); } catch { /* ignore */ }
     }
   }, [project]);
+
+  const handleWorkspaceChange = useCallback(async (ws: Workspace) => {
+    setWorkspace(ws);
+  }, []);
+
+  // Import a DDL schema into the ERD viewport: create a new ERD project,
+  // persist table nodes + FK edges, and swap the active project.
+  const handleSchemaImport = useCallback(
+    async (tables: ParsedTable[], ddl: string) => {
+      try {
+        setIsLoading(true);
+        const newProject = await createProject({
+          name: "imported-schema.erd",
+          description: `Database ERD imported from pasted DDL (${tables.length} tables)`,
+          zoom: 100,
+          autoLayout: true,
+          smartRoute: true,
+          workspace: "erd",
+          schemaSource: ddl,
+        });
+
+        // Create table nodes
+        const tableNodes = tables.map((t) => ({
+          label: t.name,
+          sub: "Table",
+          shape: "cylinder" as Shape,
+          accent: "blue" as Accent,
+          x: 0,
+          y: 0,
+          workspace: "erd" as Workspace,
+          columns: t.columns.map((c) => ({
+            name: c.name,
+            type: c.type,
+            pk: c.pk,
+            fk: c.fk,
+            unique: c.unique,
+            nullable: c.nullable,
+          })),
+          tableName: t.name,
+        }));
+        const savedNodes = await batchCreateNodes(newProject.id, tableNodes);
+
+        // Map table name -> saved node id for FK edge creation
+        const tableIdMap = new Map<string, string>();
+        tables.forEach((t, i) => tableIdMap.set(t.name, savedNodes[i].id));
+
+        // Build FK edges with cardinality
+        const fkEdges: Omit<DbEdge, "id" | "projectId">[] = [];
+        for (const t of tables) {
+          for (const col of t.columns) {
+            if (col.fk && col.referencesTable && tableIdMap.has(col.referencesTable)) {
+              const fromId = tableIdMap.get(t.name)!;
+              const toId = tableIdMap.get(col.referencesTable)!;
+              const cardinality = detectCardinality(col);
+              fkEdges.push({
+                from: fromId,
+                to: toId,
+                cardinality,
+                fromColumn: col.name,
+                toColumn: col.referencesColumn ?? "id",
+              });
+            }
+          }
+        }
+        await batchCreateEdges(newProject.id, fkEdges);
+
+        // Switch to the ERD workspace and load the new project
+        setWorkspace("erd");
+        setProject(newProject);
+        setNodes(
+          savedNodes.map((n) => ({
+            id: n.id,
+            label: n.label,
+            sub: n.sub,
+            shape: n.shape as Shape,
+            accent: n.accent as Accent,
+            x: n.x,
+            y: n.y,
+            workspace: n.workspace,
+            columns: n.columns,
+            tableName: n.tableName,
+          }))
+        );
+        setEdges(
+          fkEdges.map((e, i) => ({
+            id: `imp_e${i}`,
+            from: e.from,
+            to: e.to,
+            cardinality: e.cardinality,
+            fromColumn: e.fromColumn,
+            toColumn: e.toColumn,
+          }))
+        );
+        setSchemaSource(ddl);
+      } catch (err) {
+        console.error("Schema import failed:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
 
   // Pre-compute routed paths (memoised)
   const routed = useMemo(
@@ -378,68 +511,89 @@ export function StudioPage() {
             <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
           </Link>
           <span className="mx-1 h-5 w-px bg-border" />
+          <WorkspaceSwitcher workspace={workspace} onChange={handleWorkspaceChange} />
+          <span className="mx-1 h-5 w-px bg-border" />
           <span className="font-mono text-xs text-muted-foreground">
-            {project?.name ?? "nextjs-supabase"}{" "}
-            / <span className="text-foreground">execution-flow.map</span>
+            {project?.name ?? (workspace === "app" ? "nextjs-supabase" : "blog-schema")}{" "}
+            / <span className="text-foreground">{workspace === "app" ? "execution-flow.map" : "schema.erd"}</span>
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Shape quick-picker — only 4 in ribbon; full set in node panel */}
-          <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-1">
-            {(["rectangle", "pill", "diamond", "cylinder"] as Shape[]).map((s) => (
-              <button
-                key={s}
-                title={s.charAt(0).toUpperCase() + s.slice(1)}
-                disabled={!sel}
-                onClick={() => sel && setShape(sel.id, s)}
-                className={`flex h-8 w-9 items-center justify-center rounded-md transition-all duration-200 disabled:opacity-40 ${
-                  sel?.shape === s
-                    ? "bg-teal/20 text-teal shadow-[0_0_14px_-2px_var(--teal)]"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                }`}
-              >
-                <ShapeIcon shape={s} />
-              </button>
-            ))}
-          </div>
+          {/* Schema import + export (ERD viewport only) */}
+          {workspace === "erd" && (
+            <>
+              <SchemaInput
+                value={schemaSource}
+                onValueChange={setSchemaSource}
+                onSubmit={handleSchemaImport}
+                isLoading={isLoading}
+              />
+              <ExportSchemaButton nodes={nodes} edges={edges} />
+            </>
+          )}
 
-          {/* Smart-route toggle */}
-          <button
-            onClick={() => {
-              const next = !smartRoute;
-              setSmartRoute(next);
-              if (project) updateProject(project.id, { smartRoute: next }).catch(() => {});
-            }}
-            title="Collision-aware connector routing"
-            className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
-              smartRoute
-                ? "border-teal/50 bg-teal/10 text-teal"
-                : "border-border bg-background text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Spline className="h-3.5 w-3.5" />
-            Smart Route
-            <span className={`ml-1 h-1.5 w-1.5 rounded-full ${smartRoute ? "bg-teal" : "bg-muted-foreground/40"}`} />
-          </button>
+          {/* Shape quick-picker — only 4 in ribbon; full set in node panel (App viewport only) */}
+          {workspace === "app" && (
+            <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-1">
+              {(["rectangle", "pill", "diamond", "cylinder"] as Shape[]).map((s) => (
+                <button
+                  key={s}
+                  title={s.charAt(0).toUpperCase() + s.slice(1)}
+                  disabled={!sel}
+                  onClick={() => sel && setShape(sel.id, s)}
+                  className={`flex h-8 w-9 items-center justify-center rounded-md transition-all duration-200 disabled:opacity-40 ${
+                    sel?.shape === s
+                      ? "bg-teal/20 text-teal shadow-[0_0_14px_-2px_var(--teal)]"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                >
+                  <ShapeIcon shape={s} />
+                </button>
+              ))}
+            </div>
+          )}
 
-          {/* Auto-layout toggle */}
-          <button
-            onClick={() => {
-              const next = !autoLayout;
-              setAutoLayout(next);
-              if (project) updateProject(project.id, { autoLayout: next }).catch(() => {});
-            }}
-            className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
-              autoLayout
-                ? "border-teal/50 bg-teal/10 text-teal"
-                : "border-border bg-background text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Magnet className="h-3.5 w-3.5" />
-            Auto-Layout
-            <span className={`ml-1 h-1.5 w-1.5 rounded-full ${autoLayout ? "bg-teal" : "bg-muted-foreground/40"}`} />
-          </button>
+          {/* Smart-route toggle (App viewport only) */}
+          {workspace === "app" && (
+            <button
+              onClick={() => {
+                const next = !smartRoute;
+                setSmartRoute(next);
+                if (project) updateProject(project.id, { smartRoute: next }).catch(() => {});
+              }}
+              title="Collision-aware connector routing"
+              className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
+                smartRoute
+                  ? "border-teal/50 bg-teal/10 text-teal"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Spline className="h-3.5 w-3.5" />
+              Smart Route
+              <span className={`ml-1 h-1.5 w-1.5 rounded-full ${smartRoute ? "bg-teal" : "bg-muted-foreground/40"}`} />
+            </button>
+          )}
+
+          {/* Auto-layout toggle (App viewport only) */}
+          {workspace === "app" && (
+            <button
+              onClick={() => {
+                const next = !autoLayout;
+                setAutoLayout(next);
+                if (project) updateProject(project.id, { autoLayout: next }).catch(() => {});
+              }}
+              className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
+                autoLayout
+                  ? "border-teal/50 bg-teal/10 text-teal"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Magnet className="h-3.5 w-3.5" />
+              Auto-Layout
+              <span className={`ml-1 h-1.5 w-1.5 rounded-full ${autoLayout ? "bg-teal" : "bg-muted-foreground/40"}`} />
+            </button>
+          )}
 
           {/* Zoom controls */}
           <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-1">
@@ -464,99 +618,113 @@ export function StudioPage() {
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div className="flex min-h-0 flex-1">
-        <FileTree nodes={nodes} edgeCount={edges.length} />
+        {workspace === "app" && <FileTree nodes={nodes} edgeCount={edges.length} />}
 
         <main className="relative min-w-0 flex-1">
-          {/* Canvas */}
-          <div
-            className="grid-canvas absolute inset-0 overflow-hidden"
-            onClick={() => setSelected(null)}
-          >
-            <div
-              className="relative h-full w-full origin-top-left"
-              style={{ transform: `scale(${zoom / 100})` }}
-            >
-              {/* Edge SVG layer */}
-              <svg
-                data-testid="edge-layer"
-                className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+          {workspace === "app" ? (
+            <>
+              {/* App Journey Canvas */}
+              <div
+                className="grid-canvas absolute inset-0 overflow-hidden"
+                onClick={() => setSelected(null)}
               >
-                <defs>
-                  <marker
-                    id="arrow"
-                    viewBox="0 0 10 10"
-                    refX="9"
-                    refY="5"
-                    markerWidth="6"
-                    markerHeight="6"
-                    orient="auto-start-reverse"
+                <div
+                  className="relative h-full w-full origin-top-left"
+                  style={{ transform: `scale(${zoom / 100})` }}
+                >
+                  {/* Edge SVG layer */}
+                  <svg
+                    data-testid="edge-layer"
+                    className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
                   >
-                    <path d="M0 1 L9 5 L0 9 L2.5 5 Z" fill="var(--teal)" />
-                  </marker>
-                  <filter id="edgeGlow">
-                    <feGaussianBlur stdDeviation="1.5" result="blur" />
-                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                  </filter>
-                </defs>
+                    <defs>
+                      <marker
+                        id="arrow"
+                        viewBox="0 0 10 10"
+                        refX="9"
+                        refY="5"
+                        markerWidth="6"
+                        markerHeight="6"
+                        orient="auto-start-reverse"
+                      >
+                        <path d="M0 1 L9 5 L0 9 L2.5 5 Z" fill="var(--teal)" />
+                      </marker>
+                      <filter id="edgeGlow">
+                        <feGaussianBlur stdDeviation="1.5" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                      </filter>
+                    </defs>
 
-                {routed.map((r) =>
-                  r.path ? (
-                    <path
-                      key={r.id}
-                      data-testid={`edge-${r.id}`}
-                      data-detoured={r.detoured}
-                      d={r.path}
-                      fill="none"
-                      stroke="var(--teal)"
-                      strokeWidth={r.detoured ? 1.5 : 2}
-                      strokeOpacity={r.detoured ? 0.65 : 0.55}
-                      strokeDasharray={r.detoured ? "5 3" : undefined}
-                      markerEnd="url(#arrow)"
+                    {routed.map((r) =>
+                      r.path ? (
+                        <path
+                          key={r.id}
+                          data-testid={`edge-${r.id}`}
+                          data-detoured={r.detoured}
+                          d={r.path}
+                          fill="none"
+                          stroke="var(--teal)"
+                          strokeWidth={r.detoured ? 1.5 : 2}
+                          strokeOpacity={r.detoured ? 0.65 : 0.55}
+                          strokeDasharray={r.detoured ? "5 3" : undefined}
+                          markerEnd="url(#arrow)"
+                        />
+                      ) : null
+                    )}
+                  </svg>
+
+                  {/* Node layer */}
+                  {nodes.map((n) => (
+                    <CanvasNode
+                      key={n.id}
+                      node={n}
+                      zoom={zoom / 100}
+                      selected={selected === n.id}
+                      showHandles={selected === n.id}
+                      hoverHandle={hoverHandle}
+                      onHoverHandle={setHoverHandle}
+                      onReattach={(seg) => reattach(n.id, seg)}
+                      onSelect={(e) => { e.stopPropagation(); setSelected(n.id); }}
+                      onCycleShape={() => {
+                        const idx = ALL_SHAPES.indexOf(n.shape);
+                        setShape(n.id, ALL_SHAPES[(idx + 1) % ALL_SHAPES.length]);
+                      }}
+                      onDragEnd={(x, y) => setPosition(n.id, x, y)}
                     />
-                  ) : null
-                )}
-              </svg>
+                  ))}
+                </div>
+              </div>
 
-              {/* Node layer */}
-              {nodes.map((n) => (
-                <CanvasNode
-                  key={n.id}
-                  node={n}
-                  zoom={zoom / 100}
-                  selected={selected === n.id}
-                  showHandles={selected === n.id}
-                  hoverHandle={hoverHandle}
-                  onHoverHandle={setHoverHandle}
-                  onReattach={(seg) => reattach(n.id, seg)}
-                  onSelect={(e) => { e.stopPropagation(); setSelected(n.id); }}
-                  onCycleShape={() => {
-                    const idx = ALL_SHAPES.indexOf(n.shape);
-                    setShape(n.id, ALL_SHAPES[(idx + 1) % ALL_SHAPES.length]);
-                  }}
-                  onDragEnd={(x, y) => setPosition(n.id, x, y)}
+              {/* Legend */}
+              <div className="pointer-events-none absolute bottom-4 left-4 flex items-center gap-4 rounded-lg border border-border bg-surface/80 px-3 py-2 text-[11px] text-muted-foreground backdrop-blur">
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{background:"var(--neon-green)"}} />Endpoint</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rotate-45 inline-block" style={{background:"var(--neon-purple)"}} />Guard</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{background:"var(--teal)"}} />Controller</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{background:"var(--neon-blue)"}} />Model</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2" style={{background:"#f97316"}} />I/O</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2" style={{background:"#ef4444", clipPath:"polygon(50% 0, 100% 100%, 0 100%)"}} />Branch</span>
+              </div>
+
+              {/* Node settings panel */}
+              {sel && (
+                <NodeOptions
+                  node={sel}
+                  onShape={(s) => setShape(sel.id, s)}
+                  onAccent={(a) => setAccent(sel.id, a)}
+                  onReattach={(seg) => reattach(sel.id, seg)}
+                  onClose={() => setSelected(null)}
                 />
-              ))}
-            </div>
-          </div>
-
-          {/* Legend */}
-          <div className="pointer-events-none absolute bottom-4 left-4 flex items-center gap-4 rounded-lg border border-border bg-surface/80 px-3 py-2 text-[11px] text-muted-foreground backdrop-blur">
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{background:"var(--neon-green)"}} />Endpoint</span>
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rotate-45 inline-block" style={{background:"var(--neon-purple)"}} />Guard</span>
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{background:"var(--teal)"}} />Controller</span>
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{background:"var(--neon-blue)"}} />Model</span>
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2" style={{background:"#f97316"}} />I/O</span>
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2" style={{background:"#ef4444", clipPath:"polygon(50% 0, 100% 100%, 0 100%)"}} />Branch</span>
-          </div>
-
-          {/* Node settings panel */}
-          {sel && (
-            <NodeOptions
-              node={sel}
-              onShape={(s) => setShape(sel.id, s)}
-              onAccent={(a) => setAccent(sel.id, a)}
-              onReattach={(seg) => reattach(sel.id, seg)}
-              onClose={() => setSelected(null)}
+              )}
+            </>
+          ) : (
+            /* Database ERD Canvas */
+            <ErdCanvas
+              nodes={nodes}
+              edges={edges}
+              selected={selected}
+              onSelect={setSelected}
+              onDragEnd={setPosition}
+              zoom={zoom}
             />
           )}
         </main>

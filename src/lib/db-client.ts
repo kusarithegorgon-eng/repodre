@@ -7,6 +7,7 @@
 
 import { supabase } from "./supabase";
 import type { Shape, HandleSegment, PositionedNode } from "./canvas-geometry";
+import type { Cardinality } from "./sql-tokenizer";
 
 // Database row types
 export interface ProjectRow {
@@ -16,11 +17,24 @@ export interface ProjectRow {
   zoom: number;
   auto_layout: boolean;
   smart_route: boolean;
+  workspace: "app" | "erd";
+  schema_source: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red";
+
+export type Workspace = "app" | "erd";
+
+export interface ErdColumnRow {
+  name: string;
+  type: string;
+  pk: boolean;
+  fk: boolean;
+  unique: boolean;
+  nullable: boolean;
+}
 
 export interface NodeRow {
   id: string;
@@ -33,6 +47,9 @@ export interface NodeRow {
   y: number;
   w: number | null;
   h: number | null;
+  workspace: Workspace;
+  columns: ErdColumnRow[] | null;
+  table_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -44,6 +61,9 @@ export interface EdgeRow {
   to_node: string;
   from_handle: HandleSegment | null;
   to_handle: HandleSegment | null;
+  cardinality: Cardinality | null;
+  from_column: string | null;
+  to_column: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,6 +76,8 @@ export interface Project {
   zoom: number;
   autoLayout: boolean;
   smartRoute: boolean;
+  workspace: Workspace;
+  schemaSource: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -67,6 +89,9 @@ export interface Node extends PositionedNode {
   shape: Shape;
   accent: Accent;
   projectId: string;
+  workspace: Workspace;
+  columns: ErdColumnRow[] | null;
+  tableName: string | null;
 }
 
 export interface Edge {
@@ -76,6 +101,9 @@ export interface Edge {
   to: string;
   fromHandle?: HandleSegment;
   toHandle?: HandleSegment;
+  cardinality?: Cardinality;
+  fromColumn?: string;
+  toColumn?: string;
 }
 
 // Converters
@@ -87,6 +115,8 @@ function rowToProject(row: ProjectRow): Project {
     zoom: row.zoom,
     autoLayout: row.auto_layout,
     smartRoute: row.smart_route,
+    workspace: row.workspace,
+    schemaSource: row.schema_source,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };
@@ -104,6 +134,9 @@ function rowToNode(row: NodeRow): Node {
     y: row.y,
     w: row.w ?? undefined,
     h: row.h ?? undefined,
+    workspace: row.workspace,
+    columns: row.columns ?? null,
+    tableName: row.table_name ?? null,
   };
 }
 
@@ -115,6 +148,9 @@ function rowToEdge(row: EdgeRow): Edge {
     to: row.to_node,
     fromHandle: row.from_handle ?? undefined,
     toHandle: row.to_handle ?? undefined,
+    cardinality: row.cardinality ?? undefined,
+    fromColumn: row.from_column ?? undefined,
+    toColumn: row.to_column ?? undefined,
   };
 }
 
@@ -152,6 +188,8 @@ export async function createProject(
       zoom: project.zoom,
       auto_layout: project.autoLayout,
       smart_route: project.smartRoute,
+      workspace: project.workspace,
+      schema_source: project.schemaSource,
     })
     .select()
     .single();
@@ -162,7 +200,7 @@ export async function createProject(
 
 export async function updateProject(
   id: string,
-  updates: Partial<Pick<Project, "name" | "description" | "zoom" | "autoLayout" | "smartRoute">>
+  updates: Partial<Pick<Project, "name" | "description" | "zoom" | "autoLayout" | "smartRoute" | "workspace" | "schemaSource">>
 ): Promise<Project> {
   const updateData: Record<string, unknown> = {};
 
@@ -171,6 +209,8 @@ export async function updateProject(
   if (updates.zoom !== undefined) updateData.zoom = updates.zoom;
   if (updates.autoLayout !== undefined) updateData.auto_layout = updates.autoLayout;
   if (updates.smartRoute !== undefined) updateData.smart_route = updates.smartRoute;
+  if (updates.workspace !== undefined) updateData.workspace = updates.workspace;
+  if (updates.schemaSource !== undefined) updateData.schema_source = updates.schemaSource;
 
   const { data, error } = await supabase
     .from("projects")
@@ -216,6 +256,9 @@ export async function createNode(
       y: node.y,
       w: node.w ?? null,
       h: node.h ?? null,
+      workspace: node.workspace,
+      columns: node.columns ?? null,
+      table_name: node.tableName ?? null,
     })
     .select()
     .single();
@@ -226,7 +269,7 @@ export async function createNode(
 
 export async function updateNode(
   id: string,
-  updates: Partial<Pick<Node, "label" | "sub" | "shape" | "accent" | "x" | "y" | "w" | "h">>
+  updates: Partial<Pick<Node, "label" | "sub" | "shape" | "accent" | "x" | "y" | "w" | "h" | "workspace" | "columns" | "tableName">>
 ): Promise<Node> {
   const updateData: Record<string, unknown> = {};
 
@@ -238,6 +281,9 @@ export async function updateNode(
   if (updates.y !== undefined) updateData.y = updates.y;
   if (updates.w !== undefined) updateData.w = updates.w;
   if (updates.h !== undefined) updateData.h = updates.h;
+  if (updates.workspace !== undefined) updateData.workspace = updates.workspace;
+  if (updates.columns !== undefined) updateData.columns = updates.columns;
+  if (updates.tableName !== undefined) updateData.table_name = updates.tableName;
 
   const { data, error } = await supabase
     .from("nodes")
@@ -272,6 +318,9 @@ export async function batchCreateNodes(
         y: n.y,
         w: n.w ?? null,
         h: n.h ?? null,
+        workspace: n.workspace,
+        columns: n.columns ?? null,
+        table_name: n.tableName ?? null,
       }))
     )
     .select();
@@ -304,6 +353,9 @@ export async function createEdge(
       to_node: edge.to,
       from_handle: edge.fromHandle ?? null,
       to_handle: edge.toHandle ?? null,
+      cardinality: edge.cardinality ?? null,
+      from_column: edge.fromColumn ?? null,
+      to_column: edge.toColumn ?? null,
     })
     .select()
     .single();
@@ -352,6 +404,9 @@ export async function batchCreateEdges(
         to_node: e.to,
         from_handle: e.fromHandle ?? null,
         to_handle: e.toHandle ?? null,
+        cardinality: e.cardinality ?? null,
+        from_column: e.fromColumn ?? null,
+        to_column: e.toColumn ?? null,
       }))
     )
     .select();
