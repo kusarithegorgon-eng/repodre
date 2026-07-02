@@ -1,0 +1,5 @@
+[build.environment]
+  # VITE_-prefixed vars are intentionally inlined into the client bundle by Vite.
+  # The Supabase anon key and project URL are safe to expose client-side (access
+  # is enforced by Supabase Row Level Security), so exempt them from secret scanning.
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_ANON_KEY,VITE_SUPABASE_URL"
