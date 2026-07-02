@@ -192,13 +192,19 @@ export async function verifyRepoScope(): Promise<boolean> {
   if (!token) return false;
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
     // Test the token by fetching the authenticated user's repos
     const response = await fetch("https://api.github.com/user/repos?per_page=1", {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
       },
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     if (handleAuthFailure(response)) return false;
 
@@ -218,7 +224,10 @@ export function onAuthStateChange(
 ): () => void {
   let mounted = true;
 
-  // Initial state fetch
+  // Initial state fetch — resolve session/user immediately, then fire the
+  // callback right away so the UI doesn't hang. verifyRepoScope() is deferred
+  // to a background task so a slow/stale GitHub API never blocks the loading
+  // state from resolving.
   (async () => {
     const {
       data: { session },
@@ -226,10 +235,7 @@ export function onAuthStateChange(
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    // Only saves if a token is actually present in this payload — a sparse
-    // payload here is simply ignored, never treated as a clear signal.
     cacheProviderToken(session?.provider_token);
-    const hasRepoScope = session ? await verifyRepoScope() : false;
 
     if (mounted) {
       callback({
@@ -237,37 +243,68 @@ export function onAuthStateChange(
         session,
         isLoading: false,
         error: null,
-        hasRepoScope,
+        hasRepoScope: false,
+      });
+    }
+
+    // Fire repo-scope verification in the background; update callback when done
+    if (mounted && session) {
+      verifyRepoScope().then((hasRepoScope) => {
+        if (mounted) {
+          callback({
+            user,
+            session,
+            isLoading: false,
+            error: null,
+            hasRepoScope,
+          });
+        }
       });
     }
   })();
 
+  // CRITICAL: the onAuthStateChange callback runs synchronously during event
+  // processing. Awaiting Supabase auth methods directly inside it deadlocks
+  // the session. All async work MUST be wrapped in an IIFE.
   const {
     data: { subscription },
-  } = supabase.auth.onAuthStateChange(async (event, session) => {
+  } = supabase.auth.onAuthStateChange((event, session) => {
     if (!mounted) return;
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    // Only saves when this event actually carries a fresh token — events
-    // like a plain TOKEN_REFRESHED may not include provider_token, and
-    // cacheProviderToken is a no-op in that case, so a still-good cached
-    // value is never wiped out just because this event was sparse.
     cacheProviderToken(session?.provider_token);
-    // SIGNED_OUT is the one auth event that represents genuine, intentional
-    // sign-out, so it's the one event (besides calling signOut() directly)
-    // allowed to clear the cache.
     if (event === "SIGNED_OUT") clearCachedToken();
-    const hasRepoScope = session ? await verifyRepoScope() : false;
 
-    callback({
-      user,
-      session,
-      isLoading: event === "INITIAL_SESSION",
-      error: null,
-      hasRepoScope,
-    });
+    // Wrap async work in an IIFE to avoid deadlocking the auth state machine
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!mounted) return;
+
+      callback({
+        user,
+        session,
+        isLoading: event === "INITIAL_SESSION",
+        error: null,
+        hasRepoScope: false,
+      });
+
+      // Verify repo scope in the background so it never blocks the callback
+      if (session) {
+        verifyRepoScope().then((hasRepoScope) => {
+          if (mounted) {
+            callback({
+              user,
+              session,
+              isLoading: false,
+              error: null,
+              hasRepoScope,
+            });
+          }
+        });
+      }
+    })();
   });
 
   return () => {
@@ -286,26 +323,19 @@ export function onAuthStateChange(
  * hanging on an infinite spinner.
  */
 export async function handleAuthCallback(): Promise<Session | null> {
-  try {
-    const { data, error } = await supabase.auth.exchangeCodeForSession(
-      new URLSearchParams(window.location.search).get("code") ?? ""
-    );
+  const { data, error } = await supabase.auth.exchangeCodeForSession(
+    new URLSearchParams(window.location.search).get("code") ?? ""
+  );
 
-    if (error) throw error;
+  if (error) throw error;
 
-    // If this callback's payload happens to be sparse, cacheProviderToken is a
-    // no-op — it will NOT clear a previously cached token.
-    if (data.session?.provider_token) {
-      cacheProviderToken(data.session.provider_token);
-    }
-
-    return data.session;
-  } catch (err: any) {
-    console.error("Auth callback error:", err.message);
-    // Force redirect home so it doesn't spin forever
-    window.location.href = window.location.origin;
-    throw err;
+  // If this callback's payload happens to be sparse, cacheProviderToken is a
+  // no-op — it will NOT clear a previously cached token.
+  if (data.session?.provider_token) {
+    cacheProviderToken(data.session.provider_token);
   }
+
+  return data.session;
 }
 
 /**
