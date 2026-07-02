@@ -1,6 +1,6 @@
 import { Link, useSearch } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, AlertTriangle, Cloud, Server, Shield, Key } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
@@ -33,6 +33,9 @@ import { TimeTravelTracer } from "@/components/TimeTravelTracer";
 import { calculateComplexityForNode, getComplexityColor, getComplexityBg, type ComplexityResult } from "@/lib/cyclomatic-complexity";
 import { buildCrossReferences, type CrossReferenceLink } from "@/lib/cross-reference-engine";
 import { generateScaffold, downloadScaffold } from "@/lib/scaffold-exporter";
+import { detectAntiPatterns, type AntiPatternWarning, getWarningsForNode, hasViewToDbBypass } from "@/lib/anti-pattern-detector";
+import { scanForEnvVariables, type EnvScanResult, getEnvVarsForNode } from "@/lib/env-scanner";
+import { EnvironmentToggle, useProductionOverlay, type Environment } from "@/components/EnvironmentToggle";
 import {
   NODE_W,
   NODE_H,
@@ -342,6 +345,8 @@ export function StudioPage() {
   const [tracerActive, setTracerActive] = useState(false);
   const [liveTrafficActive, setLiveTrafficActive] = useState(false);
   const [crossRefLinks, setCrossRefLinks] = useState<CrossReferenceLink[]>([]);
+  const [environment, setEnvironment] = useState<Environment>("local");
+  const [antiPatternWarnings, setAntiPatternWarnings] = useState<AntiPatternWarning[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
@@ -458,6 +463,27 @@ export async function POST(req: Request) {
     );
     setCrossRefLinks(xrefResult.links);
   }, [nodes, mockModules]);
+
+  // Detect architectural anti-patterns
+  useEffect(() => {
+    const result = detectAntiPatterns(
+      nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+      })),
+      edges.map((e) => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+      }))
+    );
+    setAntiPatternWarnings(result.warnings);
+  }, [nodes, edges]);
+
+  // Compute production overlay nodes (read replicas, firewall gates)
+  const productionOverlayNodes = useProductionOverlay(nodes, environment);
 
   // Project IDs for the two demo workspaces
   const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
@@ -962,6 +988,14 @@ export async function POST(req: Request) {
             </div>
           )}
 
+          {/* Environment Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <EnvironmentToggle
+              value={environment}
+              onChange={setEnvironment}
+            />
+          )}
+
           {/* Layout Directives (App viewport only) */}
           {workspace === "app" && (
             <div className="relative">
@@ -1293,7 +1327,47 @@ export async function POST(req: Request) {
                       onSetLabel={(label) => setLabel(n.id, label)}
                       onSpawnChild={() => handleSpawnChild(n.id)}
                       complexity={calculateComplexityForNode(n.label, n.sub, undefined)}
+                      antiPatternWarnings={getWarningsForNode(n.id, antiPatternWarnings)}
+                      envVars={getEnvVarsForNode(n.label, new Map([[mockModules[0]?.path?.split('/').pop()?.replace(/\.(ts|tsx)$/, '') || 'route', scanForEnvVariables(mockModules[0]?.source || '')]]))}
                     />
+                  ))}
+
+                  {/* Production overlay nodes (read replicas, firewall gates) */}
+                  {productionOverlayNodes.map((n) => (
+                    <div
+                      key={n.id}
+                      className="absolute opacity-70"
+                      style={{
+                        left: n.x,
+                        top: n.y,
+                        width: NODE_W,
+                        height: NODE_H,
+                        zIndex: 0,
+                      }}
+                    >
+                      <NodeShapeSVG
+                        shape={n.shape}
+                        width={NODE_W}
+                        height={NODE_H}
+                        color={n.accent === "blue" ? "var(--node-database-stroke)" : "var(--node-gateway-stroke)"}
+                        glow="transparent"
+                        selected={false}
+                        nodeType={n.accent === "blue" ? "database" : "gateway"}
+                      />
+                      <div style={textLayoutFor(n.shape)}>
+                        <span className="mb-0.5 block truncate text-[10px] font-semibold uppercase tracking-wider" style={{ color: n.accent === "blue" ? "var(--node-database-stroke)" : "var(--orange)" }}>
+                          {n.sub}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {n.shape === "hexagon" && <Shield className="h-2.5 w-2.5 text-orange" />}
+                          {n.shape === "cylinder" && <Server className="h-2.5 w-2.5" style={{ color: "var(--node-database-stroke)" }} />}
+                          <span className="font-mono text-sm font-medium text-slate-700 dark:text-slate-300">{n.label}</span>
+                        </div>
+                      </div>
+                      <div className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange/20 text-[8px] text-orange">
+                        <Cloud className="h-2.5 w-2.5" />
+                      </div>
+                    </div>
                   ))}
 
                   {/* ── 30% Manual Override: Live edge drawing ── */}
@@ -1327,6 +1401,8 @@ export async function POST(req: Request) {
                   onReattach={(seg) => reattach(sel.id, seg)}
                   onClose={() => setSelected(null)}
                   onDelete={() => handleDeleteNode(sel.id)}
+                  envVars={getEnvVarsForNode(sel.label, new Map([[mockModules[0]?.path?.split('/').pop()?.replace(/\.(ts|tsx)$/, '') || 'route', scanForEnvVariables(mockModules[0]?.source || '')]]))}
+                  antiPatternWarnings={getWarningsForNode(sel.id, antiPatternWarnings)}
                 />
               )}
 
@@ -1540,6 +1616,8 @@ function CanvasNode({
   onSetLabel,
   onSpawnChild,
   complexity,
+  antiPatternWarnings,
+  envVars,
 }: {
   node: NodeData;
   zoom: number;
@@ -1556,6 +1634,8 @@ function CanvasNode({
   onSetLabel?: (label: string) => void;
   onSpawnChild?: () => void;
   complexity?: ComplexityResult;
+  antiPatternWarnings?: AntiPatternWarning[];
+  envVars?: EnvScanResult | null;
 }) {
   const a = ACCENT[node.accent];
 
@@ -1716,6 +1796,18 @@ function CanvasNode({
         <Sparkles className="h-3 w-3" />
       </button>
 
+      {/* ── Anti-Pattern Warning Banner (View-to-DB Bypass) ── */}
+      {antiPatternWarnings && antiPatternWarnings.length > 0 && (
+        <div className="absolute -top-8 left-0 right-0 z-30">
+          <div className="flex items-center gap-1.5 rounded-md bg-red-500/90 px-2 py-1 text-[9px] font-medium text-white shadow-md">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              Anti-Pattern: View-to-DB Bypass Detected
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ── Cyclomatic Complexity Badge (top-right corner) ── */}
       {complexity && (
         <div
@@ -1756,6 +1848,8 @@ function NodeOptions({
   onReattach,
   onClose,
   onDelete,
+  envVars,
+  antiPatternWarnings,
 }: {
   node: NodeData;
   onShape: (s: Shape) => void;
@@ -1763,6 +1857,8 @@ function NodeOptions({
   onReattach: (seg: HandleSegment) => void;
   onClose: () => void;
   onDelete: () => void;
+  envVars?: EnvScanResult | null;
+  antiPatternWarnings?: AntiPatternWarning[];
 }) {
   const a = ACCENT[node.accent];
 
@@ -1829,7 +1925,7 @@ function NodeOptions({
 
       {/* Accent color */}
       <p className="mb-2 text-[11px] font-medium text-muted-foreground">Accent</p>
-      <div className="flex flex-wrap gap-2">
+      <div className="mb-5 flex flex-wrap gap-2">
         {(Object.keys(ACCENT) as Accent[]).map((key) => {
           const active = node.accent === key;
           return (
@@ -1845,6 +1941,69 @@ function NodeOptions({
           );
         })}
       </div>
+
+      {/* Required Context Keys — Environment Variables */}
+      {envVars && envVars.variables.length > 0 && (
+        <div className="mb-4">
+          <p className="mb-2 text-[11px] font-medium text-muted-foreground">Required Context Keys</p>
+          <div className="space-y-1.5">
+            {envVars.requiredVars.length > 0 && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-2">
+                <p className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-red-500">Required</p>
+                <div className="space-y-1">
+                  {envVars.requiredVars.map((v) => (
+                    <div key={v} className="flex items-center gap-1.5">
+                      <Key className="h-3 w-3 text-red-500" />
+                      <code className="font-mono text-[10px] text-foreground">{v}</code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {envVars.optionalVars.length > 0 && (
+              <div className="rounded-lg border border-teal/30 bg-teal/5 p-2">
+                <p className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-teal">Optional (has default)</p>
+                <div className="space-y-1">
+                  {envVars.optionalVars.map((v) => (
+                    <div key={v} className="flex items-center gap-1.5">
+                      <Key className="h-3 w-3 text-teal" />
+                      <code className="font-mono text-[10px] text-foreground">{v}</code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="text-[9px] text-muted-foreground">
+              Detected in source — bind these keys in your deployment environment.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Anti-Pattern Warnings Section */}
+      {antiPatternWarnings && antiPatternWarnings.length > 0 && (
+        <div className="mb-4">
+          <p className="mb-2 text-[11px] font-medium text-red-500">Architectural Warnings</p>
+          <div className="space-y-2">
+            {antiPatternWarnings.map((warning) => (
+              <div
+                key={warning.id}
+                className="rounded-lg border border-red-500/30 bg-red-500/5 p-2.5"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-foreground">{warning.description}</p>
+                    <p className="mt-1 text-[10px] text-muted-foreground">{warning.recommendation}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Live shape preview */}
       <div className="mt-4 flex items-center justify-center rounded-lg bg-background/60 p-3">
