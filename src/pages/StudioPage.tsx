@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, Layout, CornerDownRight } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
@@ -75,6 +75,41 @@ interface NodeData extends PositionedNode {
   workspace: Workspace;
   columns?: import("@/lib/db-client").ErdColumnRow[] | null;
   tableName?: string | null;
+  isManuallyPositioned?: boolean;
+}
+
+type WireStyle = "curvy" | "straight" | "orthogonal";
+
+const GRID_SNAP = 20;
+const snapToGrid = (v: number) => Math.round(v / GRID_SNAP) * GRID_SNAP;
+const CANVAS_STORAGE_KEY = "repodre-canvas-v1";
+
+function parseLayoutDirectives(text: string): { direction: "LR" | "TB"; gapX: number; gapY: number } {
+  const result: { direction: "LR" | "TB"; gapX: number; gapY: number } = { direction: "LR", gapX: 280, gapY: 160 };
+  for (const part of text.split(",")) {
+    const [k, v] = part.split(":").map((s) => s.trim());
+    if (k === "direction" && (v === "LR" || v === "TB")) result.direction = v;
+    if (k === "gap-x" && !isNaN(+v)) result.gapX = +v;
+    if (k === "gap-y" && !isNaN(+v)) result.gapY = +v;
+  }
+  return result;
+}
+
+function straightEdgePath(a: NodeData, b: NodeData): string {
+  const ac = centerOf(a);
+  const bc = centerOf(b);
+  const ap = perimeterPoint(a, bc.x, bc.y);
+  const bp = perimeterPoint(b, ac.x, ac.y);
+  return `M ${ap.x} ${ap.y} L ${bp.x} ${bp.y}`;
+}
+
+function orthogonalEdgePath(a: NodeData, b: NodeData): string {
+  const ac = centerOf(a);
+  const bc = centerOf(b);
+  const ap = perimeterPoint(a, bc.x, bc.y);
+  const bp = perimeterPoint(b, ac.x, ac.y);
+  const midX = (ap.x + bp.x) / 2;
+  return `M ${ap.x} ${ap.y} H ${midX} V ${bp.y} H ${bp.x}`;
 }
 
 interface EdgeData {
@@ -293,6 +328,10 @@ export function StudioPage() {
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [highlightedEdgeIds, setHighlightedEdgeIds] = useState<string[]>([]);
+  const [wireStyle, setWireStyle] = useState<WireStyle>("curvy");
+  const [layoutDirectives, setLayoutDirectives] = useState("direction: LR, gap-x: 280, gap-y: 160");
+  const [showLayoutPopover, setShowLayoutPopover] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
   const canvasPan = useCanvasPan({
@@ -465,8 +504,10 @@ export async function POST(req: Request) {
   }, []);
 
   const setPosition = useCallback(async (id: string, x: number, y: number) => {
-    setNodes((p) => p.map((n) => (n.id === id ? { ...n, x, y } : n)));
-    try { await updateNode(id, { x, y }); } catch { /* ignore */ }
+    const snappedX = snapToGrid(x);
+    const snappedY = snapToGrid(y);
+    setNodes((p) => p.map((n) => (n.id === id ? { ...n, x: snappedX, y: snappedY, isManuallyPositioned: true } : n)));
+    try { await updateNode(id, { x: snappedX, y: snappedY }); } catch { /* ignore */ }
   }, []);
 
   // ─── Inline label editing handler (30% Manual Override) ──────────────────
@@ -502,6 +543,97 @@ export async function POST(req: Request) {
     setEdges((prev) => prev.filter((e) => e.id !== id));
     try { await deleteEdge(id); } catch { /* ignore */ }
   }, []);
+
+  // ─── localStorage auto-save ───────────────────────────────────────────────
+  useEffect(() => {
+    if (isLoading) return;
+    try {
+      localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify({ nodes, edges }));
+    } catch { /* quota exceeded or private browsing */ }
+  }, [nodes, edges, isLoading]);
+
+  // ─── JSON export ──────────────────────────────────────────────────────────
+  const handleExportJSON = useCallback(() => {
+    const payload = JSON.stringify({ nodes, edges, projectName: project?.name ?? "repodre-canvas" }, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${project?.name ?? "repodre-canvas"}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [nodes, edges, project?.name]);
+
+  // ─── JSON import ──────────────────────────────────────────────────────────
+  const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (Array.isArray(data.nodes)) setNodes(data.nodes);
+        if (Array.isArray(data.edges)) setEdges(data.edges);
+      } catch { /* invalid JSON */ }
+    };
+    reader.readAsText(file);
+    // Reset input so same file can be re-imported
+    e.target.value = "";
+  }, []);
+
+  // ─── Child node spawn ─────────────────────────────────────────────────────
+  const handleSpawnChild = useCallback((parentId: string) => {
+    const parent = nodes.find((n) => n.id === parentId);
+    if (!parent) return;
+    const childX = snapToGrid(parent.x + (parent.w ?? NODE_W) + 60);
+    const childY = snapToGrid(parent.y);
+    const newId = `node_${Date.now()}`;
+    const newEdgeId = `edge_${Date.now() + 1}`;
+    const newNode: NodeData = {
+      id: newId,
+      label: "New Node",
+      sub: parent.sub,
+      shape: parent.shape,
+      accent: parent.accent,
+      x: childX,
+      y: childY,
+      workspace,
+      isManuallyPositioned: true,
+    };
+    const newEdge: EdgeData = {
+      id: newEdgeId,
+      from: parentId,
+      to: newId,
+      fromHandle: "e",
+      toHandle: "w",
+    };
+    setNodes((prev) => [...prev, newNode]);
+    setEdges((prev) => [...prev, newEdge]);
+    setSelected(newId);
+    setNodeIdCounter((c) => c + 1);
+    createNode(project?.id ?? "demo", newNode).catch(() => {});
+    createEdge(project?.id ?? "demo", newEdge).catch(() => {});
+  }, [nodes, workspace, project?.id]);
+
+  // ─── Apply layout directives ──────────────────────────────────────────────
+  const handleApplyLayout = useCallback(() => {
+    const { direction, gapX, gapY } = parseLayoutDirectives(layoutDirectives);
+    const START_X = 80, START_Y = 80;
+    const COLS = direction === "LR" ? 4 : 1;
+    let idx = 0;
+    setNodes((prev) =>
+      prev.map((n) => {
+        if (n.isManuallyPositioned) return n;
+        const col = idx % COLS;
+        const row = Math.floor(idx / COLS);
+        idx++;
+        const x = snapToGrid(direction === "LR" ? START_X + col * gapX : START_X + row * gapX);
+        const y = snapToGrid(direction === "LR" ? START_Y + row * gapY : START_Y + col * gapY);
+        return { ...n, x, y };
+      })
+    );
+    setShowLayoutPopover(false);
+  }, [layoutDirectives]);
 
   const setSub = useCallback(async (id: string, sub: string) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, sub } : n)));
@@ -643,17 +775,26 @@ export async function POST(req: Request) {
   const routed = useMemo(
     () =>
       edges.map((e) => {
+        const a = nodes.find((n) => n.id === e.from);
+        const b = nodes.find((n) => n.id === e.to);
+        if (!a || !b) return { id: e.id, path: "", detoured: false };
+
+        if (wireStyle === "straight") {
+          return { id: e.id, path: straightEdgePath(a, b), detoured: false };
+        }
+        if (wireStyle === "orthogonal") {
+          return { id: e.id, path: orthogonalEdgePath(a, b), detoured: false };
+        }
+
+        // Curvy (default): snap-based bezier with smart collision routing
         const snap = snapResult.edges.get(e.id);
         if (snap && snap.path) {
           return { id: e.id, path: snap.path, detoured: false };
         }
-        const a = nodes.find((n) => n.id === e.from);
-        const b = nodes.find((n) => n.id === e.to);
-        if (!a || !b) return { id: e.id, path: "", detoured: false };
         const r = routeEdge(a, b, smartRoute ? nodes : [a, b]);
         return { id: e.id, path: r.path, detoured: r.detoured };
       }),
-    [edges, nodes, smartRoute, snapResult],
+    [edges, nodes, smartRoute, snapResult, wireStyle],
   );
 
   if (isLoading) {
@@ -759,6 +900,106 @@ export async function POST(req: Request) {
             </button>
           )}
 
+          {/* Wire style selector (App viewport only) */}
+          {workspace === "app" && (
+            <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-1" title="Connector wire style">
+              {(["curvy", "straight", "orthogonal"] as WireStyle[]).map((style) => {
+                const icons: Record<WireStyle, React.ReactNode> = {
+                  curvy: <Spline className="h-3.5 w-3.5" />,
+                  straight: <Minus className="h-3.5 w-3.5" />,
+                  orthogonal: <CornerDownRight className="h-3.5 w-3.5" />,
+                };
+                const labels: Record<WireStyle, string> = { curvy: "Curvy", straight: "Straight", orthogonal: "Orthogonal" };
+                return (
+                  <button
+                    key={style}
+                    title={labels[style]}
+                    onClick={() => setWireStyle(style)}
+                    className={`flex h-7 w-8 items-center justify-center rounded-md transition-all duration-200 ${
+                      wireStyle === style
+                        ? "bg-teal/20 text-teal"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                  >
+                    {icons[style]}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Layout Directives (App viewport only) */}
+          {workspace === "app" && (
+            <div className="relative">
+              <button
+                onClick={() => setShowLayoutPopover((v) => !v)}
+                title="Layout directives"
+                className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
+                  showLayoutPopover
+                    ? "border-teal/50 bg-teal/10 text-teal"
+                    : "border-border bg-background text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Layout className="h-3.5 w-3.5" />
+                Layout
+              </button>
+              {showLayoutPopover && (
+                <div className="absolute right-0 top-11 z-50 w-72 rounded-xl border border-border bg-popover p-4 shadow-2xl">
+                  <p className="mb-2 text-xs font-semibold text-foreground">Layout Directives</p>
+                  <p className="mb-3 text-[11px] text-muted-foreground">
+                    e.g. <code className="rounded bg-surface px-1">direction: LR, gap-x: 280, gap-y: 160</code>
+                  </p>
+                  <input
+                    type="text"
+                    value={layoutDirectives}
+                    onChange={(e) => setLayoutDirectives(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleApplyLayout()}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-teal focus:outline-none"
+                    placeholder="direction: LR, gap-x: 280, gap-y: 160"
+                  />
+                  <p className="mt-2 text-[10px] text-muted-foreground">
+                    Manually-positioned nodes are excluded. Press Enter or click Apply.
+                  </p>
+                  <button
+                    onClick={handleApplyLayout}
+                    className="mt-3 w-full rounded-lg bg-teal px-3 py-2 text-xs font-semibold text-white hover:bg-teal/90 transition-colors"
+                  >
+                    Apply Custom Layout
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* JSON Export / Import (App viewport only) */}
+          {workspace === "app" && (
+            <>
+              <button
+                onClick={handleExportJSON}
+                title="Export project as JSON"
+                className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-all hover:border-teal hover:text-teal"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Import project from JSON"
+                className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-all hover:border-teal hover:text-teal"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Import
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleImportFile}
+                className="hidden"
+              />
+            </>
+          )}
+
           {/* Zoom controls */}
           <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-1">
             <button
@@ -840,7 +1081,7 @@ export async function POST(req: Request) {
               <div
                 ref={canvasRef}
                 className="grid-canvas absolute inset-0 overflow-hidden"
-                onClick={() => setSelected(null)}
+                onClick={() => { setSelected(null); setShowLayoutPopover(false); }}
                 onMouseDown={canvasPan.handleMouseDown}
                 style={{ cursor: canvasPan.cursor }}
               >
@@ -907,6 +1148,7 @@ export async function POST(req: Request) {
                       onDragEnd={(x, y) => setPosition(n.id, x, y)}
                       onStartDragConnect={(handleId, startPos) => dragToConnect.startDrag(n.id, handleId, startPos)}
                       onSetLabel={(label) => setLabel(n.id, label)}
+                      onSpawnChild={() => handleSpawnChild(n.id)}
                     />
                   ))}
 
@@ -1128,6 +1370,7 @@ function CanvasNode({
   onDragEnd,
   onStartDragConnect,
   onSetLabel,
+  onSpawnChild,
 }: {
   node: NodeData;
   zoom: number;
@@ -1142,6 +1385,7 @@ function CanvasNode({
   onDragEnd: (x: number, y: number) => void;
   onStartDragConnect?: (handleId: HandleSegment, startPos: { x: number; y: number }) => void;
   onSetLabel?: (label: string) => void;
+  onSpawnChild?: () => void;
 }) {
   const a = ACCENT[node.accent];
 
@@ -1301,6 +1545,17 @@ function CanvasNode({
       >
         <Sparkles className="h-3 w-3" />
       </button>
+
+      {/* ── Spawn child node button (right-center edge) ── */}
+      {onSpawnChild && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onSpawnChild(); }}
+          title="Add child node"
+          className="absolute -right-4 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border-2 border-teal bg-background text-teal opacity-0 shadow-md transition-all duration-200 hover:bg-teal hover:text-white group-hover:opacity-100"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 }
