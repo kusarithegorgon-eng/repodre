@@ -11,9 +11,10 @@
  * - Solid, well-defined borders and connectors
  */
 
+/* ─── Light Theme (Default) ────────────────────────────────────────────────── */
 :root,
-[data-theme="dark"] {
-  /* Base colors - clean dark background for contrast */
+[data-theme="light"] {
+  /* Base colors - clean light background for contrast */
   --background: #f8fafc;           /* slate-50: crisp light canvas */
   --foreground: #0f172a;           /* slate-900: near-black text */
   --surface: #ffffff;              /* pure white cards */
@@ -56,7 +57,7 @@
   --node-gateway-stroke: #9a3412; /* orange-800 */
   --node-gateway-text: #7c2d12;   /* orange-900 */
 
-  /* Legacy accent colors - mapped to high-contrast versions */
+  /* Primary accent color - solid teal */
   --teal: #0d9488;                 /* teal-600: solid, no glow */
   --orange: #ea580c;               /* orange-600 */
   --blue: #0284c7;                 /* sky-600 */
@@ -90,72 +91,86 @@
   --grid-background: #f8fafc;     /* slate-50 */
 }
 
-/* Light theme inherits same academic palette */
-[data-theme="light"] {
-  /* Same as above - academic palette works for both */
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --surface: #ffffff;
-  --surface-raised: #ffffff;
-  --border: #334155;
-  --muted: #64748b;
-  --muted-foreground: #475569;
-  --accent: #f1f5f9;
-  --popover: #ffffff;
+/* ─── Dark Theme ────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  /* Base colors - dark background with light text */
+  --background: #0a0a0f;           /* near-black canvas */
+  --foreground: #f1f5f9;           /* slate-100: light text */
+  --surface: #1e1e2e;              /* dark card surface */
+  --surface-raised: #252536;       /* raised surfaces */
+  --border: #475569;               /* slate-600: visible borders on dark */
+  --muted: #94a3b8;                /* slate-400 */
+  --muted-foreground: #cbd5e1;     /* slate-300 */
+  --accent: #1e293b;               /* slate-800 */
+  --popover: #1e1e2e;
 
-  /* Same node palette */
-  --node-view-fill: #d1fae5;
-  --node-view-stroke: #166534;
-  --node-view-text: #14532d;
+  /* High-Contrast Palette for Dark Mode - darker fills, light borders */
 
-  --node-controller-fill: #cffafe;
-  --node-controller-stroke: #155e75;
-  --node-controller-text: #164e63;
+  /* View Nodes: Darker mint with bright green border */
+  --node-view-fill: #064e3b;       /* green-900: dark emerald */
+  --node-view-stroke: #34d399;    /* green-400: bright border */
+  --node-view-text: #a7f3d0;      /* green-200: light readable text */
 
-  --node-validation-fill: #fef3c7;
-  --node-validation-stroke: #92400e;
-  --node-validation-text: #78350f;
+  /* Controller/API Nodes: Darker cyan with bright border */
+  --node-controller-fill: #164e63; /* cyan-900: dark teal */
+  --node-controller-stroke: #22d3ee; /* cyan-400: bright border */
+  --node-controller-text: #a5f3fc; /* cyan-200: light text */
 
-  --node-database-fill: #f1f5f9;
-  --node-database-stroke: #1e293b;
-  --node-database-text: #0f172a;
+  /* Validation Nodes: Dark amber with bright border */
+  --node-validation-fill: #78350f; /* amber-900: dark gold */
+  --node-validation-stroke: #fbbf24; /* amber-400: bright border */
+  --node-validation-text: #fde68a; /* amber-200: light text */
 
-  --node-error-fill: #fee2e2;
-  --node-error-stroke: #991b1b;
-  --node-error-text: #7f1d1d;
+  /* Database Table Cards: Dark slate with light border */
+  --node-database-fill: #1e293b;  /* slate-800: dark gray */
+  --node-database-stroke: #94a3b8; /* slate-400: light border */
+  --node-database-text: #f1f5f9;  /* slate-100: light text */
 
-  --node-gateway-fill: #ffedd5;
-  --node-gateway-stroke: #9a3412;
-  --node-gateway-text: #7c2d12;
+  /* Error Nodes: Dark red with bright border */
+  --node-error-fill: #7f1d1d;     /* red-900 */
+  --node-error-stroke: #f87171;   /* red-400 */
+  --node-error-text: #fecaca;     /* red-200 */
 
-  --teal: #0d9488;
-  --orange: #ea580c;
-  --blue: #0284c7;
-  --purple: #7c3aed;
-  --green: #16a34a;
-  --red: #dc2626;
+  /* Role Gateway (Hexagon): Dark orange with bright border */
+  --node-gateway-fill: #7c2d12;   /* orange-900 */
+  --node-gateway-stroke: #fb923c; /* orange-400 */
+  --node-gateway-text: #fed7aa;   /* orange-200 */
 
-  --wire-primary: #475569;
-  --wire-secondary: #64748b;
-  --wire-reference: #94a3b8;
+  /* Primary accent color - solid teal */
+  --teal: #2dd4bf;                 /* teal-400: brighter for dark mode */
+  --orange: #fb923c;               /* orange-400 */
+  --blue: #38bdf8;                 /* sky-400 */
+  --purple: #a78bfa;               /* violet-400 */
+  --green: #22c55e;                /* green-500 */
+  --red: #ef4444;                  /* red-500 */
 
-  --section-manager-fill: rgba(139, 92, 246, 0.05);
-  --section-manager-stroke: #1e1b4b;
-  --section-customer-fill: rgba(22, 163, 74, 0.05);
-  --section-customer-stroke: #14532d;
-  --section-staff-fill: rgba(14, 165, 233, 0.05);
-  --section-staff-stroke: #0c4a6e;
-  --section-admin-fill: rgba(6, 182, 212, 0.05);
-  --section-admin-stroke: #164e63;
+  /* Connector wire colors - light enough for dark canvas */
+  --wire-primary: #94a3b8;        /* slate-400 */
+  --wire-secondary: #64748b;      /* slate-500 */
+  --wire-reference: #475569;      /* slate-600 for fuzzy matches */
+
+  /* Section container colors - dark fills with bright borders */
+  --section-manager-fill: rgba(139, 92, 246, 0.08);
+  --section-manager-stroke: #a78bfa;                 /* violet-400 */
+  --section-customer-fill: rgba(22, 163, 74, 0.08);
+  --section-customer-stroke: #22c55e;                /* green-500 */
+  --section-staff-fill: rgba(14, 165, 233, 0.08);
+  --section-staff-stroke: #38bdf8;                   /* sky-400 */
+  --section-admin-fill: rgba(6, 182, 212, 0.08);
+  --section-admin-stroke: #22d3ee;                  /* cyan-400 */
   --section-default-fill: transparent;
-  --section-default-stroke: #334155;
+  --section-default-stroke: #475569;                /* slate-600 */
 
-  --portal-stroke: #475569;
-  --portal-text: #1e293b;
+  /* Portal link colors */
+  --portal-stroke: #94a3b8;       /* slate-400 */
+  --portal-text: #e2e8f0;         /* slate-200 */
 
-  --grid-dot: #cbd5e1;
-  --grid-background: #f8fafc;
+  /* Canvas grid */
+  --grid-dot: #334155;            /* slate-700: subtle on dark */
+  --grid-background: #0a0a0f;     /* near-black */
 }
+
+/* Light theme vars are defined above with :root */
 
 * {
   margin: 0;
@@ -255,7 +270,7 @@ body {
 .section-title {
   font-weight: 700;
   font-size: 14px;
-  color: #000000;
+  color: var(--foreground);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   padding: 8px 12px;

@@ -125,7 +125,7 @@ export function HomePage() {
           <h1 className="mb-4 text-4xl font-bold leading-tight tracking-tight">
             Visualize Your Codebase
             <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal to-blue-400">
+            <span className="text-teal">
               Execution Architecture
             </span>
           </h1>
