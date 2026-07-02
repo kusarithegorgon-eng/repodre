@@ -279,24 +279,33 @@ export function onAuthStateChange(
 /**
  * Handle OAuth callback after GitHub redirect.
  * Call this on the callback route to complete the auth flow.
+ *
+ * Wraps the code exchange in a try/catch block. If the exchange fails
+ * (e.g., flow linking not supported, invalid code, or other auth errors),
+ * logs the error and immediately redirects home to prevent UI from
+ * hanging on an infinite spinner.
  */
 export async function handleAuthCallback(): Promise<Session | null> {
-  // The session is automatically established by Supabase when the callback URL is hit.
-  // The exchangeCodeForSession method handles PKCE flow.
-  const { data, error } = await supabase.auth.exchangeCodeForSession(
-    new URLSearchParams(window.location.search).get("code") ?? ""
-  );
+  try {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(
+      new URLSearchParams(window.location.search).get("code") ?? ""
+    );
 
-  if (error) {
-    console.error("Auth callback error:", error.message);
-    throw error;
+    if (error) throw error;
+
+    // If this callback's payload happens to be sparse, cacheProviderToken is a
+    // no-op — it will NOT clear a previously cached token.
+    if (data.session?.provider_token) {
+      cacheProviderToken(data.session.provider_token);
+    }
+
+    return data.session;
+  } catch (err: any) {
+    console.error("Auth callback error:", err.message);
+    // Force redirect home so it doesn't spin forever
+    window.location.href = window.location.origin;
+    throw err;
   }
-
-  // If this callback's payload happens to be sparse, cacheProviderToken is a
-  // no-op — it will NOT clear a previously cached token.
-  cacheProviderToken(data.session?.provider_token);
-
-  return data.session;
 }
 
 /**
