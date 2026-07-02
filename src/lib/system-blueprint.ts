@@ -152,10 +152,25 @@ export function layoutBlueprint(blueprint: Blueprint): LaidOutBlueprint {
   // Controller → Database chain collapses onto a single row.
   const parent = new Map<string, string>();
   const find = (x: string): string => {
-    if (parent.get(x) === x) return x;
-    const root = find(parent.get(x) ?? x);
-    parent.set(x, root);
-    return root;
+    const visited = new Set<string>();
+    let cur = x;
+    while (parent.get(cur) !== cur) {
+      if (visited.has(cur)) {
+        // cycle detected — break it by rooting at the current node
+        parent.set(cur, cur);
+        return cur;
+      }
+      visited.add(cur);
+      const next = parent.get(cur);
+      if (next === undefined) {
+        parent.set(cur, cur);
+        return cur;
+      }
+      cur = next;
+    }
+    // path compression
+    for (const v of visited) parent.set(v, cur);
+    return cur;
   };
   const union = (a: string, b: string) => {
     const ra = find(a);

@@ -1,6 +1,6 @@
 import { Link, useSearch } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, AlertTriangle, Cloud, Server, Shield, Key } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
@@ -90,6 +90,7 @@ interface NodeData extends PositionedNode {
   columns?: import("@/lib/db-client").ErdColumnRow[] | null;
   tableName?: string | null;
   isManuallyPositioned?: boolean;
+  parseError?: string | null;
 }
 
 type WireStyle = "curvy" | "straight" | "orthogonal";
@@ -665,6 +666,31 @@ export async function POST(req: Request) {
       localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify({ nodes, edges }));
     } catch { /* quota exceeded or private browsing */ }
   }, [nodes, edges, isLoading]);
+
+  // ─── localStorage hydration on mount ──────────────────────────────────────
+  // Restore manually-positioned node coordinates so a browser refresh doesn't
+  // discard the user's custom layout. Runs once after the initial load settles.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    if (hydrated || isLoading || nodes.length === 0) return;
+    try {
+      const raw = localStorage.getItem(CANVAS_STORAGE_KEY);
+      if (!raw) { setHydrated(true); return; }
+      const saved = JSON.parse(raw) as { nodes?: NodeData[]; edges?: EdgeData[] };
+      if (!saved.nodes) { setHydrated(true); return; }
+      const posMap = new Map<string, { x: number; y: number }>();
+      for (const sn of saved.nodes) {
+        if (sn.id && typeof sn.x === "number" && typeof sn.y === "number") {
+          posMap.set(sn.id, { x: sn.x, y: sn.y });
+        }
+      }
+      setNodes((prev) => prev.map((n) => {
+        const p = posMap.get(n.id);
+        return p ? { ...n, x: p.x, y: p.y, isManuallyPositioned: true } : n;
+      }));
+    } catch { /* corrupt JSON — ignore and keep current layout */ }
+    setHydrated(true);
+  }, [hydrated, isLoading, nodes.length]);
 
   // ─── JSON export ──────────────────────────────────────────────────────────
   const handleExportJSON = useCallback(() => {
@@ -1864,6 +1890,17 @@ function CanvasNode({
       />
 
       {/* ── Text content box (inscribed safe zone) ── */}
+      {node.parseError ? (
+        <div style={contentStyle} className="flex flex-col items-center justify-center text-center">
+          <AlertTriangle className="mb-1 h-4 w-4 text-red-500" />
+          <span className="block text-[10px] font-bold uppercase tracking-wider text-red-500">
+            Structure Parsing Blocked
+          </span>
+          <span className="mt-0.5 block text-[9px] text-muted-foreground">
+            Syntax Mismatch
+          </span>
+        </div>
+      ) : (
       <div style={contentStyle}>
         <span
           className="mb-0.5 block truncate text-[10px] font-semibold uppercase tracking-wider"
@@ -1887,6 +1924,7 @@ function CanvasNode({
           editHint="Double-click to rename"
         />
       </div>
+      )}
 
       {/* ── 30% Manual Override: Drag-to-connect handles (always visible on hover) ── */}
       <DragToConnectHandle

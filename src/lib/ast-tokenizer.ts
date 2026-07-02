@@ -94,6 +94,14 @@ function detectLanguage(source: string): "javascript" | "sql" {
 }
 
 export function tokenize(source: string): TokenStream {
+  try {
+    return tokenizeInternal(source);
+  } catch {
+    return { tokens: [], stats: { keywords: 0, identifiers: 0, operators: 0, literals: 0, strings: 0, numbers: 0, punctuation: 0, comments: 0, scopes: 0 } };
+  }
+}
+
+function tokenizeInternal(source: string): TokenStream {
   const language = detectLanguage(source);
   const isSql = language === "sql";
   const tokens: Token[] = [];

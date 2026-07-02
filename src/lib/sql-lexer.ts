@@ -692,7 +692,11 @@ function parseAlterTableFk(stream: TokenStream, tables: ParsedTable[]): void {
  * whitespace, mixed-case keywords, and embedded comments.
  */
 export function parseDdlLexed(ddl: string): ParsedSchema {
-  const dialect = detectDialect(ddl);
-  const tokens = lexSql(ddl);
-  return parseTokens(tokens, dialect);
+  try {
+    const dialect = detectDialect(ddl);
+    const tokens = lexSql(ddl);
+    return parseTokens(tokens, dialect);
+  } catch {
+    return { tables: [], dialect: detectDialect(ddl) };
+  }
 }

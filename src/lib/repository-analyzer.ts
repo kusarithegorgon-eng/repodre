@@ -71,6 +71,8 @@ export interface AnalysisGraphNode {
   };
   /** Whether this node has fuzzy route references */
   hasFuzzyReferences?: boolean;
+  /** Non-null when the source file failed to parse — renders a "Structure Parsing Blocked" card */
+  parseError?: string | null;
 }
 
 export interface AnalysisGraphEdge {
@@ -203,14 +205,17 @@ export async function analyzeRepository(
 
   // Parse each file
   const modules = [];
+  const parseErrors = new Map<string, string>();
   let processed = 0;
 
   for (const [path, content] of files) {
     try {
       const mod = parseModule(content, path);
       modules.push(mod);
+      if (mod.error) parseErrors.set(path, mod.error);
     } catch (error) {
       console.warn(`Failed to parse ${path}:`, error);
+      parseErrors.set(path, error instanceof Error ? error.message : "Parse error");
     }
 
     processed++;
@@ -281,6 +286,7 @@ export async function analyzeRepository(
       y: n.y,
       styleHints: n.styleHints,
       hasFuzzyReferences: n.hasFuzzyReferences,
+      parseError: parseErrors.get(n.id) ?? null,
     })),
     edges: filteredEdges.map((e) => ({
       id: e.id,

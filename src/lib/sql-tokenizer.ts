@@ -362,91 +362,95 @@ function parseAlterTableFks(ddl: string): AlterFk[] {
  * Parse a DDL script from any supported dialect into a normalized schema.
  */
 export function parseDdl(ddl: string): ParsedSchema {
-  const dialect = detectDialect(ddl);
-  const cleaned = stripComments(ddl);
-  const tables: ParsedTable[] = [];
+  try {
+    const dialect = detectDialect(ddl);
+    const cleaned = stripComments(ddl);
+    const tables: ParsedTable[] = [];
 
-  // Split into CREATE TABLE statements
-  const createRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[^;]+;/gi;
-  const statements: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = createRe.exec(cleaned)) !== null) {
-    statements.push(m[0]);
-  }
-
-  for (const stmt of statements) {
-    const name = extractTableName(stmt);
-    if (!name) continue;
-
-    const block = extractColumnBlock(stmt);
-    if (!block) continue;
-
-    const parts = splitColumnDefinitions(block);
-    const columns: ParsedColumn[] = [];
-    const tableConstraints: TableConstraint[] = [];
-
-    for (const part of parts) {
-      const tc = parseTableConstraint(part);
-      if (tc) {
-        tableConstraints.push(tc);
-        continue;
-      }
-      const col = parseColumn(part, dialect);
-      if (col) columns.push(col);
+    // Split into CREATE TABLE statements
+    const createRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[^;]+;/gi;
+    const statements: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = createRe.exec(cleaned)) !== null) {
+      statements.push(m[0]);
     }
 
-    // Apply table-level PK constraint
-    const pkConstraint = tableConstraints.find((c) => c.type === "pk");
-    if (pkConstraint) {
-      for (const colName of pkConstraint.columns) {
-        const col = columns.find((c) => c.name === colName);
-        if (col) col.pk = true;
+    for (const stmt of statements) {
+      const name = extractTableName(stmt);
+      if (!name) continue;
+
+      const block = extractColumnBlock(stmt);
+      if (!block) continue;
+
+      const parts = splitColumnDefinitions(block);
+      const columns: ParsedColumn[] = [];
+      const tableConstraints: TableConstraint[] = [];
+
+      for (const part of parts) {
+        const tc = parseTableConstraint(part);
+        if (tc) {
+          tableConstraints.push(tc);
+          continue;
+        }
+        const col = parseColumn(part, dialect);
+        if (col) columns.push(col);
       }
+
+      // Apply table-level PK constraint
+      const pkConstraint = tableConstraints.find((c) => c.type === "pk");
+      if (pkConstraint) {
+        for (const colName of pkConstraint.columns) {
+          const col = columns.find((c) => c.name === colName);
+          if (col) col.pk = true;
+        }
+      }
+
+      // Apply table-level UNIQUE constraints
+      for (const uc of tableConstraints.filter((c) => c.type === "unique")) {
+        for (const colName of uc.columns) {
+          const col = columns.find((c) => c.name === colName);
+          if (col) col.unique = true;
+        }
+      }
+
+      // Apply table-level FK constraints
+      for (const fc of tableConstraints.filter((c) => c.type === "fk")) {
+        for (const colName of fc.columns) {
+          const col = columns.find((c) => c.name === colName);
+          if (col) {
+            col.fk = true;
+            col.referencesTable = fc.referencesTable;
+            col.referencesColumn = fc.referencesColumn;
+          }
+        }
+      }
+
+      // Detect engine for MySQL
+      const engineMatch = stmt.match(/ENGINE\s*=\s*(\w+)/i);
+      const engine = engineMatch ? engineMatch[1] : undefined;
+
+      tables.push({ name, columns, engine, dialect });
     }
 
-    // Apply table-level UNIQUE constraints
-    for (const uc of tableConstraints.filter((c) => c.type === "unique")) {
-      for (const colName of uc.columns) {
-        const col = columns.find((c) => c.name === colName);
-        if (col) col.unique = true;
-      }
-    }
-
-    // Apply table-level FK constraints
-    for (const fc of tableConstraints.filter((c) => c.type === "fk")) {
-      for (const colName of fc.columns) {
-        const col = columns.find((c) => c.name === colName);
+    // Apply standalone ALTER TABLE ... ADD FOREIGN KEY statements
+    const alterFks = parseAlterTableFks(cleaned);
+    for (const afk of alterFks) {
+      const table = tables.find((t) => t.name === afk.table);
+      if (!table) continue;
+      for (const colName of afk.columns) {
+        const col = table.columns.find((c) => c.name === colName);
         if (col) {
           col.fk = true;
-          col.referencesTable = fc.referencesTable;
-          col.referencesColumn = fc.referencesColumn;
+          col.referencesTable = afk.referencesTable;
+          col.referencesColumn = afk.referencesColumn;
         }
       }
     }
 
-    // Detect engine for MySQL
-    const engineMatch = stmt.match(/ENGINE\s*=\s*(\w+)/i);
-    const engine = engineMatch ? engineMatch[1] : undefined;
-
-    tables.push({ name, columns, engine, dialect });
+    return { tables, dialect };
+  } catch {
+    return { tables: [], dialect: detectDialect(ddl) };
   }
-
-  // Apply standalone ALTER TABLE ... ADD FOREIGN KEY statements
-  const alterFks = parseAlterTableFks(cleaned);
-  for (const afk of alterFks) {
-    const table = tables.find((t) => t.name === afk.table);
-    if (!table) continue;
-    for (const colName of afk.columns) {
-      const col = table.columns.find((c) => c.name === colName);
-      if (col) {
-        col.fk = true;
-        col.referencesTable = afk.referencesTable;
-        col.referencesColumn = afk.referencesColumn;
-      }
-    }
-  }
-
-  return { tables, dialect };
 }
 
 // ─── Cardinality detection ──────────────────────────────────────────────────
