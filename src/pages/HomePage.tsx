@@ -15,6 +15,7 @@ import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { AccessRestrictedState } from "@/components/AccessRestrictedState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
+import { AiDisclosureBadge } from "@/components/AiDisclosureBadge";
 import { analyzeRepository, type AnalysisResult, type AnalysisProgress as AnalysisProgressType } from "@/lib/repository-analyzer";
 import { signInWithGitHub } from "@/lib/github-auth";
 import { createProject, batchCreateNodes, batchCreateEdges } from "@/lib/db-client";
@@ -106,6 +107,7 @@ export function HomePage() {
           <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
         </Link>
         <div className="flex items-center gap-2">
+          <AiDisclosureBadge />
           <ThemeToggle />
           <AuthButton />
         </div>
@@ -244,9 +246,13 @@ export function HomePage() {
 
       {/* Footer */}
       <footer className="border-t border-border px-6 py-6 text-center text-xs text-muted-foreground">
-        <p>
-          Built with React and Supabase. Open source on GitHub.
-        </p>
+        <div className="flex items-center justify-center gap-4">
+          <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
+          <span className="text-border">·</span>
+          <Link to="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+          <span className="text-border">·</span>
+          <span>Built with React and Supabase</span>
+        </div>
       </footer>
     </div>
   );

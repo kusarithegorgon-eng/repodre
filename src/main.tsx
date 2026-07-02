@@ -6,6 +6,8 @@ import { RootPage } from "./pages/RootPage";
 import { HomePage } from "./pages/HomePage";
 import { StudioPage } from "./pages/StudioPage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
+import { TermsPage } from "./pages/TermsPage";
 
 // Create route tree
 const rootRoute = createRootRoute({
@@ -30,10 +32,24 @@ const authCallbackRoute = createRoute({
   component: AuthCallbackPage,
 });
 
+const privacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/privacy",
+  component: PrivacyPage,
+});
+
+const termsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/terms",
+  component: TermsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   studioRoute,
   authCallbackRoute,
+  privacyRoute,
+  termsRoute,
 ]);
 
 const router = createRouter({ routeTree });
