@@ -27,10 +27,31 @@ const GH_TOKEN_STORAGE_KEY = "gh_provider_token";
  * persisted in the Supabase session itself, so we have to stash it ourselves.
  */
 function cacheProviderToken(token: string | null | undefined): void {
-  if (typeof token === "string" && token.length > 0) {
-    localStorage.setItem(GH_TOKEN_STORAGE_KEY, token);
-  } else {
-    localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
+  try {
+    if (typeof token === "string" && token.length > 0) {
+      localStorage.setItem(GH_TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
+    }
+  } catch (err) {
+    // localStorage can throw in Safari private browsing, locked-down
+    // corporate browsers, or when storage quota is exceeded. Losing the
+    // cached token in these environments is an acceptable degradation —
+    // an uncaught exception here is not.
+    console.warn("Unable to persist GitHub provider token:", err);
+  }
+}
+
+/**
+ * Read the cached GitHub provider token from localStorage, if any.
+ * Wrapped in try/catch for the same reasons as cacheProviderToken.
+ */
+function readCachedProviderToken(): string | null {
+  try {
+    return localStorage.getItem(GH_TOKEN_STORAGE_KEY);
+  } catch (err) {
+    console.warn("Unable to read cached GitHub provider token:", err);
+    return null;
   }
 }
 
@@ -119,7 +140,25 @@ export async function getGitHubAccessToken(): Promise<string | null> {
   // refresh" bug. Note this also means a stale/revoked token can be returned
   // here; verifyRepoScope(), or a 401 from a downstream API call, is the
   // signal to clear it.
-  return localStorage.getItem(GH_TOKEN_STORAGE_KEY);
+  return readCachedProviderToken();
+}
+
+/**
+ * If a GitHub API response indicates the token is dead (401 Unauthorized —
+ * bad/expired token, or 403 Forbidden — revoked/insufficient scope), clear
+ * the cached provider token so we stop silently reusing it. Returns true if
+ * the response was an auth failure.
+ *
+ * Note: 403 can also mean rate limiting, not just revocation. We still clear
+ * the cache in that case — worst case the user has to re-auth once, which is
+ * far better than getting stuck in a silent-failure loop with a dead token.
+ */
+function handleAuthFailure(response: Response): boolean {
+  if (response.status === 401 || response.status === 403) {
+    cacheProviderToken(null);
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -138,6 +177,8 @@ export async function verifyRepoScope(): Promise<boolean> {
         Accept: "application/vnd.github+json",
       },
     });
+
+    if (handleAuthFailure(response)) return false;
 
     // If we can access repos, the token has appropriate scope
     return response.ok;
@@ -252,6 +293,7 @@ export async function getGitHubProfile(): Promise<GitHubProfile | null> {
       },
     });
 
+    if (handleAuthFailure(response)) return null;
     if (!response.ok) return null;
 
     return await response.json();
