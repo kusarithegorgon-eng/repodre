@@ -8,6 +8,11 @@
  *                                          │
  *                                          └──> [Error] (off the main spine)
  *
+ * Also supports Domain-Driven Sectioning:
+ *   - Groups routes into visual canvas regions based on directory prefixes
+ *   - Adds Role Gateway Switches for post-login routing
+ *   - Creates Portal Links for cross-section navigation
+ *
  * Each node is assigned a "column" based on its semantic type, and a "row"
  * within that column. Columns are spaced horizontally; rows are stacked
  * vertically with a gap. The output is a flat list of positioned nodes
@@ -24,6 +29,12 @@ import type {
   BlueprintEdge,
 } from "./blueprint-analyzer";
 import type { EnhancedBlueprint, EnhancedBlueprintEdge, NodeMetadata } from "./enhanced-analyzer";
+import type {
+  CanvasSection,
+  RoleGateway,
+  PortalLink,
+  SectionedBlueprint,
+} from "./domain-sectioning";
 
 export interface PositionedBlueprintNode extends PositionedNode {
   id: string;
@@ -64,6 +75,33 @@ export interface PositionedBlueprintEdge {
 export interface LaidOutBlueprint {
   nodes: PositionedBlueprintNode[];
   edges: PositionedBlueprintEdge[];
+}
+
+// ─── Sectioned Layout Types ──────────────────────────────────────────────────────
+
+export interface PositionedSection extends CanvasSection {
+  bounds: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  };
+}
+
+export interface PositionedRoleGateway extends RoleGateway {
+  x: number;
+  y: number;
+}
+
+export interface PositionedPortalLink extends PortalLink {
+  portalPoint: { x: number; y: number };
+}
+
+export interface SectionedLayout extends LaidOutBlueprint {
+  sections: PositionedSection[];
+  roleGateways: PositionedRoleGateway[];
+  portalLinks: PositionedPortalLink[];
+  edgesToReplace: string[];
 }
 
 // ─── Layout constants ──────────────────────────────────────────────────────
@@ -309,4 +347,155 @@ export function layoutEnhancedBlueprint(
   });
 
   return { nodes: enhancedNodes, edges: enhancedEdges };
+}
+
+// ─── Section-Aware Layout Constants ────────────────────────────────────────────
+
+const SECTION_PADDING = 60;
+const SECTION_HEADER_HEIGHT = 40;
+const SECTION_MIN_WIDTH = 400;
+const SECTION_MIN_HEIGHT = 300;
+
+// ─── Sectioned Layout Engine ─────────────────────────────────────────────────────
+
+/**
+ * Layout a sectioned blueprint with domain-driven grouping.
+ *
+ * Strategy:
+ *   1. First lay out nodes using base timeline layout
+ *   2. Group nodes by their section assignments
+ *   3. Compute bounding boxes for each section
+ *   4. Position role gateways after auth controllers
+ *   5. Create portal links for cross-section edges
+ */
+export function layoutSectionedBlueprint(
+  blueprint: SectionedBlueprint,
+  baseLayout?: LaidOutBlueprint
+): SectionedLayout {
+  // Get base layout if not provided
+  const layout = baseLayout ?? layoutBlueprint({
+    nodes: blueprint.nodes,
+    edges: blueprint.edges,
+    stats: { routes: 0, validations: 0, controllers: 0, databases: 0 },
+  });
+
+  // ── 1. Position sections based on their nodes ───────────────────────────
+  const positionedSections: PositionedSection[] = [];
+  const nodePositions = new Map<string, { x: number; y: number }>();
+  for (const node of layout.nodes) {
+    nodePositions.set(node.id, { x: node.x, y: node.y });
+  }
+
+  for (const section of blueprint.sections) {
+    const sectionNodePositions = section.nodeIds
+      .map((id) => nodePositions.get(id))
+      .filter((p): p is { x: number; y: number } => p !== undefined);
+
+    if (sectionNodePositions.length === 0) continue;
+
+    // Compute bounding box
+    const minX = Math.min(...sectionNodePositions.map((p) => p.x));
+    const minY = Math.min(...sectionNodePositions.map((p) => p.y));
+    const maxX = Math.max(...sectionNodePositions.map((p) => p.x + NODE_W));
+    const maxY = Math.max(...sectionNodePositions.map((p) => p.y + NODE_H));
+
+    positionedSections.push({
+      ...section,
+      bounds: {
+        x: minX - SECTION_PADDING,
+        y: minY - SECTION_PADDING - SECTION_HEADER_HEIGHT,
+        w: Math.max(SECTION_MIN_WIDTH, maxX - minX + SECTION_PADDING * 2),
+        h: Math.max(SECTION_MIN_HEIGHT, maxY - minY + SECTION_PADDING * 2 + SECTION_HEADER_HEIGHT),
+      },
+    });
+  }
+
+  // ── 2. Position role gateways ────────────────────────────────────────────
+  const positionedGateways: PositionedRoleGateway[] = [];
+
+  for (const gateway of blueprint.roleGateways) {
+    // Find the auth controller this gateway follows
+    const authNode = layout.nodes.find(
+      (n) => n.label === gateway.authControllerKey || n.id === gateway.authControllerKey
+    );
+
+    if (authNode) {
+      // Position gateway to the right of the auth controller
+      positionedGateways.push({
+        ...gateway,
+        x: authNode.x + COLUMN_WIDTH,
+        y: authNode.y,
+      });
+    } else {
+      // Fallback: position at start
+      positionedGateways.push({
+        ...gateway,
+        x: START_X + COLUMN_WIDTH * 2,
+        y: START_Y,
+      });
+    }
+  }
+
+  // ── 3. Position portal links ────────────────────────────────────────────
+  const positionedPortals: PositionedPortalLink[] = [];
+
+  for (const portal of blueprint.portalLinks) {
+    const fromNodePos = nodePositions.get(portal.fromNodeId);
+    if (!fromNodePos) continue;
+
+    // Position portal at the edge of the source section
+    const sourceSection = positionedSections.find((s) => s.id === portal.fromSectionId);
+    const targetSection = positionedSections.find((s) => s.id === portal.toSectionId);
+
+    if (!sourceSection || !targetSection) continue;
+
+    // Determine portal endpoint based on target section position
+    let portalX: number;
+    let portalY: number;
+
+    if (targetSection.bounds.x > sourceSection.bounds.x) {
+      // Target is to the right - portal goes to right edge of source section
+      portalX = sourceSection.bounds.x + sourceSection.bounds.w - 20;
+      portalY = fromNodePos.y + NODE_H / 2;
+    } else if (targetSection.bounds.x < sourceSection.bounds.x) {
+      // Target is to the left - portal goes to left edge of source section
+      portalX = sourceSection.bounds.x + 20;
+      portalY = fromNodePos.y + NODE_H / 2;
+    } else {
+      // Target is above or below
+      if (targetSection.bounds.y < sourceSection.bounds.y) {
+        // Target is above
+        portalX = fromNodePos.x + NODE_W / 2;
+        portalY = sourceSection.bounds.y + 20;
+      } else {
+        // Target is below
+        portalX = fromNodePos.x + NODE_W / 2;
+        portalY = sourceSection.bounds.y + sourceSection.bounds.h - 20;
+      }
+    }
+
+    positionedPortals.push({
+      ...portal,
+      portalPoint: { x: portalX, y: portalY },
+    });
+  }
+
+  return {
+    nodes: layout.nodes,
+    edges: layout.edges,
+    sections: positionedSections,
+    roleGateways: positionedGateways,
+    portalLinks: positionedPortals,
+    edgesToReplace: blueprint.edgesToPortals,
+  };
+}
+
+/**
+ * Filter edges to remove those replaced by portal links.
+ */
+export function filterPortalEdges(
+  edges: PositionedBlueprintEdge[],
+  edgesToReplace: string[]
+): PositionedBlueprintEdge[] {
+  return edges.filter((e) => !edgesToReplace.includes(e.id));
 }

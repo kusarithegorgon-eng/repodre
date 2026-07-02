@@ -9,7 +9,7 @@
  * +x to the right and +y downward (matching SVG/screen space).
  *
  * Supported shapes: rectangle · pill · diamond · cylinder ·
- *                   triangle · parallelogram · document
+ *                   triangle · parallelogram · document · hexagon
  */
 
 export type Shape =
@@ -19,7 +19,8 @@ export type Shape =
   | "pill"
   | "triangle"
   | "parallelogram"
-  | "document";
+  | "document"
+  | "hexagon";
 
 /** Base node footprint (unscaled, pre-zoom). */
 export const NODE_W = 240;
@@ -93,6 +94,20 @@ export function shapePolygon(shape: Shape, w = NODE_W, h = NODE_H): Point[] {
         { x: 0, y: hh },    // bottom vertex
         { x: -hw, y: 0 },   // left vertex
       ];
+
+    case "hexagon": {
+      // Horizontal hexagon with flat top/bottom (for Role Gateway Switch)
+      // The angled portions are 25% of width on each side
+      const inset = w * 0.25;
+      return [
+        { x: -hw + inset, y: -hh },  // top-left
+        { x: hw - inset, y: -hh },   // top-right
+        { x: hw, y: 0 },             // right vertex
+        { x: hw - inset, y: hh },    // bottom-right
+        { x: -hw + inset, y: hh },   // bottom-left
+        { x: -hw, y: 0 },            // left vertex
+      ];
+    }
 
     case "triangle":
       return [
@@ -190,6 +205,7 @@ export function perimeterPoint(n: PositionedNode, tx: number, ty: number): Point
       break;
 
     case "diamond":
+    case "hexagon":
     case "triangle":
     case "parallelogram": {
       const verts = shapePolygon(n.shape, w, h);
@@ -275,6 +291,21 @@ export function anchorHandles(n: PositionedNode): AnchorHandle[] {
         at("w", -hw, 0, "Left vertex"),
       ];
 
+    case "hexagon": {
+      // Horizontal hexagon with flat top/bottom
+      const inset = w * 0.25;
+      return [
+        at("n", 0, -hh, "Top edge"),
+        at("ne", hw - inset, -hh, "Top-right corner"),
+        at("e", hw, 0, "Right vertex"),
+        at("se", hw - inset, hh, "Bottom-right corner"),
+        at("s", 0, hh, "Bottom edge"),
+        at("sw", -hw + inset, hh, "Bottom-left corner"),
+        at("w", -hw, 0, "Left vertex"),
+        at("nw", -hw + inset, -hh, "Top-left corner"),
+      ];
+    }
+
     case "triangle": {
       const hw2 = w / 2;
       const hh2 = h / 2;
@@ -321,6 +352,9 @@ export function paddingFor(shape: Shape): { x: number; y: number } {
   switch (shape) {
     case "diamond":
       return { x: 12, y: 10 };
+    case "hexagon":
+      // Hexagon has angled sides, need inset padding
+      return { x: 24, y: 14 };
     case "cylinder":
       return { x: 18, y: 24 };
     case "pill":
@@ -357,6 +391,13 @@ export function textMaxWidth(shape: Shape, _zoom = 1, w = NODE_W, _h = NODE_H): 
       // the inscribed rect width is bounded by hw so text never reaches the faces.
       const pad = paddingFor("diamond");
       return Math.max(24, w / 2 - pad.x);
+    }
+
+    case "hexagon": {
+      // Hexagon center has full width minus the angled portions (25% on each side)
+      // At center, the horizontal span is full width
+      const pad = paddingFor("hexagon");
+      return Math.max(24, w - pad.x * 2);
     }
 
     case "triangle":
@@ -421,6 +462,14 @@ export function boundaryPorts(n: PositionedNode): { left: ConnectionPort; right:
         left:  { side: "left",  x: c.x - hw, y: c.y },
         right: { side: "right", x: c.x + hw, y: c.y },
       };
+
+    case "hexagon": {
+      // The left/right vertices are at the horizontal extremes
+      return {
+        left:  { side: "left",  x: c.x - hw, y: c.y },
+        right: { side: "right", x: c.x + hw, y: c.y },
+      };
+    }
 
     case "triangle": {
       // Left/right corners are at the base; use bounding-box x for the sides

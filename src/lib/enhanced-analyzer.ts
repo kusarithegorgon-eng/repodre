@@ -1,7 +1,7 @@
 /**
  * Enhanced Blueprint Analyzer
  *
- * Integrates three structural engines into the blueprint analysis pipeline:
+ * Integrates five structural engines into the blueprint analysis pipeline:
  *
  * 1. COMPONENT RECURSIVE DEPENDENCY RESOLVER
  *    - Traverses import chains from page.tsx files
@@ -15,6 +15,15 @@
  *    - Scans for explicit route.push/Link references
  *    - Falls back to fuzzy regex sweep for string literals
  *    - Creates low-opacity reference wires for inferred routes
+ *
+ * 4. ROLE GATEWAY DETECTION
+ *    - Detects post-login auth sequences
+ *    - Creates switch nodes for role-based routing
+ *
+ * 5. DOMAIN SECTIONING
+ *    - Groups routes by directory prefix namespaces
+ *    - Creates section bounding boxes with dashed borders
+ *    - Generates portal links for cross-section navigation
  */
 
 import type { ParsedModule } from "./ast-parser";
@@ -42,6 +51,13 @@ import {
   filterHighConfidenceEdges,
   type RouteReferenceEdge,
 } from "./route-matcher";
+import {
+  applySectioning,
+  type SectionedBlueprint,
+  type CanvasSection,
+  type RoleGateway,
+  type PortalLink,
+} from "./domain-sectioning";
 
 /**
  * Enhanced blueprint with all structural data.
@@ -55,6 +71,14 @@ export interface EnhancedBlueprint extends Blueprint {
   componentDependencies: Map<string, ResolvedComponent>;
   /** Enhanced node metadata */
   nodeMetadata: Map<string, NodeMetadata>;
+  /** Domain sections for visual grouping */
+  sections: CanvasSection[];
+  /** Role gateway switches for post-login routing */
+  roleGateways: RoleGateway[];
+  /** Portal links for cross-section navigation */
+  portalLinks: PortalLink[];
+  /** Edge IDs that should be replaced by portal links */
+  edgesToPortals: string[];
 }
 
 /**
@@ -212,6 +236,9 @@ export function analyzeBlueprintEnhanced(
     }
   }
 
+  // ── 6. Apply domain sectioning ─────────────────────────────────────────
+  const sectioned = applySectioning(baseBlueprint, normalizedRoutes);
+
   return {
     ...baseBlueprint,
     edges: enhancedEdges,
@@ -219,6 +246,10 @@ export function analyzeBlueprintEnhanced(
     routeReferenceEdges: filteredRefEdges,
     componentDependencies,
     nodeMetadata,
+    sections: sectioned.sections,
+    roleGateways: sectioned.roleGateways,
+    portalLinks: sectioned.portalLinks,
+    edgesToPortals: sectioned.edgesToPortals,
     stats: {
       ...baseBlueprint.stats,
     },

@@ -238,6 +238,41 @@ export function NodeShapeSVG({
       );
     }
 
+    // ── Hexagon (Role Gateway Switch) ───────────────────────────────────────
+    case "hexagon": {
+      const hw = width / 2;
+      const hh = height / 2;
+      const inset = width * 0.25; // 25% inset for the angled portions
+      const half = strokeW / 2;
+      // Vertices go clockwise from top-left
+      const pts = [
+        `${hw - inset + half},${half}`,        // top-left
+        `${hw + inset - half},${half}`,        // top-right
+        `${width - half},${hh}`,               // right vertex
+        `${hw + inset - half},${height - half}`, // bottom-right
+        `${hw - inset + half},${height - half}`, // bottom-left
+        `${half},${hh}`,                       // left vertex
+      ].join(" ");
+      return (
+        <svg
+          className={`absolute inset-0 ${className}`}
+          width={width}
+          height={height}
+          viewBox={`0 0 ${width} ${height}`}
+          fill="none"
+          style={{ filter: glowShadow, overflow: "visible" }}
+        >
+          <polygon
+            points={pts}
+            fill={commonFill}
+            stroke={color}
+            strokeWidth={strokeW}
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    }
+
     // ── Rectangle (default) ───────────────────────────────────────────────
     default:
       return (
@@ -306,6 +341,12 @@ export function ShapeIcon({ shape }: { shape: Shape }) {
         <svg viewBox="0 0 12 14" fill="none" className="h-4 w-4">
           <path d="M1 1h7l3 3v9H1V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
           <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+        </svg>
+      );
+    case "hexagon":
+      return (
+        <svg viewBox="0 0 16 10" fill="none" className="h-4 w-4">
+          <polygon points="4,1 12,1 15,5 12,9 4,9 1,5" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
         </svg>
       );
     default: // rectangle

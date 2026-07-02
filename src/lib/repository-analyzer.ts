@@ -15,10 +15,11 @@
 import { parseGitHubUrl, checkRepositoryAccess, fetchRepositoryTree, fetchMultipleFiles, filterSourceFiles, getDefaultBranch, type GitHubRepo } from "./github-api";
 import { parseModule } from "./ast-parser";
 import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-analyzer";
-import { layoutBlueprint, layoutEnhancedBlueprint, type LaidOutBlueprint } from "./system-blueprint";
+import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
 import type { AccessCheckResult } from "./github-api";
 import type { HandleSegment, Shape } from "./canvas-geometry";
+import type { RoleGateway, PortalLink, CanvasSection } from "./domain-sectioning";
 
 export interface AnalysisProgress {
   phase: "connecting" | "fetching" | "parsing" | "building" | "complete" | "error";
@@ -35,12 +36,19 @@ export interface AnalysisProgress {
  * - Component dependency resolution
  * - Dynamic route normalization
  * - Fuzzy route matching with reference edges
+ * - Domain sectioning with role gateways and portal links
  */
 export interface AnalysisGraph {
   nodes: AnalysisGraphNode[];
   edges: AnalysisGraphEdge[];
   blueprint: EnhancedBlueprint;
   layout: LaidOutBlueprint;
+  /** Domain sections for visual grouping */
+  sections: CanvasSection[];
+  /** Role gateway switches for post-login routing */
+  roleGateways: RoleGateway[];
+  /** Portal links for cross-section navigation */
+  portalLinks: PortalLink[];
   /** zero-knowledge crawler graph (routes, interactions, validations) */
   crawlerGraph?: FlowchartGraph;
 }
@@ -248,10 +256,22 @@ export async function analyzeRepository(
   });
 
   // Lay out the enhanced blueprint with style hints for dynamic routes
-  const layout = layoutEnhancedBlueprint(blueprint);
+  // and domain sectioning (sections, gateways, portals)
+  const baseLayout = layoutEnhancedBlueprint(blueprint);
+  const sectionedLayout = layoutSectionedBlueprint({
+    nodes: blueprint.nodes,
+    edges: blueprint.edges,
+    sections: blueprint.sections,
+    roleGateways: blueprint.roleGateways,
+    portalLinks: blueprint.portalLinks,
+    edgesToPortals: blueprint.edgesToPortals,
+  }, baseLayout);
+
+  // Filter edges that are replaced by portal links
+  const filteredEdges = filterPortalEdges(sectionedLayout.edges, sectionedLayout.edgesToReplace);
 
   const graph: AnalysisGraph = {
-    nodes: layout.nodes.map((n) => ({
+    nodes: sectionedLayout.nodes.map((n) => ({
       id: n.id,
       label: n.label,
       sub: n.sub,
@@ -262,7 +282,7 @@ export async function analyzeRepository(
       styleHints: n.styleHints,
       hasFuzzyReferences: n.hasFuzzyReferences,
     })),
-    edges: layout.edges.map((e) => ({
+    edges: filteredEdges.map((e) => ({
       id: e.id,
       from: e.from,
       to: e.to,
@@ -274,7 +294,10 @@ export async function analyzeRepository(
       strokeDasharray: e.strokeDasharray,
     })),
     blueprint,
-    layout,
+    layout: sectionedLayout,
+    sections: sectionedLayout.sections,
+    roleGateways: sectionedLayout.roleGateways,
+    portalLinks: sectionedLayout.portalLinks,
   };
 
   // Phase: Complete
