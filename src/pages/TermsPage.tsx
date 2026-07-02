@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { FileText, CircleAlert as AlertCircle, ArrowLeft } from "lucide-react";
+import { FileText, CircleAlert as AlertCircle, ArrowLeft, ShieldCheck, Ban, Scale } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -63,44 +63,91 @@ export function TermsPage() {
             </p>
           </section>
 
+          {/* ── IP Infringement Warranty ── */}
           <section>
-            <h2 className="mb-2 text-lg font-semibold text-foreground">4. As-Is Limitation of Liability</h2>
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-amber-500" />
-                <span className="text-sm font-semibold text-foreground">Important Disclaimer</span>
-              </div>
-              <p>
-                The Service and all generated diagrams, layouts, and analysis are provided
-                <strong className="text-foreground"> "AS IS" without warranty of any kind</strong>,
-                express or implied. Repodre, its authors, and contributors shall <strong className="text-foreground">not
-                be held liable</strong> for any damages, losses, or consequences arising from the
-                interpretation or use of generated visual layouts.
+            <div className="mb-3 flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-teal" />
+              <h2 className="text-lg font-semibold text-foreground">4. Intellectual Property Infringement Warranty</h2>
+            </div>
+            <div className="rounded-lg border border-teal/20 bg-teal/5 p-4">
+              <p className="mb-3">
+                <strong className="text-foreground">User Declaration.</strong> By uploading,
+                pasting, or otherwise submitting any software repository, file code text, or
+                database structure into the Repodre workspace, you explicitly affirm and
+                warrant that:
               </p>
-              <p className="mt-2">
-                Specifically, you acknowledge that:
-              </p>
-              <ul className="ml-4 mt-1 list-disc space-y-1">
+              <ul className="ml-4 list-disc space-y-1">
                 <li>
-                  Generated diagrams are <strong className="text-foreground">heuristic representations</strong>
-                  and may not accurately reflect your actual codebase architecture.
+                  You own all right, title, and interest in the submitted materials, <strong className="text-foreground">or</strong>
                 </li>
                 <li>
-                  Repodre is not responsible if you misinterpret a layout and take actions
-                  such as <strong className="text-foreground">dropping a real database table</strong>,
-                  modifying production code, or making architectural decisions based on
-                  diagram output.
-                </li>
-                <li>
-                  Always verify generated diagrams against your actual source code before
-                  taking any action.
+                  You hold a valid, current, and globally applicable copyright license or
+                  authorization from the rightful owner permitting you to submit, display,
+                  and process the materials through the Service.
                 </li>
               </ul>
+              <p className="mt-3">
+                <strong className="text-foreground">Assumption of Liability.</strong> You
+                assume <strong className="text-foreground">all legal defense and financial
+                liabilities</strong> arising from your submission of proprietary code that
+                infringes on a third party's intellectual property rights or compromises
+                corporate trade secrets. You agree to indemnify, defend, and hold harmless
+                Repodre, its authors, contributors, and affiliates from any claims, damages,
+                attorneys' fees, or liabilities resulting from your submission of
+                infringing materials.
+              </p>
+              <p className="mt-2">
+                Repodre does not screen, review, or validate the ownership or licensing
+                status of submitted materials. The sole responsibility for ensuring
+                non-infringement rests with you, the user.
+              </p>
             </div>
           </section>
 
+          {/* ── Total Limitation of Liability ── */}
           <section>
-            <h2 className="mb-2 text-lg font-semibold text-foreground">5. Acceptable Use</h2>
+            <div className="mb-3 flex items-center gap-2">
+              <Scale className="h-5 w-5 text-amber-500" />
+              <h2 className="text-lg font-semibold text-foreground">5. Total Limitation of Liability &amp; Warranty Disclaimer</h2>
+            </div>
+            <div className="rounded-lg border-2 border-amber-500/30 bg-amber-500/5 p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-amber-500" />
+                <span className="text-sm font-semibold text-foreground">AS-IS Disclaimer</span>
+              </div>
+              <p className="uppercase tracking-wide font-bold text-foreground leading-relaxed">
+                THE SERVICE AND ALL GENERATED DIAGRAMS, LAYOUTS, SECURITY ALERTS, EXECUTION
+                ROUTE ARROWS, AND ANALYSIS ARE PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT
+                WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+                IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
+                NON-INFRINGEMENT, AND TITLE.
+              </p>
+              <p className="mt-3 uppercase tracking-wide font-bold text-foreground leading-relaxed">
+                THE AUTOMATED VISUAL LAYOUT MAPPING TOOLS, SECURITY ALERTS, AND EXECUTION
+                ROUTE ARROWS FUNCTION AS INTERPRETIVE HEURISTICS ONLY AND DO NOT REPRESENT
+                GUARANTEED OR EXACT REFLECTIONS OF YOUR CODEBASE ARCHITECTURE.
+              </p>
+              <p className="mt-3 uppercase tracking-wide font-bold text-foreground leading-relaxed">
+                THE COMPANY DISCLAIMS ALL EXPRESS AND IMPLIED WARRANTIES. UNDER NO
+                CIRCUMSTANCES SHALL THE COMPANY, ITS AUTHORS, CONTRIBUTORS, OR AFFILIATES
+                BE HELD FINANCIALLY OR LEGALLY LIABLE FOR SYSTEM OUTAGES, DATA CORRUPTION,
+                CODE INTERPRETATION ERRORS, OR DOWNSTREAM BUSINESS LOSSES CAUSED BY USER
+                RELIANCE ON THE CANVAS FLOWCHARTS OR ANY OUTPUT OF THE SERVICE.
+              </p>
+              <p className="mt-3 text-xs normal-case font-normal text-muted-foreground">
+                Some jurisdictions do not allow the exclusion of certain warranties or
+                limitations of liability. In such cases, the above limitations apply to the
+                fullest extent permitted by applicable law.
+              </p>
+            </div>
+          </section>
+
+          {/* ── Acceptable Use Boundaries ── */}
+          <section>
+            <div className="mb-3 flex items-center gap-2">
+              <Ban className="h-5 w-5 text-red-500" />
+              <h2 className="text-lg font-semibold text-foreground">6. Acceptable Use Boundaries</h2>
+            </div>
             <p>You agree not to:</p>
             <ul className="ml-4 list-disc space-y-1">
               <li>Use the Service to analyze repositories you do not have permission to access</li>
@@ -108,10 +155,35 @@ export function TermsPage() {
               <li>Use the Service for any illegal or unauthorized purpose</li>
               <li>Resell or redistribute generated diagrams without proper attribution</li>
             </ul>
+            <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 p-4">
+              <p className="mb-2">
+                <strong className="text-foreground">Prohibition on Automated Extraction.</strong>
+                You are expressly prohibited from utilizing automated scripters, scrapers,
+                crawlers, bots, or reverse-engineering scripts to:
+              </p>
+              <ul className="ml-4 list-disc space-y-1">
+                <li>
+                  Copy, extract, or exfiltrate internal canvas layout coordinates, node
+                  positioning data, or routing logic engines from the Service.
+                </li>
+                <li>
+                  Attack, overload, or stress-test the Service's internal routing algorithms,
+                  edge computation engines, or layout heuristics.
+                </li>
+                <li>
+                  Systematically reproduce, clone, or derive the Service's proprietary
+                  layout intelligence through automated means.
+                </li>
+              </ul>
+              <p className="mt-2">
+                Violation of this clause may result in immediate termination of access
+                and reserves the company's right to pursue legal remedies.
+              </p>
+            </div>
           </section>
 
           <section>
-            <h2 className="mb-2 text-lg font-semibold text-foreground">6. Intellectual Property</h2>
+            <h2 className="mb-2 text-lg font-semibold text-foreground">7. Intellectual Property</h2>
             <p>
               You retain all rights to your source code and repositories. Repodre does not
               claim ownership over any analyzed content. Generated diagrams are derived
@@ -120,7 +192,7 @@ export function TermsPage() {
           </section>
 
           <section>
-            <h2 className="mb-2 text-lg font-semibold text-foreground">7. AI and Automated Analysis Disclosure</h2>
+            <h2 className="mb-2 text-lg font-semibold text-foreground">8. AI and Automated Analysis Disclosure</h2>
             <p>
               Repodre utilizes automated background heuristics and AI-assisted analysis models
               to generate visual layouts. These systems may produce incomplete, inaccurate,
@@ -130,7 +202,7 @@ export function TermsPage() {
           </section>
 
           <section>
-            <h2 className="mb-2 text-lg font-semibold text-foreground">8. Changes to Terms</h2>
+            <h2 className="mb-2 text-lg font-semibold text-foreground">9. Changes to Terms</h2>
             <p>
               We reserve the right to update these Terms at any time. Continued use of the
               Service after changes constitutes acceptance of the new Terms.
@@ -138,7 +210,7 @@ export function TermsPage() {
           </section>
 
           <section>
-            <h2 className="mb-2 text-lg font-semibold text-foreground">9. Governing Law</h2>
+            <h2 className="mb-2 text-lg font-semibold text-foreground">10. Governing Law</h2>
             <p>
               These Terms are provided as-is without specific jurisdiction. The Service is
               offered on a best-effort basis.
