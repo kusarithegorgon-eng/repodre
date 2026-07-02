@@ -16,6 +16,15 @@ import { BottleneckBadge } from "@/components/BottleneckBadge";
 import { EditableLabel } from "@/components/InlineLabelEditor";
 import { DragToConnectHandle, LiveEdgeDrawing, useDragToConnect } from "@/components/DragToConnectHandles";
 import { NodeSpawnerPopover, useNodeSpawner, createNewNodeConfig } from "@/components/NodeSpawnerPopover";
+import {
+  SimulationMode,
+  SimulationModeToggle,
+} from "@/components/SimulationMode";
+import {
+  SystemInsightsDashboard,
+  SystemInsightsToggle,
+} from "@/components/SystemInsightsDashboard";
+import { useCanvasPan, RecenterButton } from "@/hooks/useCanvasPan.tsx";
 import { analyzeBottlenecks, type BottleneckWarning } from "@/lib/bottleneck-analyzer";
 import type { DetectedController } from "@/lib/blueprint-analyzer";
 import type { ParsedModule } from "@/lib/ast-parser";
@@ -280,6 +289,16 @@ export function StudioPage() {
   const [schemaSource, setSchemaSource] = useState<string>("");
   const [codePreviewOpen, setCodePreviewOpen] = useState(false);
   const [bottleneckWarnings, setBottleneckWarnings] = useState<BottleneckWarning[]>([]);
+  const [simulationOpen, setSimulationOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(false);
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  const [highlightedEdgeIds, setHighlightedEdgeIds] = useState<string[]>([]);
+
+  // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
+  const canvasPan = useCanvasPan({
+    enableSpacebar: true,
+    enableMiddleMouse: true,
+  });
 
   // ─── 30% Manual Override: Canvas interaction state ───────────────────────
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -780,6 +799,28 @@ export async function POST(req: Request) {
             <BottleneckBadge warnings={bottleneckWarnings} />
           )}
 
+          {/* Simulation Mode Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <SimulationModeToggle
+              isActive={simulationOpen}
+              onClick={() => setSimulationOpen(!simulationOpen)}
+            />
+          )}
+
+          {/* System Insights Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <SystemInsightsToggle
+              isOpen={insightsOpen}
+              onClick={() => setInsightsOpen(!insightsOpen)}
+              warningCount={nodes.filter((n) =>
+                edges.every((e) => e.from !== n.id && e.to !== n.id)
+              ).length}
+            />
+          )}
+
+          {/* Recenter workspace button */}
+          <RecenterButton onClick={canvasPan.resetPan} />
+
           <ThemeToggle />
           <AuthButton />
         </div>
@@ -800,10 +841,12 @@ export async function POST(req: Request) {
                 ref={canvasRef}
                 className="grid-canvas absolute inset-0 overflow-hidden"
                 onClick={() => setSelected(null)}
+                onMouseDown={canvasPan.handleMouseDown}
+                style={{ cursor: canvasPan.cursor }}
               >
                 <div
                   className="relative h-full w-full origin-top-left"
-                  style={{ transform: `scale(${zoom / 100})` }}
+                  style={{ transform: `${canvasPan.transform} scale(${zoom / 100})` }}
                 >
                   {/* Edge SVG layer */}
                   <svg
@@ -833,11 +876,12 @@ export async function POST(req: Request) {
                           data-detoured={r.detoured}
                           d={r.path}
                           fill="none"
-                          stroke="var(--wire-primary)"
-                          strokeWidth={r.detoured ? 1.5 : 2}
-                          strokeOpacity={1}
+                          stroke={highlightedEdgeIds.includes(r.id) ? "var(--teal)" : "var(--wire-primary)"}
+                          strokeWidth={highlightedEdgeIds.includes(r.id) ? 3 : r.detoured ? 1.5 : 2}
+                          strokeOpacity={highlightedEdgeIds.includes(r.id) ? 1 : 1}
                           strokeDasharray={r.detoured ? "5 3" : undefined}
                           markerEnd="url(#arrow)"
+                          className={highlightedEdgeIds.includes(r.id) ? "animate-pulse-glow" : ""}
                         />
                       ) : null
                     )}
@@ -850,6 +894,7 @@ export async function POST(req: Request) {
                       node={n}
                       zoom={zoom / 100}
                       selected={selected === n.id}
+                      highlighted={highlightedNodeId === n.id}
                       showHandles={selected === n.id}
                       hoverHandle={hoverHandle}
                       onHoverHandle={setHoverHandle}
@@ -929,6 +974,36 @@ export async function POST(req: Request) {
         } : null}
         modules={mockModules}
       />
+
+      {/* Simulation Mode Panel (App viewport only) */}
+      {workspace === "app" && simulationOpen && (
+        <SimulationMode
+          isOpen={simulationOpen}
+          onClose={() => setSimulationOpen(false)}
+          nodes={nodes.map((n) => ({
+            id: n.id,
+            type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
+            label: n.label,
+          }))}
+          edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+          onHighlightNode={setHighlightedNodeId}
+          onHighlightEdges={setHighlightedEdgeIds}
+        />
+      )}
+
+      {/* System Insights Dashboard (App viewport only) */}
+      {workspace === "app" && insightsOpen && (
+        <SystemInsightsDashboard
+          isOpen={insightsOpen}
+          onClose={() => setInsightsOpen(false)}
+          nodes={nodes.map((n) => ({
+            id: n.id,
+            type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
+            label: n.label,
+          }))}
+          edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+        />
+      )}
 
       {/* ── 30% Manual Override: Node Spawner Popover ── */}
       <NodeSpawnerPopover
@@ -1043,6 +1118,7 @@ function CanvasNode({
   node,
   zoom,
   selected,
+  highlighted,
   showHandles,
   hoverHandle,
   onHoverHandle,
@@ -1056,6 +1132,7 @@ function CanvasNode({
   node: NodeData;
   zoom: number;
   selected: boolean;
+  highlighted?: boolean;
   showHandles: boolean;
   hoverHandle: string | null;
   onHoverHandle: (id: string | null) => void;
@@ -1120,16 +1197,17 @@ function CanvasNode({
 
   return (
     <div
-      className="group absolute"
+      className={`group absolute ${highlighted ? "animate-pulse-glow" : ""}`}
       style={{
         left: isDragging ? tempPos.x : node.x,
         top:  isDragging ? tempPos.y : node.y,
         width: NODE_W,
         height: NODE_H,
-        zIndex: isDragging ? 1000 : selected ? 10 : 1,
+        zIndex: isDragging ? 1000 : selected ? 10 : highlighted ? 5 : 1,
         cursor: isDragging ? "grabbing" : "grab",
         // Cylinder cap bleeds outside the bounding box — clip children but not SVG
         overflow: isCylinder ? "visible" : "visible",
+        boxShadow: highlighted ? "0 0 20px 4px var(--teal)" : undefined,
       }}
       onClick={onSelect}
       onMouseDown={handleMouseDown}
@@ -1153,11 +1231,18 @@ function CanvasNode({
         >
           {node.sub}
         </span>
-        {/* HIGH-CONTRAST: Dark text for legibility */}
+        {/* DYNAMIC CONTRAST: Semantic colors for dark/light legibility */}
         <EditableLabel
           value={node.label}
           onSave={(newLabel) => onSetLabel?.(newLabel)}
-          className="block break-words font-mono text-sm font-medium leading-tight text-slate-900"
+          className={`block break-words font-mono text-sm font-medium leading-tight ${
+            node.accent === "green" ? "text-emerald-950 dark:text-emerald-50" :
+            node.accent === "teal" ? "text-sky-950 dark:text-sky-50" :
+            node.accent === "purple" ? "text-amber-950 dark:text-amber-50" :
+            node.accent === "blue" ? "text-slate-900 dark:text-slate-100" :
+            node.accent === "orange" ? "text-orange-950 dark:text-orange-50" :
+            "text-red-950 dark:text-red-50"
+          }`}
           maxWidth={textMaxWidth(node.shape)}
           editHint="Double-click to rename"
         />

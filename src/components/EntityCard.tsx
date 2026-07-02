@@ -53,10 +53,10 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect, onDel
             <ellipse cx="7" cy="13" rx="6" ry="2.5" stroke="var(--neon-blue)" strokeWidth="1.2" />
           </svg>
         </div>
-        <span className="font-mono text-sm font-semibold text-foreground truncate">
+        <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
           {table.name}
         </span>
-        <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-slate-600 dark:text-slate-400">
           {table.columns.length} cols
         </span>
         {onDelete && (
@@ -97,14 +97,16 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect, onDel
               {/* Column name */}
               <span
                 className={`font-mono text-xs truncate ${
-                  col.pk ? "font-semibold text-foreground" : "text-muted-foreground"
+                  col.pk
+                    ? "font-semibold text-slate-900 dark:text-slate-100"
+                    : "text-slate-700 dark:text-slate-300"
                 }`}
               >
                 {col.name}
               </span>
 
               {/* Type */}
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground/80">
+              <span className="ml-auto font-mono text-[10px] text-slate-600 dark:text-slate-400">
                 {col.type}
               </span>
 
