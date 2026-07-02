@@ -11,6 +11,14 @@ import type { Cardinality } from "./sql-tokenizer";
 // Re-export so consumers can import from db-client if desired
 export type { Cardinality };
 
+async function getUserId(): Promise<string> {
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw new Error("Authentication required: no active user session");
+  }
+  return user.id;
+}
+
 // Database row types
 export interface ProjectRow {
   id: string;
@@ -182,9 +190,11 @@ export async function getProject(id: string): Promise<Project | null> {
 export async function createProject(
   project: Omit<Project, "id" | "createdAt" | "updatedAt">
 ): Promise<Project> {
+  const userId = await getUserId();
   const { data, error } = await supabase
     .from("projects")
     .insert({
+      user_id: userId,
       name: project.name,
       description: project.description,
       zoom: project.zoom,
@@ -246,9 +256,11 @@ export async function createNode(
   projectId: string,
   node: Omit<Node, "id" | "projectId">
 ): Promise<Node> {
+  const userId = await getUserId();
   const { data, error } = await supabase
     .from("nodes")
     .insert({
+      user_id: userId,
       project_id: projectId,
       label: node.label,
       sub: node.sub,
@@ -307,10 +319,12 @@ export async function batchCreateNodes(
   projectId: string,
   nodes: Omit<Node, "id" | "projectId">[]
 ): Promise<Node[]> {
+  const userId = await getUserId();
   const { data, error } = await supabase
     .from("nodes")
     .insert(
       nodes.map((n) => ({
+        user_id: userId,
         project_id: projectId,
         label: n.label,
         sub: n.sub,
@@ -347,9 +361,11 @@ export async function createEdge(
   projectId: string,
   edge: Omit<Edge, "id" | "projectId">
 ): Promise<Edge> {
+  const userId = await getUserId();
   const { data, error } = await supabase
     .from("edges")
     .insert({
+      user_id: userId,
       project_id: projectId,
       from_node: edge.from,
       to_node: edge.to,
@@ -397,10 +413,12 @@ export async function batchCreateEdges(
   projectId: string,
   edges: Omit<Edge, "id" | "projectId">[]
 ): Promise<Edge[]> {
+  const userId = await getUserId();
   const { data, error } = await supabase
     .from("edges")
     .insert(
       edges.map((e) => ({
+        user_id: userId,
         project_id: projectId,
         from_node: e.from,
         to_node: e.to,
