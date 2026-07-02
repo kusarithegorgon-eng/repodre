@@ -122,7 +122,7 @@ const SECTION_CONFIGS: Array<{
     ],
     role: "manager",
     title: "MANAGER WORKSPACE",
-    color: "var(--neon-purple)",
+    color: "#1e1b4b",  // dark violet-950 for high contrast border
     borderDash: "12 6",
   },
   {
@@ -135,7 +135,7 @@ const SECTION_CONFIGS: Array<{
     ],
     role: "customer",
     title: "CUSTOMER ACTIONS",
-    color: "var(--neon-green)",
+    color: "#14532d",  // dark green-900 for high contrast border
     borderDash: "8 4",
   },
   {
@@ -147,7 +147,7 @@ const SECTION_CONFIGS: Array<{
     ],
     role: "staff",
     title: "STAFF PANEL",
-    color: "var(--neon-blue)",
+    color: "#0c4a6e",  // dark sky-900 for high contrast border
     borderDash: "6 4",
   },
   {
@@ -158,7 +158,7 @@ const SECTION_CONFIGS: Array<{
     ],
     role: "admin",
     title: "ADMIN CONSOLE",
-    color: "var(--teal)",
+    color: "#164e63",  // dark cyan-900 for high contrast border
     borderDash: "10 5",
   },
 ];
@@ -219,9 +219,9 @@ export function detectSections(
           borderColor: config.color,
           borderStyle: "dashed",
           borderDashArray: config.borderDash,
-          backgroundColor: `${config.color}08`,
-          opacity: 0.15,
-          headerColor: config.color,
+          backgroundColor: "rgba(0, 0, 0, 0.02)",  // ultra-light transparent
+          opacity: 1,
+          headerColor: "#000000",  // SOLID BLACK for prominence
         },
         role: config.role,
       });
@@ -239,12 +239,12 @@ export function detectSections(
       nodeIds: ungroupedNodes.map((n) => n.id),
       bounds: { x: 0, y: 0, w: 0, h: 0 },
       style: {
-        borderColor: "var(--border)",
+        borderColor: "#334155",  // slate-700
         borderStyle: "solid",
         borderDashArray: "none",
         backgroundColor: "transparent",
         opacity: 1,
-        headerColor: "var(--muted-foreground)",
+        headerColor: "#000000",  // SOLID BLACK for prominence
       },
     });
   }

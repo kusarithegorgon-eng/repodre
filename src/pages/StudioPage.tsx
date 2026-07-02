@@ -79,15 +79,15 @@ interface EdgeData {
   toColumn?: string;
 }
 
-// ─── Design tokens ─────────────────────────────────────────────────────────
+// ─── Design tokens - HIGH-CONTRAST ACADEMIC PALETTE ───────────────────────
 
-const ACCENT: Record<Accent, { color: string; glow: string; label: string }> = {
-  green:  { color: "var(--neon-green)",  glow: "color-mix(in oklab, var(--neon-green)  40%, transparent)", label: "Endpoint Green" },
-  purple: { color: "var(--neon-purple)", glow: "color-mix(in oklab, var(--neon-purple) 40%, transparent)", label: "Guard Purple" },
-  teal:   { color: "var(--teal)",        glow: "color-mix(in oklab, var(--teal)        40%, transparent)", label: "Controller Teal" },
-  blue:   { color: "var(--neon-blue)",   glow: "color-mix(in oklab, var(--neon-blue)   40%, transparent)", label: "Database Blue" },
-  orange: { color: "#f97316",            glow: "color-mix(in oklab, #f97316            40%, transparent)", label: "Process Orange" },
-  red:    { color: "#ef4444",            glow: "color-mix(in oklab, #ef4444            40%, transparent)", label: "Alert Red" },
+const ACCENT: Record<Accent, { color: string; glow: string; label: string; nodeType: import("@/components/NodeShapeSVG").NodeType }> = {
+  green:  { color: "var(--node-view-stroke)",  glow: "transparent", label: "View/Endpoint", nodeType: "view" },
+  purple: { color: "var(--node-validation-stroke)", glow: "transparent", label: "Validation", nodeType: "validation" },
+  teal:   { color: "var(--node-controller-stroke)", glow: "transparent", label: "Controller", nodeType: "controller" },
+  blue:   { color: "var(--node-database-stroke)", glow: "transparent", label: "Database", nodeType: "database" },
+  orange: { color: "var(--node-gateway-stroke)", glow: "transparent", label: "Gateway", nodeType: "gateway" },
+  red:    { color: "var(--node-error-stroke)", glow: "transparent", label: "Error", nodeType: "error" },
 };
 
 const ALL_SHAPES: Shape[] = [
@@ -98,6 +98,7 @@ const ALL_SHAPES: Shape[] = [
   "triangle",
   "parallelogram",
   "document",
+  "hexagon",
 ];
 
 // ─── Demo seed data: E-Commerce System ─────────────────────────────────────
@@ -810,6 +811,7 @@ export async function POST(req: Request) {
                     className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
                   >
                     <defs>
+                      {/* HIGH-CONTRAST: Solid dark arrow marker */}
                       <marker
                         id="arrow"
                         viewBox="0 0 10 10"
@@ -819,12 +821,8 @@ export async function POST(req: Request) {
                         markerHeight="6"
                         orient="auto-start-reverse"
                       >
-                        <path d="M0 1 L9 5 L0 9 L2.5 5 Z" fill="var(--teal)" />
+                        <path d="M0 1 L9 5 L0 9 L2.5 5 Z" fill="var(--wire-primary)" />
                       </marker>
-                      <filter id="edgeGlow">
-                        <feGaussianBlur stdDeviation="1.5" result="blur" />
-                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                      </filter>
                     </defs>
 
                     {routed.map((r) =>
@@ -835,9 +833,9 @@ export async function POST(req: Request) {
                           data-detoured={r.detoured}
                           d={r.path}
                           fill="none"
-                          stroke="var(--teal)"
+                          stroke="var(--wire-primary)"
                           strokeWidth={r.detoured ? 1.5 : 2}
-                          strokeOpacity={r.detoured ? 0.65 : 0.55}
+                          strokeOpacity={1}
                           strokeDasharray={r.detoured ? "5 3" : undefined}
                           markerEnd="url(#arrow)"
                         />
@@ -1144,6 +1142,7 @@ function CanvasNode({
         color={a.color}
         glow={a.glow}
         selected={selected}
+        nodeType={a.nodeType}
       />
 
       {/* ── Text content box (inscribed safe zone) ── */}
@@ -1154,11 +1153,11 @@ function CanvasNode({
         >
           {node.sub}
         </span>
-        {/* ── 30% Manual Override: Double-click to edit label ── */}
+        {/* HIGH-CONTRAST: Dark text for legibility */}
         <EditableLabel
           value={node.label}
           onSave={(newLabel) => onSetLabel?.(newLabel)}
-          className="block break-words font-mono text-sm font-medium leading-tight text-foreground"
+          className="block break-words font-mono text-sm font-medium leading-tight text-slate-900"
           maxWidth={textMaxWidth(node.shape)}
           editHint="Double-click to rename"
         />

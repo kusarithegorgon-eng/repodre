@@ -2,66 +2,159 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Dark theme (default) ─────────────────────────────────────────────── */
+/* ─── High-Contrast Academic Design System ─────────────────────────────────── */
+/*
+ * Design Principles:
+ * - Maximum legibility for academic evaluation
+ * - Flat design with NO glows or gradients
+ * - Dark text on light backgrounds (never white on light)
+ * - Solid, well-defined borders and connectors
+ */
+
 :root,
 [data-theme="dark"] {
-  --background: #0a0a0f;
-  --foreground: #f8f8f2;
-  --surface: #12121a;
-  --surface-raised: #1a1a24;
-  --border: #2a2a3a;
-  --muted: #8888a0;
-  --muted-foreground: #b0b0c8;
-  --accent: #1a1a2e;
-  --popover: #16161f;
-
-  /* FigJam palette */
-  --teal: #5ad8cc;
-  --orange: #ff9e42;
-  --blue: #b6ecf7;
-  --purple: #e4ccff;
-  --neon-green: #22c55e;
-  --neon-purple: #a855f7;
-  --neon-blue: #3b82f6;
-  --red: #ef4444;
-
-  /* Semantic aliases for shape accents */
-  --accent-green: #22c55e;
-  --accent-purple: #a855f7;
-  --accent-teal: #5ad8cc;
-  --accent-blue: #3b82f6;
-  --accent-orange: #ff9e42;
-  --accent-red: #ef4444;
-}
-
-/* ─── Light theme ──────────────────────────────────────────────────────── */
-[data-theme="light"] {
-  --background: #f7f7f5;
-  --foreground: #1a1a2e;
-  --surface: #ffffff;
-  --surface-raised: #ffffff;
-  --border: #e0e0e6;
-  --muted: #9999a8;
-  --muted-foreground: #6b6b80;
-  --accent: #f0f0f5;
+  /* Base colors - clean dark background for contrast */
+  --background: #f8fafc;           /* slate-50: crisp light canvas */
+  --foreground: #0f172a;           /* slate-900: near-black text */
+  --surface: #ffffff;              /* pure white cards */
+  --surface-raised: #ffffff;       /* raised surfaces */
+  --border: #334155;               /* slate-700: strong visible borders */
+  --muted: #64748b;                /* slate-500 */
+  --muted-foreground: #475569;     /* slate-600 */
+  --accent: #f1f5f9;               /* slate-100 */
   --popover: #ffffff;
 
-  /* FigJam palette — slightly deeper for light-bg contrast */
-  --teal: #14b8a6;
-  --orange: #f97316;
-  --blue: #0ea5e9;
-  --purple: #8b5cf6;
-  --neon-green: #16a34a;
-  --neon-purple: #8b5cf6;
-  --neon-blue: #0ea5e9;
+  /* High-Contrast Academic Palette - FLAT SOLID COLORS */
+
+  /* View Nodes: Soft mint/sage with dark green border */
+  --node-view-fill: #d1fae5;       /* green-100: soft mint */
+  --node-view-stroke: #166534;    /* green-800: dark solid border */
+  --node-view-text: #14532d;      /* green-900: dark readable text */
+
+  /* Controller/API Nodes: Soft teal/sky with dark blue border */
+  --node-controller-fill: #cffafe; /* cyan-100: soft sky */
+  --node-controller-stroke: #155e75; /* cyan-800: dark solid border */
+  --node-controller-text: #164e63; /* cyan-900: dark readable text */
+
+  /* Validation Nodes: Soft amber/yellow with dark amber border */
+  --node-validation-fill: #fef3c7; /* amber-100: soft yellow */
+  --node-validation-stroke: #92400e; /* amber-800: dark solid border */
+  --node-validation-text: #78350f; /* amber-900: dark readable text */
+
+  /* Database Table Cards: Light gray with charcoal border */
+  --node-database-fill: #f1f5f9;  /* slate-100: clean light gray */
+  --node-database-stroke: #1e293b; /* slate-800: sharp charcoal */
+  --node-database-text: #0f172a;  /* slate-900: near-black text */
+
+  /* Error Nodes: Light red with dark red border */
+  --node-error-fill: #fee2e2;     /* red-100 */
+  --node-error-stroke: #991b1b;   /* red-800 */
+  --node-error-text: #7f1d1d;     /* red-900 */
+
+  /* Role Gateway (Hexagon): Soft orange with dark border */
+  --node-gateway-fill: #ffedd5;   /* orange-100 */
+  --node-gateway-stroke: #9a3412; /* orange-800 */
+  --node-gateway-text: #7c2d12;   /* orange-900 */
+
+  /* Legacy accent colors - mapped to high-contrast versions */
+  --teal: #0d9488;                 /* teal-600: solid, no glow */
+  --orange: #ea580c;               /* orange-600 */
+  --blue: #0284c7;                 /* sky-600 */
+  --purple: #7c3aed;               /* violet-600 */
+  --green: #16a34a;                /* green-600 */
+  --red: #dc2626;                  /* red-600 */
+
+  /* Connector wire colors - dark, solid, trackable */
+  --wire-primary: #475569;        /* slate-600 */
+  --wire-secondary: #64748b;      /* slate-500 */
+  --wire-reference: #94a3b8;      /* slate-400 for fuzzy matches */
+
+  /* Section container colors - ultra-light with dark borders */
+  --section-manager-fill: rgba(139, 92, 246, 0.05);  /* violet tint */
+  --section-manager-stroke: #1e1b4b;                 /* violet-950: prominent */
+  --section-customer-fill: rgba(22, 163, 74, 0.05);  /* green tint */
+  --section-customer-stroke: #14532d;                /* green-900 */
+  --section-staff-fill: rgba(14, 165, 233, 0.05);    /* sky tint */
+  --section-staff-stroke: #0c4a6e;                   /* sky-900 */
+  --section-admin-fill: rgba(6, 182, 212, 0.05);    /* cyan tint */
+  --section-admin-stroke: #164e63;                  /* cyan-900 */
+  --section-default-fill: transparent;
+  --section-default-stroke: #334155;                /* slate-700 */
+
+  /* Portal link colors */
+  --portal-stroke: #475569;       /* slate-600 */
+  --portal-text: #1e293b;         /* slate-800 */
+
+  /* Canvas grid */
+  --grid-dot: #cbd5e1;            /* slate-300: subtle but visible */
+  --grid-background: #f8fafc;     /* slate-50 */
+}
+
+/* Light theme inherits same academic palette */
+[data-theme="light"] {
+  /* Same as above - academic palette works for both */
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border: #334155;
+  --muted: #64748b;
+  --muted-foreground: #475569;
+  --accent: #f1f5f9;
+  --popover: #ffffff;
+
+  /* Same node palette */
+  --node-view-fill: #d1fae5;
+  --node-view-stroke: #166534;
+  --node-view-text: #14532d;
+
+  --node-controller-fill: #cffafe;
+  --node-controller-stroke: #155e75;
+  --node-controller-text: #164e63;
+
+  --node-validation-fill: #fef3c7;
+  --node-validation-stroke: #92400e;
+  --node-validation-text: #78350f;
+
+  --node-database-fill: #f1f5f9;
+  --node-database-stroke: #1e293b;
+  --node-database-text: #0f172a;
+
+  --node-error-fill: #fee2e2;
+  --node-error-stroke: #991b1b;
+  --node-error-text: #7f1d1d;
+
+  --node-gateway-fill: #ffedd5;
+  --node-gateway-stroke: #9a3412;
+  --node-gateway-text: #7c2d12;
+
+  --teal: #0d9488;
+  --orange: #ea580c;
+  --blue: #0284c7;
+  --purple: #7c3aed;
+  --green: #16a34a;
   --red: #dc2626;
 
-  --accent-green: #16a34a;
-  --accent-purple: #8b5cf6;
-  --accent-teal: #14b8a6;
-  --accent-blue: #0ea5e9;
-  --accent-orange: #f97316;
-  --accent-red: #dc2626;
+  --wire-primary: #475569;
+  --wire-secondary: #64748b;
+  --wire-reference: #94a3b8;
+
+  --section-manager-fill: rgba(139, 92, 246, 0.05);
+  --section-manager-stroke: #1e1b4b;
+  --section-customer-fill: rgba(22, 163, 74, 0.05);
+  --section-customer-stroke: #14532d;
+  --section-staff-fill: rgba(14, 165, 233, 0.05);
+  --section-staff-stroke: #0c4a6e;
+  --section-admin-fill: rgba(6, 182, 212, 0.05);
+  --section-admin-stroke: #164e63;
+  --section-default-fill: transparent;
+  --section-default-stroke: #334155;
+
+  --portal-stroke: #475569;
+  --portal-text: #1e293b;
+
+  --grid-dot: #cbd5e1;
+  --grid-background: #f8fafc;
 }
 
 * {
@@ -84,18 +177,126 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: var(--background);
   color: var(--foreground);
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* Grid background for canvas */
+/* ─── Canvas Grid Background ───────────────────────────────────────────── */
 .grid-canvas {
-  background-image:
-    linear-gradient(to right, color-mix(in oklab, var(--border) 50%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklab, var(--border) 50%, transparent) 1px, transparent 1px);
-  background-size: 20px 20px;
+  background-color: var(--grid-background);
+  /* Subtle dotted grid pattern */
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
-/* Custom scrollbar */
+/* ─── High-Contrast Node Styles ────────────────────────────────────────── */
+
+/* View nodes - mint green */
+.node-view {
+  --node-fill: var(--node-view-fill);
+  --node-stroke: var(--node-view-stroke);
+  --node-text: var(--node-view-text);
+}
+
+/* Controller nodes - sky/teal */
+.node-controller {
+  --node-fill: var(--node-controller-fill);
+  --node-stroke: var(--node-controller-stroke);
+  --node-text: var(--node-controller-text);
+}
+
+/* Validation nodes - amber/yellow */
+.node-validation {
+  --node-fill: var(--node-validation-fill);
+  --node-stroke: var(--node-validation-stroke);
+  --node-text: var(--node-validation-text);
+}
+
+/* Database nodes - light gray */
+.node-database {
+  --node-fill: var(--node-database-fill);
+  --node-stroke: var(--node-database-stroke);
+  --node-text: var(--node-database-text);
+}
+
+/* Error nodes - light red */
+.node-error {
+  --node-fill: var(--node-error-fill);
+  --node-stroke: var(--node-error-stroke);
+  --node-text: var(--node-error-text);
+}
+
+/* Gateway nodes - orange */
+.node-gateway {
+  --node-fill: var(--node-gateway-fill);
+  --node-stroke: var(--node-gateway-stroke);
+  --node-text: var(--node-gateway-text);
+}
+
+/* ─── Section Container Styles ─────────────────────────────────────────── */
+.section-manager {
+  background-color: var(--section-manager-fill);
+  border: 2px dashed var(--section-manager-stroke);
+}
+
+.section-customer {
+  background-color: var(--section-customer-fill);
+  border: 2px dashed var(--section-customer-stroke);
+}
+
+.section-staff {
+  background-color: var(--section-staff-fill);
+  border: 2px dashed var(--section-staff-stroke);
+}
+
+.section-admin {
+  background-color: var(--section-admin-fill);
+  border: 2px dashed var(--section-admin-stroke);
+}
+
+.section-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #000000;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  background: transparent;
+}
+
+/* ─── Connector Wire Styles ────────────────────────────────────────────── */
+.wire-primary {
+  stroke: var(--wire-primary);
+  stroke-width: 2px;
+  fill: none;
+  /* NO drop-shadow or glow effects */
+}
+
+.wire-reference {
+  stroke: var(--wire-reference);
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 4;
+  fill: none;
+}
+
+.wire-portal {
+  stroke: var(--portal-stroke);
+  stroke-width: 2px;
+  stroke-dasharray: 8 4;
+  fill: none;
+}
+
+/* ─── Portal Link Labels ───────────────────────────────────────────────── */
+.portal-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--portal-text);
+  background: white;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: none; /* FLAT */
+}
+
+/* ─── Custom Scrollbar ────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -114,20 +315,16 @@ body {
   background: var(--muted);
 }
 
-/* Focus styles */
+/* ─── Focus Styles ─────────────────────────────────────────────────────── */
 :focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
 }
 
-/* Animations */
+/* ─── Animations (kept minimal) ────────────────────────────────────────── */
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes slide-up {
@@ -141,21 +338,6 @@ body {
   }
 }
 
-@keyframes pulse-glow {
-  0%,
-  100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.8;
-  }
-}
-
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
 }
@@ -164,11 +346,18 @@ body {
   animation: slide-up 0.3s ease-out;
 }
 
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
+/* ─── Dynamic Route Badge ──────────────────────────────────────────────── */
+.route-param-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #e2e8f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
 }
 
 /* Theme transition */
 .theme-transition * {
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
