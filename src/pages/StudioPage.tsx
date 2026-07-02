@@ -36,6 +36,12 @@ import { generateScaffold, downloadScaffold } from "@/lib/scaffold-exporter";
 import { detectAntiPatterns, type AntiPatternWarning, getWarningsForNode, hasViewToDbBypass } from "@/lib/anti-pattern-detector";
 import { scanForEnvVariables, type EnvScanResult, getEnvVarsForNode } from "@/lib/env-scanner";
 import { EnvironmentToggle, useProductionOverlay, type Environment } from "@/components/EnvironmentToggle";
+import { WebhookSyncPanel, WebhookSyncToggle, useWebhookSync } from "@/components/WebhookSyncPanel";
+import { MultiplayerPresence, MultiplayerToggle, GhostCursors, useMultiplayerPresence } from "@/components/MultiplayerPresence";
+import { GitDiffOverlay, GitDiffToggle, useGitDiff, getDiffNodeStyles } from "@/components/GitDiffOverlay";
+import type { WebhookEvent, NodeMutation } from "@/lib/webhook-sync";
+import type { DiffStatus } from "@/lib/git-diff-engine";
+import { getNodeDiffStatus } from "@/lib/git-diff-engine";
 import {
   NODE_W,
   NODE_H,
@@ -347,6 +353,10 @@ export function StudioPage() {
   const [crossRefLinks, setCrossRefLinks] = useState<CrossReferenceLink[]>([]);
   const [environment, setEnvironment] = useState<Environment>("local");
   const [antiPatternWarnings, setAntiPatternWarnings] = useState<AntiPatternWarning[]>([]);
+  const [webhookSyncOpen, setWebhookSyncOpen] = useState(false);
+  const [multiplayerOpen, setMultiplayerOpen] = useState(false);
+  const [gitDiffOpen, setGitDiffOpen] = useState(false);
+  const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
@@ -484,6 +494,50 @@ export async function POST(req: Request) {
 
   // Compute production overlay nodes (read replicas, firewall gates)
   const productionOverlayNodes = useProductionOverlay(nodes, environment);
+
+  // Webhook sync handler
+  const handleWebhookMutations = useCallback((mutations: NodeMutation[]) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "add" && mutation.newNode) {
+        const newNode: NodeData = {
+          id: mutation.newNode.id,
+          label: mutation.newNode.label,
+          sub: mutation.newNode.sub,
+          shape: mutation.newNode.shape as Shape,
+          accent: mutation.newNode.accent as Accent,
+          x: mutation.newNode.x,
+          y: mutation.newNode.y,
+          workspace: mutation.newNode.workspace as Workspace,
+          isManuallyPositioned: false,
+        };
+        setNodes((prev) => [...prev, newNode]);
+      } else if (mutation.type === "delete") {
+        setNodes((prev) => prev.filter((n) => n.id !== mutation.nodeId));
+      }
+    }
+  }, []);
+
+  const webhookSync = useWebhookSync(nodes, handleWebhookMutations);
+
+  // Multiplayer presence
+  const {
+    presenceState,
+    toggleConnection: togglePresenceConnection,
+  } = useMultiplayerPresence(canvasRef, zoom, nodes);
+
+  // Git diff
+  const {
+    diffResult,
+    generateDiff,
+    clearDiff,
+  } = useGitDiff(nodes);
+
+  // Update last webhook event when connected
+  useEffect(() => {
+    if (webhookSync.isConnected) {
+      webhookSync.triggerMockEvent();
+    }
+  }, [webhookSync.isConnected]);
 
   // Project IDs for the two demo workspaces
   const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
@@ -1187,6 +1241,40 @@ export async function POST(req: Request) {
             </button>
           )}
 
+          {/* Webhook Sync Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <WebhookSyncToggle
+              isActive={webhookSyncOpen}
+              onClick={() => setWebhookSyncOpen(!webhookSyncOpen)}
+              isConnected={webhookSync.isConnected}
+              hasPendingSync={!!lastWebhookEvent}
+            />
+          )}
+
+          {/* Multiplayer Presence Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <MultiplayerToggle
+              isActive={multiplayerOpen}
+              onClick={() => setMultiplayerOpen(!multiplayerOpen)}
+              collaboratorCount={presenceState.collaborators.length}
+              isConnected={presenceState.isConnected}
+            />
+          )}
+
+          {/* Git PR Diff Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <GitDiffToggle
+              isActive={gitDiffOpen}
+              onClick={() => {
+                if (!gitDiffOpen) {
+                  generateDiff();
+                }
+                setGitDiffOpen(!gitDiffOpen);
+              }}
+              diffCount={diffResult ? diffResult.addedCount + diffResult.deletedCount + diffResult.modifiedCount + diffResult.conflictCount : 0}
+            />
+          )}
+
           {/* Recenter workspace button */}
           <RecenterButton onClick={canvasPan.resetPan} />
 
@@ -1329,6 +1417,7 @@ export async function POST(req: Request) {
                       complexity={calculateComplexityForNode(n.label, n.sub, undefined)}
                       antiPatternWarnings={getWarningsForNode(n.id, antiPatternWarnings)}
                       envVars={getEnvVarsForNode(n.label, new Map([[mockModules[0]?.path?.split('/').pop()?.replace(/\.(ts|tsx)$/, '') || 'route', scanForEnvVariables(mockModules[0]?.source || '')]]))}
+                      diffStatus={gitDiffOpen ? getNodeDiffStatus(n.id, diffResult) : undefined}
                     />
                   ))}
 
@@ -1491,6 +1580,52 @@ export async function POST(req: Request) {
         />
       )}
 
+      {/* Webhook Sync Panel (App viewport only) */}
+      {workspace === "app" && webhookSyncOpen && (
+        <WebhookSyncPanel
+          isOpen={webhookSyncOpen}
+          onClose={() => setWebhookSyncOpen(false)}
+          isConnected={webhookSync.isConnected}
+          lastEvent={lastWebhookEvent}
+          onWebhookEvent={(event, mutations) => {
+            setLastWebhookEvent(event);
+            handleWebhookMutations(mutations);
+          }}
+        />
+      )}
+
+      {/* Multiplayer Presence Panel (App viewport only) */}
+      {workspace === "app" && multiplayerOpen && (
+        <MultiplayerPresence
+          isOpen={multiplayerOpen}
+          onClose={() => setMultiplayerOpen(false)}
+          canvasRef={canvasRef}
+          zoom={zoom}
+          nodes={nodes}
+        />
+      )}
+
+      {/* Ghost Cursors Overlay (App viewport only) */}
+      {workspace === "app" && multiplayerOpen && presenceState.isConnected && (
+        <GhostCursors collaborators={presenceState.collaborators} />
+      )}
+
+      {/* Git PR Diff Overlay (App viewport only) */}
+      {workspace === "app" && gitDiffOpen && (
+        <GitDiffOverlay
+          isOpen={gitDiffOpen}
+          onClose={() => setGitDiffOpen(false)}
+          diffResult={diffResult}
+          onApplyDiff={() => {
+            clearDiff();
+            setGitDiffOpen(false);
+          }}
+          onRevertDiff={() => {
+            clearDiff();
+          }}
+        />
+      )}
+
       {/* ── 30% Manual Override: Node Spawner Popover ── */}
       <NodeSpawnerPopover
         isOpen={nodeSpawner.isOpen}
@@ -1618,6 +1753,7 @@ function CanvasNode({
   complexity,
   antiPatternWarnings,
   envVars,
+  diffStatus,
 }: {
   node: NodeData;
   zoom: number;
@@ -1636,6 +1772,7 @@ function CanvasNode({
   complexity?: ComplexityResult;
   antiPatternWarnings?: AntiPatternWarning[];
   envVars?: EnvScanResult | null;
+  diffStatus?: DiffStatus;
 }) {
   const a = ACCENT[node.accent];
 
@@ -1689,9 +1826,17 @@ function CanvasNode({
   // Cylinder SVG is offset upward, so the outer div needs extra top padding
   const isCylinder = node.shape === "cylinder";
 
+  // Compute diff styles
+  const diffStyles = diffStatus ? getDiffNodeStyles(diffStatus) : {};
+
+  // Determine diff class names
+  const diffClassNames = diffStatus === "added" ? "animate-fade-in" :
+    diffStatus === "deleted" ? "opacity-60" :
+    diffStatus === "conflict" ? "animate-pulse" : "";
+
   return (
     <div
-      className={`group absolute ${highlighted ? "animate-pulse-glow" : ""}`}
+      className={`group absolute ${highlighted ? "animate-pulse-glow" : ""} ${diffClassNames}`}
       style={{
         left: isDragging ? tempPos.x : node.x,
         top:  isDragging ? tempPos.y : node.y,
@@ -1702,6 +1847,7 @@ function CanvasNode({
         // Cylinder cap bleeds outside the bounding box — clip children but not SVG
         overflow: isCylinder ? "visible" : "visible",
         boxShadow: highlighted ? "0 0 20px 4px var(--teal)" : undefined,
+        ...diffStyles,
       }}
       onClick={onSelect}
       onMouseDown={handleMouseDown}
@@ -1805,6 +1951,32 @@ function CanvasNode({
               Anti-Pattern: View-to-DB Bypass Detected
             </span>
           </div>
+        </div>
+      )}
+
+      {/* ── Git Diff Status Badge ── */}
+      {diffStatus && diffStatus !== "unchanged" && (
+        <div className="absolute -top-6 left-1/2 -translate-x-1/2 z-30">
+          <div
+            className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-medium text-white shadow-md ${
+              diffStatus === "added" ? "bg-green-500" :
+              diffStatus === "deleted" ? "bg-red-500" :
+              diffStatus === "modified" ? "bg-blue-500" :
+              "bg-orange-500"
+            }`}
+          >
+            {diffStatus === "added" && <Plus className="h-2.5 w-2.5" />}
+            {diffStatus === "deleted" && <Minus className="h-2.5 w-2.5" />}
+            {diffStatus === "conflict" && <AlertTriangle className="h-2.5 w-2.5" />}
+            <span className="capitalize">{diffStatus}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Strikethrough for deleted nodes ── */}
+      {diffStatus === "deleted" && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <div className="h-0.5 w-full bg-red-500 rotate-[-8deg]" />
         </div>
       )}
 
