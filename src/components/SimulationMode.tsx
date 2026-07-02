@@ -141,7 +141,7 @@ export function SimulationMode({
   const currentStepData = simulationPath[currentStep];
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 flex w-80 flex-col bg-popover border-l border-border shadow-2xl">
+    <div className="absolute inset-y-0 right-0 z-50 flex w-80 flex-col bg-popover border-l border-border shadow-2xl">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">

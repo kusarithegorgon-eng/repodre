@@ -28,6 +28,9 @@ import { useCanvasPan, RecenterButton } from "@/hooks/useCanvasPan.tsx";
 import { analyzeBottlenecks, type BottleneckWarning } from "@/lib/bottleneck-analyzer";
 import type { DetectedController } from "@/lib/blueprint-analyzer";
 import type { ParsedModule } from "@/lib/ast-parser";
+import { AstTokenizerInspector, AstTokenizerToggle } from "@/components/AstTokenizerInspector";
+import { TimeTravelTracer } from "@/components/TimeTravelTracer";
+import { calculateComplexityForNode, getComplexityColor, getComplexityBg, type ComplexityResult } from "@/lib/cyclomatic-complexity";
 import {
   NODE_W,
   NODE_H,
@@ -333,6 +336,8 @@ export function StudioPage() {
   const [wireStyle, setWireStyle] = useState<WireStyle>("curvy");
   const [layoutDirectives, setLayoutDirectives] = useState("direction: LR, gap-x: 280, gap-y: 160");
   const [showLayoutPopover, setShowLayoutPopover] = useState(false);
+  const [astInspectorOpen, setAstInspectorOpen] = useState(false);
+  const [tracerActive, setTracerActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
@@ -1069,6 +1074,14 @@ export async function POST(req: Request) {
             />
           )}
 
+          {/* AST Stream View Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <AstTokenizerToggle
+              onClick={() => setAstInspectorOpen(!astInspectorOpen)}
+              isActive={astInspectorOpen}
+            />
+          )}
+
           {/* Recenter workspace button */}
           <RecenterButton onClick={canvasPan.resetPan} />
 
@@ -1081,7 +1094,7 @@ export async function POST(req: Request) {
       <PrivacyShield />
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {workspace === "app" && <FileTree nodes={nodes} edgeCount={edges.length} />}
 
         <main className="relative min-w-0 flex-1">
@@ -1159,6 +1172,7 @@ export async function POST(req: Request) {
                       onStartDragConnect={(handleId, startPos) => dragToConnect.startDrag(n.id, handleId, startPos)}
                       onSetLabel={(label) => setLabel(n.id, label)}
                       onSpawnChild={() => handleSpawnChild(n.id)}
+                      complexity={calculateComplexityForNode(n.label, n.sub, undefined)}
                     />
                   ))}
 
@@ -1193,6 +1207,30 @@ export async function POST(req: Request) {
                   onReattach={(seg) => reattach(sel.id, seg)}
                   onClose={() => setSelected(null)}
                   onDelete={() => handleDeleteNode(sel.id)}
+                />
+              )}
+
+              {/* AST Tokenizer Inspector (App viewport only) */}
+              {workspace === "app" && astInspectorOpen && sel && (
+                <div className="absolute bottom-4 right-4 z-30 w-96">
+                  <AstTokenizerInspector
+                    source={mockModules[0]?.source || `// ${sel.label}\nconst ${sel.label.replace(/[^a-zA-Z0-9]/g, "")} = () => {\n  // Node: ${sel.sub}\n  return ${sel.label};\n};`}
+                    nodeLabel={sel.label}
+                  />
+                </div>
+              )}
+
+              {/* Time-Travel Tracer (App viewport only) */}
+              {workspace === "app" && (
+                <TimeTravelTracer
+                  nodes={nodes.map((n) => ({
+                    id: n.id,
+                    label: n.label,
+                    type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
+                  }))}
+                  edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+                  onHighlightNode={setHighlightedNodeId}
+                  onHighlightEdges={setHighlightedEdgeIds}
                 />
               )}
             </>
@@ -1381,6 +1419,7 @@ function CanvasNode({
   onStartDragConnect,
   onSetLabel,
   onSpawnChild,
+  complexity,
 }: {
   node: NodeData;
   zoom: number;
@@ -1396,6 +1435,7 @@ function CanvasNode({
   onStartDragConnect?: (handleId: HandleSegment, startPos: { x: number; y: number }) => void;
   onSetLabel?: (label: string) => void;
   onSpawnChild?: () => void;
+  complexity?: ComplexityResult;
 }) {
   const a = ACCENT[node.accent];
 
@@ -1555,6 +1595,16 @@ function CanvasNode({
       >
         <Sparkles className="h-3 w-3" />
       </button>
+
+      {/* ── Cyclomatic Complexity Badge (top-right corner) ── */}
+      {complexity && (
+        <div
+          className={`absolute -top-2.5 right-1 z-10 flex items-center rounded-full border px-1.5 py-0.5 text-[8px] font-bold leading-none ${getComplexityBg(complexity.level)} ${getComplexityColor(complexity.level)}`}
+          title={`${complexity.label} — ${complexity.description}`}
+        >
+          M={complexity.complexity}
+        </div>
+      )}
 
       {/* ── Spawn child node button (right-center edge) ── */}
       {onSpawnChild && (
