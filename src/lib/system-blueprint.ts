@@ -23,6 +23,7 @@ import type {
   BlueprintNode,
   BlueprintEdge,
 } from "./blueprint-analyzer";
+import type { EnhancedBlueprint, EnhancedBlueprintEdge, NodeMetadata } from "./enhanced-analyzer";
 
 export interface PositionedBlueprintNode extends PositionedNode {
   id: string;
@@ -31,6 +32,16 @@ export interface PositionedBlueprintNode extends PositionedNode {
   shape: Shape;
   accent: BlueprintAccent;
   type: BlueprintNode["type"];
+  /** Style hints for dynamic routes */
+  styleHints?: {
+    borderStyle: "solid" | "dashed" | "dotted";
+    borderDashArray: string;
+    opacity: number;
+    showParamBadge: boolean;
+    paramBadgeText: string;
+  };
+  /** Whether this node has fuzzy route references */
+  hasFuzzyReferences?: boolean;
 }
 
 export interface PositionedBlueprintEdge {
@@ -40,6 +51,14 @@ export interface PositionedBlueprintEdge {
   fromHandle?: HandleSegment;
   toHandle?: HandleSegment;
   label?: string;
+  /** Whether this is a route reference edge */
+  isRouteReference?: boolean;
+  /** Detection method for route references */
+  referenceType?: "explicit" | "fuzzy" | "inferred";
+  /** Opacity for rendering */
+  renderOpacity?: number;
+  /** SVG stroke-dasharray for edge styling */
+  strokeDasharray?: string;
 }
 
 export interface LaidOutBlueprint {
@@ -223,4 +242,71 @@ export function layoutBlueprint(blueprint: Blueprint): LaidOutBlueprint {
   });
 
   return { nodes: positionedNodes, edges: positionedEdges };
+}
+
+/**
+ * Layout an enhanced blueprint with style hints for dynamic routes.
+ */
+export function layoutEnhancedBlueprint(
+  blueprint: EnhancedBlueprint
+): LaidOutBlueprint {
+  // First do base layout
+  const baseLayout = layoutBlueprint({
+    nodes: blueprint.nodes,
+    edges: blueprint.edges,
+    stats: blueprint.stats,
+  });
+
+  // ── Apply style hints from node metadata ───────────────────────────────────
+  const enhancedNodes: PositionedBlueprintNode[] = baseLayout.nodes.map((node) => {
+    const meta = blueprint.nodeMetadata.get(node.id);
+
+    if (meta?.isDynamicRoute && meta.routeParams) {
+      // Find the normalized route for this node
+      const normalizedRoute = blueprint.normalizedRoutes.find(
+        (r) => r.normalizedPath === node.label || r.originalPath?.includes(node.label)
+      );
+
+      if (normalizedRoute) {
+        return {
+          ...node,
+          styleHints: {
+            borderStyle: normalizedRoute.styleHints.borderStyle,
+            borderDashArray: normalizedRoute.styleHints.borderDashArray,
+            opacity: normalizedRoute.styleHints.opacity,
+            showParamBadge: normalizedRoute.styleHints.showParamBadge,
+            paramBadgeText: normalizedRoute.styleHints.paramBadgeText,
+          },
+        };
+      }
+    }
+
+    return node;
+  });
+
+  // ── Apply route reference edge styles ───────────────────────────────────────
+  const enhancedEdges: PositionedBlueprintEdge[] = baseLayout.edges.map((edge) => {
+    // Find the matching enhanced edge
+    const enhancedEdge = blueprint.edges.find((e) => e.id === edge.id) as EnhancedBlueprintEdge | undefined;
+
+    if (enhancedEdge?.isRouteReference) {
+      return {
+        ...edge,
+        isRouteReference: true,
+        referenceType: enhancedEdge.referenceType,
+        renderOpacity: enhancedEdge.renderOpacity,
+        strokeDasharray:
+          enhancedEdge.referenceType === "inferred"
+            ? "4 4"
+            : enhancedEdge.referenceType === "fuzzy"
+            ? "2 4"
+            : undefined,
+        label: enhancedEdge.isManualReference ? "ref?" : edge.label,
+      };
+    }
+
+    return edge;
+  });
+
+  return { nodes: enhancedNodes, edges: enhancedEdges };
 }

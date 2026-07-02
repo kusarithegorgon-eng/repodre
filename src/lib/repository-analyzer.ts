@@ -4,15 +4,18 @@
  * Orchestrates the complete app-mapping pipeline:
  * 1. Fetch repository metadata and tree from GitHub
  * 2. Parse source files with the AST parser
- * 3. Run the blueprint analyzer to detect routes, validation, API hooks, DB
+ * 3. Run the enhanced blueprint analyzer with:
+ *    - Component recursive dependency resolver
+ *    - Route parameter normalization engine
+ *    - Fuzzy accelerated route matcher
  * 4. Lay out the resulting graph as a left-to-right user-journey timeline
  * 5. Return a complete project structure for visualization
  */
 
 import { parseGitHubUrl, checkRepositoryAccess, fetchRepositoryTree, fetchMultipleFiles, filterSourceFiles, getDefaultBranch, type GitHubRepo } from "./github-api";
 import { parseModule } from "./ast-parser";
-import { analyzeBlueprint, type Blueprint } from "./blueprint-analyzer";
-import { layoutBlueprint, type LaidOutBlueprint } from "./system-blueprint";
+import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-analyzer";
+import { layoutBlueprint, layoutEnhancedBlueprint, type LaidOutBlueprint } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
 import type { AccessCheckResult } from "./github-api";
 import type { HandleSegment, Shape } from "./canvas-geometry";
@@ -28,12 +31,15 @@ export interface AnalysisProgress {
 /**
  * The graph returned to the UI. It mirrors the shape consumed by HomePage
  * (nodes with label/sub/shape/accent/x/y, edges with from/to/handles) but
- * is produced by the blueprint pipeline rather than the old import-graph.
+ * is produced by the enhanced blueprint pipeline with:
+ * - Component dependency resolution
+ * - Dynamic route normalization
+ * - Fuzzy route matching with reference edges
  */
 export interface AnalysisGraph {
   nodes: AnalysisGraphNode[];
   edges: AnalysisGraphEdge[];
-  blueprint: Blueprint;
+  blueprint: EnhancedBlueprint;
   layout: LaidOutBlueprint;
   /** zero-knowledge crawler graph (routes, interactions, validations) */
   crawlerGraph?: FlowchartGraph;
@@ -47,6 +53,16 @@ export interface AnalysisGraphNode {
   accent: "green" | "purple" | "teal" | "blue" | "orange" | "red";
   x: number;
   y: number;
+  /** Style hints for dynamic routes (dashed borders) */
+  styleHints?: {
+    borderStyle: "solid" | "dashed" | "dotted";
+    borderDashArray: string;
+    opacity: number;
+    showParamBadge: boolean;
+    paramBadgeText: string;
+  };
+  /** Whether this node has fuzzy route references */
+  hasFuzzyReferences?: boolean;
 }
 
 export interface AnalysisGraphEdge {
@@ -55,6 +71,14 @@ export interface AnalysisGraphEdge {
   to: string;
   fromHandle?: HandleSegment;
   toHandle?: HandleSegment;
+  /** Whether this is a route reference edge (fuzzy match) */
+  isRouteReference?: boolean;
+  /** Detection method for route references */
+  referenceType?: "explicit" | "fuzzy" | "inferred";
+  /** Opacity for rendering (lower for fuzzy matches) */
+  renderOpacity?: number;
+  /** SVG stroke-dasharray for edge styling */
+  strokeDasharray?: string;
 }
 
 export interface AnalysisResult {
@@ -198,18 +222,23 @@ export async function analyzeRepository(
     percent: 80,
   });
 
-  // Run the blueprint analyzer: routes → validation → controllers → DB
-  const blueprint = analyzeBlueprint(modules);
-
-  // ── Zero-knowledge local crawler: scan file tree + raw contents ──────
-  // The crawler runs alongside the AST-based blueprint analyzer, providing
-  // a lightweight directory-structure-first scan that catches routes and
-  // interactions the AST parser might miss.
+  // ── Build file paths and contents for enhanced analysis ───────────────
   const filePaths = Array.from(files.keys());
   const fileContents = new Map<string, string>();
   for (const [path, content] of files) {
     fileContents.set(path, content);
   }
+
+  // Run the enhanced blueprint analyzer:
+  // - Component recursive dependency resolver
+  // - Route parameter normalization (dynamic [id]/[slug] routes)
+  // - Fuzzy accelerated route matcher
+  const blueprint = analyzeBlueprintEnhanced(modules, fileContents, filePaths);
+
+  // ── Zero-knowledge local crawler: scan file tree + raw contents ──────
+  // The crawler runs alongside the AST-based blueprint analyzer, providing
+  // a lightweight directory-structure-first scan that catches routes and
+  // interactions the AST parser might miss.
   const crawlerGraph = crawlRepository(filePaths, fileContents);
 
   onProgress?.({
@@ -218,8 +247,8 @@ export async function analyzeRepository(
     percent: 92,
   });
 
-  // Lay out the blueprint left-to-right
-  const layout = layoutBlueprint(blueprint);
+  // Lay out the enhanced blueprint with style hints for dynamic routes
+  const layout = layoutEnhancedBlueprint(blueprint);
 
   const graph: AnalysisGraph = {
     nodes: layout.nodes.map((n) => ({
@@ -230,6 +259,8 @@ export async function analyzeRepository(
       accent: n.accent,
       x: n.x,
       y: n.y,
+      styleHints: n.styleHints,
+      hasFuzzyReferences: n.hasFuzzyReferences,
     })),
     edges: layout.edges.map((e) => ({
       id: e.id,
@@ -237,6 +268,10 @@ export async function analyzeRepository(
       to: e.to,
       fromHandle: e.fromHandle,
       toHandle: e.toHandle,
+      isRouteReference: e.isRouteReference,
+      referenceType: e.referenceType,
+      renderOpacity: e.renderOpacity,
+      strokeDasharray: e.strokeDasharray,
     })),
     blueprint,
     layout,
