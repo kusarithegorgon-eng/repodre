@@ -1,6 +1,6 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, Layout, CornerDownRight } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
@@ -311,7 +311,9 @@ function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
 // ─── Studio page ────────────────────────────────────────────────────────────
 
 export function StudioPage() {
-  const [isLoading, setIsLoading] = useState(true);
+  const search = useSearch({ strict: false }) as { demo?: boolean; project?: string };
+  const isDemoMode = search?.demo === true;
+  const [isLoading, setIsLoading] = useState(!isDemoMode);
   const [project, setProject] = useState<Project | null>(null);
   const [workspace, setWorkspace] = useState<Workspace>("app");
   const [nodes, setNodes] = useState<NodeData[]>(INITIAL_NODES);
@@ -439,6 +441,14 @@ export async function POST(req: Request) {
 
   // Load the project for the active workspace
   useEffect(() => {
+    // Demo mode: instantly hydrate from static seed data, skip all DB fetches
+    if (isDemoMode) {
+      setNodes(INITIAL_NODES);
+      setEdges(INITIAL_EDGES);
+      setIsLoading(false);
+      return;
+    }
+
     async function loadProject() {
       setIsLoading(true);
       setSelected(null);
@@ -487,7 +497,7 @@ export async function POST(req: Request) {
       }
     }
     loadProject();
-  }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID]);
+  }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID, isDemoMode]);
 
   const sel = nodes.find((n) => n.id === selected) ?? null;
 
