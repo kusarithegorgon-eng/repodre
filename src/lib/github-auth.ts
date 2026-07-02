@@ -21,18 +21,24 @@ const REDIRECT_TO = window.location.origin + "/auth/callback";
 const GH_TOKEN_STORAGE_KEY = "gh_provider_token";
 
 /**
- * Cache (or clear) the GitHub provider token in localStorage so it survives
- * full page reloads. Supabase only returns provider_token at the moment a
- * session is first established (OAuth exchange / token refresh) — it is not
- * persisted in the Supabase session itself, so we have to stash it ourselves.
+ * Save the GitHub provider token to localStorage so it survives full page
+ * reloads. Supabase only returns provider_token at the moment a session is
+ * first established (OAuth exchange / token refresh) — it is not persisted
+ * in the Supabase session itself, so we have to stash it ourselves.
+ *
+ * IMPORTANT: this function ONLY saves. It never clears the cached token,
+ * even implicitly — a call with an empty/undefined value is a no-op, not a
+ * clear. Callers that received a sparse payload (e.g. a TOKEN_REFRESHED
+ * event with no provider_token) must NOT wipe out a still-good cached
+ * token just because this particular event didn't carry one. Clearing is
+ * handled exclusively by clearCachedToken().
  */
 function cacheProviderToken(token: string | null | undefined): void {
+  if (typeof token !== "string" || token.length === 0) {
+    return;
+  }
   try {
-    if (typeof token === "string" && token.length > 0) {
-      localStorage.setItem(GH_TOKEN_STORAGE_KEY, token);
-    } else {
-      localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
-    }
+    localStorage.setItem(GH_TOKEN_STORAGE_KEY, token);
   } catch (err) {
     // localStorage can throw in Safari private browsing, locked-down
     // corporate browsers, or when storage quota is exceeded. Losing the
@@ -43,8 +49,21 @@ function cacheProviderToken(token: string | null | undefined): void {
 }
 
 /**
+ * Explicitly clear the cached GitHub provider token. This is the ONLY
+ * function that removes the cached token — it is intentionally separate
+ * from cacheProviderToken so that "saving a sparse payload" can never be
+ * confused with "the user wants to be logged out."
+ */
+function clearCachedToken(): void {
+  try {
+    localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
+  } catch (err) {
+    console.warn("Unable to clear cached GitHub provider token:", err);
+  }
+}
+
+/**
  * Read the cached GitHub provider token from localStorage, if any.
- * Wrapped in try/catch for the same reasons as cacheProviderToken.
  */
 function readCachedProviderToken(): string | null {
   try {
@@ -76,10 +95,11 @@ export async function signInWithGitHub(): Promise<void> {
 
 /**
  * Sign out the current user and clear the session.
+ * This is the intentional, user-triggered path that clears the cached token.
  */
 export async function signOut(): Promise<void> {
   const { error } = await supabase.auth.signOut();
-  cacheProviderToken(null);
+  clearCachedToken();
   if (error) {
     console.error("Sign out error:", error.message);
     throw error;
@@ -107,55 +127,57 @@ export async function getCurrentUser(): Promise<User | null> {
 }
 
 /**
- * Extract the GitHub access token from the provider token.
- * Supabase stores the provider token in session.provider_token.
+ * Extract the GitHub access token.
+ * Checks the live Supabase session first (and saves it if present), then
+ * falls back to user metadata, then to whatever's cached in localStorage
+ * from a previous session. The cache is never treated as "cleared" just
+ * because the current payload happens to be sparse.
  */
 export async function getGitHubAccessToken(): Promise<string | null> {
   const session = await getCurrentSession();
 
-  // Supabase stores the GitHub OAuth token in provider_token, but only right
-  // after the session is (re)established — it's not preserved across page
-  // reloads by Supabase itself. Cache it whenever we do see it.
+  // 1. Check the live session first.
   const providerToken = session?.provider_token;
   if (typeof providerToken === "string" && providerToken.length > 0) {
     cacheProviderToken(providerToken);
     return providerToken;
   }
 
-  // Fallback: check user metadata for GitHub token
+  // 2. Fallback: check user metadata for a GitHub token.
   if (session) {
     const user = await getCurrentUser();
-    if (user?.user_metadata?.provider_token) {
-      const metadataToken = user.user_metadata.provider_token as string;
+    const metadataToken = user?.user_metadata?.provider_token;
+    if (typeof metadataToken === "string" && metadataToken.length > 0) {
       cacheProviderToken(metadataToken);
       return metadataToken;
     }
   }
 
-  // Definitive fallback: a token cached from a previous session. This
+  // 3. Definitive fallback: whatever's cached from a previous session. This
   // intentionally does NOT require `session` to be truthy — right after a
   // page reload, Supabase's session can take a moment to rehydrate (or may
   // have dropped provider_token even though the session itself is valid), so
   // gating this on `session` would reintroduce the "works, then null after
-  // refresh" bug. Note this also means a stale/revoked token can be returned
-  // here; verifyRepoScope(), or a 401 from a downstream API call, is the
-  // signal to clear it.
+  // refresh" bug. A stale/revoked token can be returned here; that's fine —
+  // verifyRepoScope() or a downstream 401/403 is what should react to that,
+  // not this read.
   return readCachedProviderToken();
 }
 
 /**
  * If a GitHub API response indicates the token is dead (401 Unauthorized —
  * bad/expired token, or 403 Forbidden — revoked/insufficient scope), clear
- * the cached provider token so we stop silently reusing it. Returns true if
- * the response was an auth failure.
+ * the cached provider token so we stop silently reusing a dead one. Returns
+ * true if the response was an auth failure.
  *
  * Note: 403 can also mean rate limiting, not just revocation. We still clear
  * the cache in that case — worst case the user has to re-auth once, which is
  * far better than getting stuck in a silent-failure loop with a dead token.
+ * This is a reactive safety net, not a substitute for explicit signOut().
  */
 function handleAuthFailure(response: Response): boolean {
   if (response.status === 401 || response.status === 403) {
-    cacheProviderToken(null);
+    clearCachedToken();
     return true;
   }
   return false;
@@ -204,7 +226,9 @@ export function onAuthStateChange(
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (session?.provider_token) cacheProviderToken(session.provider_token);
+    // Only saves if a token is actually present in this payload — a sparse
+    // payload here is simply ignored, never treated as a clear signal.
+    cacheProviderToken(session?.provider_token);
     const hasRepoScope = session ? await verifyRepoScope() : false;
 
     if (mounted) {
@@ -226,11 +250,15 @@ export function onAuthStateChange(
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    // Only cache when this event actually carries a fresh token — some
-    // events (e.g. a plain TOKEN_REFRESHED) may not include provider_token,
-    // and we don't want to blow away a still-good cached value in that case.
-    if (session?.provider_token) cacheProviderToken(session.provider_token);
-    if (event === "SIGNED_OUT") cacheProviderToken(null);
+    // Only saves when this event actually carries a fresh token — events
+    // like a plain TOKEN_REFRESHED may not include provider_token, and
+    // cacheProviderToken is a no-op in that case, so a still-good cached
+    // value is never wiped out just because this event was sparse.
+    cacheProviderToken(session?.provider_token);
+    // SIGNED_OUT is the one auth event that represents genuine, intentional
+    // sign-out, so it's the one event (besides calling signOut() directly)
+    // allowed to clear the cache.
+    if (event === "SIGNED_OUT") clearCachedToken();
     const hasRepoScope = session ? await verifyRepoScope() : false;
 
     callback({
@@ -264,6 +292,8 @@ export async function handleAuthCallback(): Promise<Session | null> {
     throw error;
   }
 
+  // If this callback's payload happens to be sparse, cacheProviderToken is a
+  // no-op — it will NOT clear a previously cached token.
   cacheProviderToken(data.session?.provider_token);
 
   return data.session;
