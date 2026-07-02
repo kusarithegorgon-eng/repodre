@@ -361,6 +361,31 @@ body {
   animation: slide-up 0.3s ease-out;
 }
 
+/* ─── Live Traffic SVG Path Animation ──────────────────────────────────── */
+@keyframes repodre-dash-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.repodre-traffic-flow {
+  animation: repodre-dash-flow 1.5s linear infinite;
+}
+
+/* ─── Cross-Reference Link Animation ──────────────────────────────────── */
+@keyframes repodre-xref-pulse {
+  0%, 100% {
+    stroke-opacity: 0.25;
+  }
+  50% {
+    stroke-opacity: 0.5;
+  }
+}
+
+.repodre-xref-link {
+  animation: repodre-xref-pulse 3s ease-in-out infinite;
+}
+
 /* ─── Dynamic Route Badge ──────────────────────────────────────────────── */
 .route-param-badge {
   font-size: 10px;

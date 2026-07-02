@@ -1,6 +1,6 @@
 import { Link, useSearch } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
@@ -31,6 +31,8 @@ import type { ParsedModule } from "@/lib/ast-parser";
 import { AstTokenizerInspector, AstTokenizerToggle } from "@/components/AstTokenizerInspector";
 import { TimeTravelTracer } from "@/components/TimeTravelTracer";
 import { calculateComplexityForNode, getComplexityColor, getComplexityBg, type ComplexityResult } from "@/lib/cyclomatic-complexity";
+import { buildCrossReferences, type CrossReferenceLink } from "@/lib/cross-reference-engine";
+import { generateScaffold, downloadScaffold } from "@/lib/scaffold-exporter";
 import {
   NODE_W,
   NODE_H,
@@ -338,6 +340,8 @@ export function StudioPage() {
   const [showLayoutPopover, setShowLayoutPopover] = useState(false);
   const [astInspectorOpen, setAstInspectorOpen] = useState(false);
   const [tracerActive, setTracerActive] = useState(false);
+  const [liveTrafficActive, setLiveTrafficActive] = useState(false);
+  const [crossRefLinks, setCrossRefLinks] = useState<CrossReferenceLink[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
@@ -439,6 +443,21 @@ export async function POST(req: Request) {
     const analysis = analyzeBottlenecks(mockModules);
     setBottleneckWarnings(analysis.warnings);
   }, [mockModules]);
+
+  // Compute cross-reference links between controllers and database tables
+  useEffect(() => {
+    const xrefResult = buildCrossReferences(
+      nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+        tableName: n.tableName,
+      })),
+      mockModules,
+    );
+    setCrossRefLinks(xrefResult.links);
+  }, [nodes, mockModules]);
 
   // Project IDs for the two demo workspaces
   const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
@@ -1082,6 +1101,58 @@ export async function POST(req: Request) {
             />
           )}
 
+          {/* Simulate Live Traffic Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <button
+              onClick={() => setLiveTrafficActive(!liveTrafficActive)}
+              title="Simulate live traffic execution on SVG paths"
+              className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
+                liveTrafficActive
+                  ? "border-teal/50 bg-teal/10 text-teal"
+                  : "border-border bg-background text-muted-foreground hover:border-teal hover:text-teal"
+              }`}
+            >
+              <Activity className="h-3.5 w-3.5" />
+              Live Traffic
+              <span className={`ml-1 h-1.5 w-1.5 rounded-full ${liveTrafficActive ? "bg-teal animate-pulse" : "bg-muted-foreground/40"}`} />
+            </button>
+          )}
+
+          {/* Export Code Architecture Template (App viewport only) */}
+          {workspace === "app" && (
+            <button
+              onClick={() => {
+                const scaffold = generateScaffold(
+                  project?.name || "repodre-architecture",
+                  nodes.map((n) => ({
+                    id: n.id,
+                    label: n.label,
+                    sub: n.sub,
+                    shape: n.shape,
+                    accent: n.accent,
+                    workspace: n.workspace,
+                    tableName: n.tableName,
+                    columns: n.columns,
+                  })),
+                  edges.map((e) => ({
+                    id: e.id,
+                    from: e.from,
+                    to: e.to,
+                    cardinality: e.cardinality,
+                    fromColumn: e.fromColumn,
+                    toColumn: e.toColumn,
+                  })),
+                );
+                downloadScaffold(scaffold);
+              }}
+              title="Export code architecture template as scaffold"
+              className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-all hover:border-teal hover:text-teal"
+            >
+              <FileCode2 className="h-3.5 w-3.5" />
+              Export Scaffold
+            </button>
+          )}
+
           {/* Recenter workspace button */}
           <RecenterButton onClick={canvasPan.resetPan} />
 
@@ -1130,6 +1201,18 @@ export async function POST(req: Request) {
                       >
                         <path d="M0 1 L9 5 L0 9 L2.5 5 Z" fill="var(--wire-primary)" />
                       </marker>
+                      {/* Cross-reference link arrow marker (teal, low-opacity) */}
+                      <marker
+                        id="arrow-xref"
+                        viewBox="0 0 10 10"
+                        refX="9"
+                        refY="5"
+                        markerWidth="5"
+                        markerHeight="5"
+                        orient="auto-start-reverse"
+                      >
+                        <path d="M0 1 L9 5 L0 9 L2.5 5 Z" fill="var(--teal)" fillOpacity="0.5" />
+                      </marker>
                     </defs>
 
                     {routed.map((r) =>
@@ -1143,12 +1226,49 @@ export async function POST(req: Request) {
                           stroke={highlightedEdgeIds.includes(r.id) ? "var(--teal)" : "var(--wire-primary)"}
                           strokeWidth={highlightedEdgeIds.includes(r.id) ? 3 : r.detoured ? 1.5 : 2}
                           strokeOpacity={highlightedEdgeIds.includes(r.id) ? 1 : 1}
-                          strokeDasharray={r.detoured ? "5 3" : undefined}
+                          strokeDasharray={
+                            liveTrafficActive
+                              ? "8 4"
+                              : r.detoured
+                                ? "5 3"
+                                : undefined
+                          }
                           markerEnd="url(#arrow)"
-                          className={highlightedEdgeIds.includes(r.id) ? "animate-pulse-glow" : ""}
+                          className={
+                            highlightedEdgeIds.includes(r.id)
+                              ? "animate-pulse-glow"
+                              : liveTrafficActive
+                                ? "repodre-traffic-flow"
+                                : ""
+                          }
                         />
                       ) : null
                     )}
+
+                    {/* Cross-reference links (low-opacity relation wires) */}
+                    {crossRefLinks.map((xref) => {
+                      const fromNode = nodes.find((n) => n.id === xref.fromNodeId);
+                      const toNode = nodes.find((n) => n.id === xref.toNodeId);
+                      if (!fromNode || !toNode) return null;
+                      const path = straightEdgePath(fromNode, toNode);
+                      return (
+                        <path
+                          key={xref.id}
+                          data-testid={`xref-${xref.id}`}
+                          data-xref-table={xref.tableName}
+                          d={path}
+                          fill="none"
+                          stroke="var(--teal)"
+                          strokeWidth={1.5}
+                          strokeOpacity={0.35}
+                          strokeDasharray="4 6"
+                          markerEnd="url(#arrow-xref)"
+                          className="repodre-xref-link"
+                        >
+                          <title>{`Cross-reference: ${xref.tableName} (${xref.matchType}, confidence: ${Math.round(xref.confidence * 100)}%)`}</title>
+                        </path>
+                      );
+                    })}
                   </svg>
 
                   {/* Node layer */}
