@@ -18,6 +18,21 @@ export interface GitHubAuthState {
 
 const GITHUB_PROVIDER = "github";
 const REDIRECT_TO = window.location.origin + "/auth/callback";
+const GH_TOKEN_STORAGE_KEY = "gh_provider_token";
+
+/**
+ * Cache (or clear) the GitHub provider token in localStorage so it survives
+ * full page reloads. Supabase only returns provider_token at the moment a
+ * session is first established (OAuth exchange / token refresh) — it is not
+ * persisted in the Supabase session itself, so we have to stash it ourselves.
+ */
+function cacheProviderToken(token: string | null | undefined): void {
+  if (typeof token === "string" && token.length > 0) {
+    localStorage.setItem(GH_TOKEN_STORAGE_KEY, token);
+  } else {
+    localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
+  }
+}
 
 /**
  * Initiate GitHub OAuth flow with repo scope for full repository access.
@@ -43,6 +58,7 @@ export async function signInWithGitHub(): Promise<void> {
  */
 export async function signOut(): Promise<void> {
   const { error } = await supabase.auth.signOut();
+  cacheProviderToken(null);
   if (error) {
     console.error("Sign out error:", error.message);
     throw error;
@@ -75,21 +91,35 @@ export async function getCurrentUser(): Promise<User | null> {
  */
 export async function getGitHubAccessToken(): Promise<string | null> {
   const session = await getCurrentSession();
-  if (!session) return null;
 
-  // Supabase stores the GitHub OAuth token in provider_token
-  const providerToken = session.provider_token;
-  if (typeof providerToken === "string") {
+  // Supabase stores the GitHub OAuth token in provider_token, but only right
+  // after the session is (re)established — it's not preserved across page
+  // reloads by Supabase itself. Cache it whenever we do see it.
+  const providerToken = session?.provider_token;
+  if (typeof providerToken === "string" && providerToken.length > 0) {
+    cacheProviderToken(providerToken);
     return providerToken;
   }
 
   // Fallback: check user metadata for GitHub token
-  const user = await getCurrentUser();
-  if (user?.user_metadata?.provider_token) {
-    return user.user_metadata.provider_token;
+  if (session) {
+    const user = await getCurrentUser();
+    if (user?.user_metadata?.provider_token) {
+      const metadataToken = user.user_metadata.provider_token as string;
+      cacheProviderToken(metadataToken);
+      return metadataToken;
+    }
   }
 
-  return null;
+  // Definitive fallback: a token cached from a previous session. This
+  // intentionally does NOT require `session` to be truthy — right after a
+  // page reload, Supabase's session can take a moment to rehydrate (or may
+  // have dropped provider_token even though the session itself is valid), so
+  // gating this on `session` would reintroduce the "works, then null after
+  // refresh" bug. Note this also means a stale/revoked token can be returned
+  // here; verifyRepoScope(), or a 401 from a downstream API call, is the
+  // signal to clear it.
+  return localStorage.getItem(GH_TOKEN_STORAGE_KEY);
 }
 
 /**
@@ -133,6 +163,7 @@ export function onAuthStateChange(
     const {
       data: { user },
     } = await supabase.auth.getUser();
+    if (session?.provider_token) cacheProviderToken(session.provider_token);
     const hasRepoScope = session ? await verifyRepoScope() : false;
 
     if (mounted) {
@@ -154,6 +185,11 @@ export function onAuthStateChange(
     const {
       data: { user },
     } = await supabase.auth.getUser();
+    // Only cache when this event actually carries a fresh token — some
+    // events (e.g. a plain TOKEN_REFRESHED) may not include provider_token,
+    // and we don't want to blow away a still-good cached value in that case.
+    if (session?.provider_token) cacheProviderToken(session.provider_token);
+    if (event === "SIGNED_OUT") cacheProviderToken(null);
     const hasRepoScope = session ? await verifyRepoScope() : false;
 
     callback({
@@ -186,6 +222,8 @@ export async function handleAuthCallback(): Promise<Session | null> {
     console.error("Auth callback error:", error.message);
     throw error;
   }
+
+  cacheProviderToken(data.session?.provider_token);
 
   return data.session;
 }
