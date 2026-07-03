@@ -60,6 +60,7 @@ import {
 } from "@/lib/canvas-geometry";
 import {
   loadFullProject,
+  loadGraphFromDatabase,
   updateNode,
   updateProject,
   createProject,
@@ -587,11 +588,11 @@ export async function POST(req: Request) {
       // Use explicit project ID from URL, or fall back to demo project
       const projectId = search.project ?? (workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID);
       try {
-        const fullProject = await loadFullProject(projectId);
-        if (fullProject) {
-          setProject(fullProject.project);
+        const graphData = await loadGraphFromDatabase(projectId);
+        if (graphData) {
+          setProject(graphData.project);
           setNodes(
-            fullProject.nodes.map((n) => ({
+            graphData.nodes.map((n) => ({
               id: n.id,
               label: n.label,
               sub: n.sub,
@@ -607,7 +608,7 @@ export async function POST(req: Request) {
             }))
           );
           setEdges(
-            fullProject.edges.map((e) => ({
+            graphData.edges.map((e) => ({
               id: e.id,
               from: e.from,
               to: e.to,
@@ -618,10 +619,12 @@ export async function POST(req: Request) {
               toColumn: e.toColumn,
             }))
           );
-          setZoom(fullProject.project.zoom);
-          setAutoLayout(fullProject.project.autoLayout);
-          setSmartRoute(fullProject.project.smartRoute);
-          setSchemaSource(fullProject.project.schemaSource ?? "");
+          if (graphData.project) {
+            setZoom(graphData.project.zoom);
+            setAutoLayout(graphData.project.autoLayout);
+            setSmartRoute(graphData.project.smartRoute);
+            setSchemaSource(graphData.project.schemaSource ?? "");
+          }
         } else if (search.project) {
           // Specified project not found — fall back to demo data
           setNodes(INITIAL_NODES);

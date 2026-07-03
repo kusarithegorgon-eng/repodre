@@ -81,8 +81,11 @@ export function HomePage() {
       const syncResult = await syncRepoToSupabase(project.id, parseResult.files);
 
       if (syncResult.success) {
-        setSyncStatus(`Success! ${syncResult.count} nodes synced to database.`);
+        setSyncStatus(`Success! ${syncResult.count} nodes synced. Loading canvas...`);
         console.log(`Sync complete: ${syncResult.count} nodes pushed to database`);
+
+        // Auto-navigate to the studio page with the newly synced project
+        navigate({ to: "/studio", search: { project: project.id } });
       } else {
         setSyncStatus(`Sync failed: ${syncResult.error}`);
         console.error("Sync failed:", syncResult.error);

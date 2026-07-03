@@ -522,3 +522,28 @@ export async function loadFullProject(projectId: string): Promise<FullProject | 
 
   return { project, nodes, edges };
 }
+
+/**
+ * Loads graph data (nodes + edges) from the database for a given project.
+ * Returns normalized arrays ready to drop into canvas state.
+ */
+export async function loadGraphFromDatabase(
+  projectId: string
+): Promise<{
+  nodes: Node[];
+  edges: Edge[];
+  project: Project | null;
+} | null> {
+  try {
+    const full = await loadFullProject(projectId);
+    if (!full) return null;
+    return {
+      project: full.project,
+      nodes: full.nodes,
+      edges: full.edges,
+    };
+  } catch (err) {
+    console.error("loadGraphFromDatabase error:", err);
+    return null;
+  }
+}
