@@ -45,16 +45,18 @@ export function HomePage() {
 
       if (analysisResult.success && analysisResult.graph) {
         try {
-          // Save the project to the database (requires authentication)
+          // Save the project to the database
           const project = await createProject({
             name: analysisResult.repo?.name || "Untitled Project",
             description: `Dependency graph for ${analysisResult.repo?.full_name || repoUrl}`,
             zoom: 100,
             autoLayout: true,
             smartRoute: true,
+            workspace: "app",
+            schemaSource: null,
           });
 
-          // Save nodes
+          // Save nodes — include all required fields with explicit defaults
           const savedNodes = await batchCreateNodes(
             project.id,
             analysisResult.graph.nodes.map((n) => ({
@@ -64,6 +66,9 @@ export function HomePage() {
               accent: n.accent,
               x: n.x,
               y: n.y,
+              workspace: "app" as const,
+              columns: null,
+              tableName: null,
             }))
           );
 

@@ -1709,38 +1709,91 @@ interface TreeNode {
   children?: TreeNode[];
 }
 
-const TREE: TreeNode[] = [
-  {
-    name: "app",
-    children: [
-      { name: "api", children: [{ name: "auth", children: [{ name: "login", children: [{ name: "route.ts", icon: FileCode2 }] }] }] },
-      { name: "dashboard", children: [
-        { name: "manager", children: [{ name: "page.tsx", icon: FileCode2 }] },
-        { name: "staff", children: [{ name: "page.tsx", icon: FileCode2 }] },
-      ]},
-      { name: "login", children: [{ name: "page.tsx", icon: FileCode2 }] },
-      { name: "layout.tsx", icon: FileCode2 },
-      { name: "page.tsx", icon: FileCode2 },
-    ],
-  },
-  {
-    name: "lib",
-    children: [
-      { name: "auth.ts", icon: FileCode2 },
-      { name: "validation.ts", icon: FileCode2 },
-    ],
-  },
-  {
-    name: "supabase",
-    children: [
-      { name: "client.ts", icon: FileCode2 },
-      { name: "migrations", children: [{ name: "0001_ecommerce.sql", icon: FileIcon }] },
-    ],
-  },
-  { name: "package.json", icon: FileIcon },
-];
+/** Derives a Next.js-style file tree from canvas nodes using their route labels. */
+function buildTreeFromNodes(nodes: NodeData[]): TreeNode[] {
+  // Only route-shaped labels (starting with "/") generate file entries
+  const appChildren: TreeNode[] = [];
+
+  for (const node of nodes) {
+    // Strip parenthetical hints: "/ (Landing)" → "/"
+    const label = node.label.replace(/\s*\([^)]*\)/, "").trim();
+    if (!label.startsWith("/")) continue;
+
+    // Infer filename from node type
+    const isApi = label.startsWith("/api/");
+    const isController = node.shape === "rectangle";
+    const filename = isApi || isController ? "route.ts" : "page.tsx";
+
+    if (label === "/") {
+      if (!appChildren.find((c) => c.name === "page.tsx")) {
+        appChildren.push({ name: "page.tsx", icon: FileCode2 });
+      }
+      continue;
+    }
+
+    // Walk path segments and build nested folders
+    const segments = label.slice(1).split("/").filter(Boolean);
+    let currentChildren = appChildren;
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const isLast = i === segments.length - 1;
+
+      if (isLast) {
+        let folder = currentChildren.find((c) => c.name === seg && c.children);
+        if (!folder) {
+          folder = { name: seg, children: [] };
+          currentChildren.push(folder);
+        }
+        if (!folder.children!.find((c) => c.name === filename)) {
+          folder.children!.push({ name: filename, icon: FileCode2 });
+        }
+      } else {
+        let folder = currentChildren.find((c) => c.name === seg && c.children);
+        if (!folder) {
+          folder = { name: seg, children: [] };
+          currentChildren.push(folder);
+        }
+        currentChildren = folder.children!;
+      }
+    }
+  }
+
+  // Add layout.tsx at app root when multiple views exist
+  if (nodes.filter((n) => n.shape === "pill").length > 1) {
+    if (!appChildren.find((c) => c.name === "layout.tsx")) {
+      appChildren.push({ name: "layout.tsx", icon: FileCode2 });
+    }
+  }
+
+  // Sort: folders first, then files, both alphabetically
+  const sort = (items: TreeNode[]): TreeNode[] =>
+    [...items]
+      .sort((a, b) => {
+        if (a.children && !b.children) return -1;
+        if (!a.children && b.children) return 1;
+        return a.name.localeCompare(b.name);
+      })
+      .map((item) => ({
+        ...item,
+        children: item.children ? sort(item.children) : undefined,
+      }));
+
+  const sorted = sort(appChildren);
+
+  if (sorted.length === 0) {
+    return [{ name: "package.json", icon: FileIcon }];
+  }
+
+  return [
+    { name: "app", children: sorted },
+    { name: "package.json", icon: FileIcon },
+  ];
+}
 
 function FileTree({ nodes, edgeCount }: { nodes: NodeData[]; edgeCount: number }) {
+  const tree = useMemo(() => buildTreeFromNodes(nodes), [nodes]);
+
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -1748,7 +1801,11 @@ function FileTree({ nodes, edgeCount }: { nodes: NodeData[]; edgeCount: number }
         <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
       <div className="flex-1 overflow-auto p-2 font-mono text-[13px]">
-        {TREE.map((n) => <TreeRow key={n.name} node={n} depth={0} defaultOpen />)}
+        {nodes.length === 0 ? (
+          <p className="px-2 py-4 text-[11px] text-muted-foreground">No nodes loaded.</p>
+        ) : (
+          tree.map((n) => <TreeRow key={n.name} node={n} depth={0} defaultOpen />)
+        )}
       </div>
       <div className="border-t border-border px-4 py-3 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
