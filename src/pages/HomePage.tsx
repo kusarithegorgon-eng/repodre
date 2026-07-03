@@ -25,6 +25,7 @@ import { parseRepository } from "@/utils/github-parser";
 export function HomePage() {
   const navigate = useNavigate();
   const [repoUrl, setRepoUrl] = useState("");
+  const [patToken, setPatToken] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progress, setProgress] = useState<AnalysisProgressType | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -34,14 +35,15 @@ export function HomePage() {
   const handleTestParser = useCallback(async () => {
     const sampleUrl = "https://github.com/vercel/next.js";
     console.log("Testing parseRepository with:", sampleUrl);
-    const result = await parseRepository(sampleUrl);
-    console.log("Parse result:", result);
-    if (result.success && result.files) {
-      console.log(`Successfully parsed ${result.files.length} files`);
+    console.log("Using token:", patToken ? "provided" : "none");
+    const parseResult = await parseRepository(sampleUrl, patToken || undefined);
+    console.log("Parse result:", parseResult);
+    if (parseResult.success && parseResult.files) {
+      console.log(`Successfully parsed ${parseResult.files.length} files`);
     } else {
-      console.log("Parse failed:", result.error);
+      console.log("Parse failed:", parseResult.error);
     }
-  }, []);
+  }, [patToken]);
 
   const handleAnalyze = useCallback(async () => {
     if (!repoUrl.trim() || isAnalyzing) return;
@@ -180,6 +182,20 @@ export function HomePage() {
                 isLoading={isAnalyzing}
                 error={error ?? undefined}
               />
+
+              {/* PAT Input */}
+              <div className="mt-3">
+                <input
+                  type="password"
+                  placeholder="Enter GitHub Personal Access Token (Optional)"
+                  value={patToken}
+                  onChange={(e) => setPatToken(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal focus:outline-none focus:ring-1 focus:ring-teal"
+                />
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Required for private repos. Needs 'repo' scope.
+                </p>
+              </div>
 
               <p className="mt-3 text-xs text-muted-foreground">
                 Try:{" "}
