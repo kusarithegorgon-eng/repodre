@@ -20,6 +20,7 @@ import { analyzeRepository, type AnalysisResult, type AnalysisProgress as Analys
 import { signInWithGitHub } from "@/lib/github-auth";
 import { createProject, batchCreateNodes, batchCreateEdges } from "@/lib/db-client";
 import type { HandleSegment } from "@/lib/canvas-geometry";
+import { parseRepository } from "@/utils/github-parser";
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -28,6 +29,19 @@ export function HomePage() {
   const [progress, setProgress] = useState<AnalysisProgressType | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Test function for github-parser
+  const handleTestParser = useCallback(async () => {
+    const sampleUrl = "https://github.com/vercel/next.js";
+    console.log("Testing parseRepository with:", sampleUrl);
+    const result = await parseRepository(sampleUrl);
+    console.log("Parse result:", result);
+    if (result.success && result.files) {
+      console.log(`Successfully parsed ${result.files.length} files`);
+    } else {
+      console.log("Parse failed:", result.error);
+    }
+  }, []);
 
   const handleAnalyze = useCallback(async () => {
     if (!repoUrl.trim() || isAnalyzing) return;
@@ -220,13 +234,27 @@ export function HomePage() {
           <p className="mb-4 text-sm text-muted-foreground">
             Want to see it in action?
           </p>
-          <Link
-            to="/studio"
-            className="inline-flex items-center gap-2 rounded-lg bg-surface border border-border px-4 py-2 text-sm font-medium text-foreground transition-all duration-200 hover:border-teal hover:text-teal"
-          >
-            View Demo Project
-            <ArrowRight className="h-4 w-4" />
-          </Link>
+          <div className="flex flex-col items-center gap-3">
+            <Link
+              to="/studio"
+              className="inline-flex items-center gap-2 rounded-lg bg-surface border border-border px-4 py-2 text-sm font-medium text-foreground transition-all duration-200 hover:border-teal hover:text-teal"
+            >
+              View Demo Project
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+
+            {/* Test button for github-parser */}
+            <button
+              onClick={handleTestParser}
+              className="inline-flex items-center gap-2 rounded-lg bg-teal/10 border border-teal/30 px-4 py-2 text-sm font-medium text-teal transition-all duration-200 hover:bg-teal/20"
+            >
+              Test GitHub Parser
+              <GitBranch className="h-4 w-4" />
+            </button>
+            <p className="text-xs text-muted-foreground">
+              Click to test parseRepository with vercel/next.js (check console for output)
+            </p>
+          </div>
         </div>
       </main>
 
