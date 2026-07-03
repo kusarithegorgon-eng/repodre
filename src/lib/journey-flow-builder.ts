@@ -87,6 +87,17 @@ interface DetectedSignals {
   isCrudDelete: boolean;
   routePath: string | null;
   decisions: string[];
+  /** detected data-storing actions with descriptive labels */
+  storageActions: StorageAction[];
+}
+
+interface StorageAction {
+  /** what the user is doing, e.g. "register", "create project" */
+  trigger: string;
+  /** descriptive label for the DB node, e.g. "auth profile created" */
+  dbLabel: string;
+  /** edge label connecting the decision/action to the DB node */
+  edgeLabel: string;
 }
 
 function detectSignals(mod: ParsedModule): DetectedSignals {
@@ -162,6 +173,68 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     if (m[1] && !m[1].startsWith("#") && !decisions.includes(m[1])) decisions.push(m[1]);
   }
 
+  // Detect data-storing actions: when a user decision stores something in the DB
+  const storageActions: StorageAction[] = [];
+  const has = (kw: string) => src.includes(kw) || path.includes(kw);
+
+  if (isAuth && (has("register") || has("signup") || has("sign up") || has("create"))) {
+    storageActions.push({
+      trigger: "register",
+      dbLabel: "auth profile created",
+      edgeLabel: "store profile",
+    });
+  }
+  if (has("project") && (has("create") || has("add") || has("insert") || isCrudCreate)) {
+    storageActions.push({
+      trigger: "create project",
+      dbLabel: "project stored",
+      edgeLabel: "save project",
+    });
+  }
+  if (has("post") && (has("create") || has("add") || has("publish") || isCrudCreate)) {
+    storageActions.push({
+      trigger: "create post",
+      dbLabel: "post stored",
+      edgeLabel: "save post",
+    });
+  }
+  if (has("comment") && (has("create") || has("add") || has("post") || isCrudCreate)) {
+    storageActions.push({
+      trigger: "add comment",
+      dbLabel: "comment stored",
+      edgeLabel: "save comment",
+    });
+  }
+  if (has("upload") && (has("file") || has("image") || has("avatar"))) {
+    storageActions.push({
+      trigger: "upload file",
+      dbLabel: "file stored",
+      edgeLabel: "save file",
+    });
+  }
+  if (has("order") && (has("create") || has("place") || has("submit") || isCrudCreate)) {
+    storageActions.push({
+      trigger: "place order",
+      dbLabel: "order stored",
+      edgeLabel: "save order",
+    });
+  }
+  if (has("profile") && (has("update") || has("edit") || isCrudUpdate)) {
+    storageActions.push({
+      trigger: "update profile",
+      dbLabel: "profile updated",
+      edgeLabel: "update record",
+    });
+  }
+  // Generic fallback: any CRUD create action that doesn't match a specific pattern
+  if (isCrudCreate && storageActions.length === 0) {
+    storageActions.push({
+      trigger: "create",
+      dbLabel: "record stored",
+      edgeLabel: "save data",
+    });
+  }
+
   return {
     isLanding,
     isAuth,
@@ -175,6 +248,7 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     isCrudDelete,
     routePath,
     decisions,
+    storageActions,
   };
 }
 
@@ -273,6 +347,8 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   const actionNodes: JourneyNode[] = [];
   const dbNodes: JourneyNode[] = [];
   const pageNodes: JourneyNode[] = [];
+  /** storage action edges: connect actions to their dedicated DB nodes */
+  const storageEdges: { dbNode: JourneyNode; edgeLabel: string; trigger: string }[] = [];
 
   for (const mod of modules) {
     const sig = detectSignals(mod);
@@ -316,6 +392,18 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
       if (!actionNodes.some((a) => a.label === label)) {
         const aNode = addNode("action", label, 5, placeInCol(5), mod.path);
         actionNodes.push(aNode);
+      }
+    }
+
+    // Storage action DB nodes — when a user decision stores data, create a
+    // dedicated DB node with a descriptive label (e.g. "auth profile created",
+    // "project stored") and connect the action → DB with a labeled edge.
+    for (const sa of sig.storageActions) {
+      if (!dbNodes.some((d) => d.label === sa.dbLabel)) {
+        const dbNode = addNode("database", sa.dbLabel, 6, placeInCol(6), mod.path);
+        dbNodes.push(dbNode);
+        // Track which action node this storage connects to
+        storageEdges.push({ dbNode, edgeLabel: sa.edgeLabel, trigger: sa.trigger });
       }
     }
 
@@ -397,6 +485,29 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     for (const action of actionNodes) {
       if (dbNodes.length > 0) {
         addEdge(action.id, dbNodes[0].id, "query");
+      }
+    }
+
+    // Storage action edges: connect specific actions to their dedicated DB nodes
+    // with descriptive labels (e.g. "store profile", "save project")
+    for (const se of storageEdges) {
+      // Find the matching action node (Create action for create-type triggers)
+      const matchingAction = actionNodes.find((a) => {
+        if (se.trigger === "update profile") return a.label === "Update";
+        return a.label === "Create";
+      });
+      if (matchingAction) {
+        addEdge(matchingAction.id, se.dbNode.id, se.edgeLabel);
+      } else if (actionNodes.length > 0) {
+        // No specific match — connect from the first action
+        addEdge(actionNodes[0].id, se.dbNode.id, se.edgeLabel);
+      } else {
+        // No actions at all — connect from the last decision/page directly to DB
+        if (decisionAndPages.length > 0) {
+          addEdge(decisionAndPages[0].id, se.dbNode.id, se.edgeLabel);
+        } else {
+          addEdge(lastNode.id, se.dbNode.id, se.edgeLabel);
+        }
       }
     }
 

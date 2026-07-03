@@ -197,4 +197,91 @@ describe("buildJourneyGraph", () => {
     // The graph should have a path from start to end
     expect(graph.edges.length).toBeGreaterThanOrEqual(8);
   });
+
+  it("generates 'auth profile created' DB node when register flow is detected", () => {
+    const graph = buildJourneyGraph([
+      mod("app/register/page.tsx", "export default function Register() { signIn(); register() }"),
+      mod("api/auth/route.ts", "export async function POST() { return prisma.user.create() }"),
+    ]);
+
+    const dbNode = graph.nodes.find((n) => n.type === "database" && n.label === "auth profile created");
+    expect(dbNode).toBeDefined();
+  });
+
+  it("generates 'project stored' DB node when project creation is detected", () => {
+    const graph = buildJourneyGraph([
+      mod("app/projects/new/page.tsx", "export default function NewProject() { createProject() }"),
+      mod("api/projects/route.ts", "export async function POST() { return prisma.project.create() }"),
+    ]);
+
+    const dbNode = graph.nodes.find((n) => n.type === "database" && n.label === "project stored");
+    expect(dbNode).toBeDefined();
+  });
+
+  it("connects storage action edges with descriptive labels", () => {
+    const graph = buildJourneyGraph([
+      mod("app/register/page.tsx", "export default function Register() { signIn(); register() }"),
+      mod("api/auth/route.ts", "export async function POST() { return prisma.user.create() }"),
+    ]);
+
+    const storageEdge = graph.edges.find((e) => e.label === "store profile");
+    expect(storageEdge).toBeDefined();
+  });
+
+  it("generates 'post stored' for blog post creation", () => {
+    const graph = buildJourneyGraph([
+      mod("app/posts/new/page.tsx", "export default function NewPost() { createPost(); publish() }"),
+      mod("api/posts/route.ts", "export async function POST() { return prisma.post.create() }"),
+    ]);
+
+    const dbNode = graph.nodes.find((n) => n.type === "database" && n.label === "post stored");
+    expect(dbNode).toBeDefined();
+  });
+
+  it("generates 'order stored' for order placement", () => {
+    const graph = buildJourneyGraph([
+      mod("app/checkout/page.tsx", "export default function Checkout() { placeOrder(); submit() }"),
+      mod("api/orders/route.ts", "export async function POST() { return prisma.order.create() }"),
+    ]);
+
+    const dbNode = graph.nodes.find((n) => n.type === "database" && n.label === "order stored");
+    expect(dbNode).toBeDefined();
+  });
+
+  it("generates 'profile updated' for profile update flow", () => {
+    const graph = buildJourneyGraph([
+      mod("app/profile/edit/page.tsx", "export default function EditProfile() { updateProfile() }"),
+      mod("api/profile/route.ts", "export async function PUT() { return prisma.profile.update() }"),
+    ]);
+
+    const dbNode = graph.nodes.find((n) => n.type === "database" && n.label === "profile updated");
+    expect(dbNode).toBeDefined();
+  });
+
+  it("generates generic 'record stored' for unrecognized CRUD create", () => {
+    const graph = buildJourneyGraph([
+      mod("api/widgets/route.ts", "export async function PUT() { return prisma.widget.add() }"),
+    ]);
+
+    const dbNode = graph.nodes.find((n) => n.type === "database" && n.label === "record stored");
+    expect(dbNode).toBeDefined();
+  });
+
+  it("ensures storage DB nodes are connected (no orphans)", () => {
+    const graph = buildJourneyGraph([
+      mod("app/register/page.tsx", "export default function Register() { signIn(); register() }"),
+      mod("api/auth/route.ts", "export async function POST() { return prisma.user.create() }"),
+    ]);
+
+    const storageDb = graph.nodes.find((n) => n.type === "database" && n.label === "auth profile created");
+    expect(storageDb).toBeDefined();
+
+    // Must have at least one incoming edge
+    const incoming = graph.edges.filter((e) => e.to === storageDb!.id);
+    expect(incoming.length).toBeGreaterThan(0);
+
+    // Must have at least one outgoing edge (orphan insurance)
+    const outgoing = graph.edges.filter((e) => e.from === storageDb!.id);
+    expect(outgoing.length).toBeGreaterThan(0);
+  });
 });

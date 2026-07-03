@@ -7,17 +7,17 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { FileText, Shield, Server, Database, X } from "lucide-react";
+import { FileText, Shield, Server, Database, X, GitBranch, Play, RotateCcw, FileCode } from "lucide-react";
 import type { Shape } from "@/lib/canvas-geometry";
 
-export type NodeSpawnerType = "view" | "validation" | "controller" | "database";
+export type NodeSpawnerType = "view" | "validation" | "controller" | "database" | "decision" | "start" | "end" | "document";
 
 export interface NodeSpawnerOption {
   type: NodeSpawnerType;
   label: string;
   icon: React.ReactNode;
   shape: Shape;
-  accent: "green" | "purple" | "teal" | "blue";
+  accent: "green" | "purple" | "teal" | "blue" | "orange" | "red";
   shortcut?: string;
   description: string;
 }
@@ -58,6 +58,42 @@ export const SPAWNER_OPTIONS: NodeSpawnerOption[] = [
     accent: "blue",
     shortcut: "4",
     description: "Database table entity",
+  },
+  {
+    type: "decision",
+    label: "Decision",
+    icon: <GitBranch className="h-4 w-4" />,
+    shape: "diamond",
+    accent: "orange",
+    shortcut: "5",
+    description: "User decision branch point",
+  },
+  {
+    type: "start",
+    label: "Start",
+    icon: <Play className="h-4 w-4" />,
+    shape: "pill",
+    accent: "green",
+    shortcut: "6",
+    description: "Journey entry point",
+  },
+  {
+    type: "end",
+    label: "End / Loop",
+    icon: <RotateCcw className="h-4 w-4" />,
+    shape: "pill",
+    accent: "red",
+    shortcut: "7",
+    description: "Terminal or loop-back node",
+  },
+  {
+    type: "document",
+    label: "Document",
+    icon: <FileCode className="h-4 w-4" />,
+    shape: "document",
+    accent: "teal",
+    shortcut: "8",
+    description: "Document or file artifact",
   },
 ];
 
@@ -360,6 +396,10 @@ export function createNewNodeConfig(
     validation: "validateInput()",
     controller: "/api/endpoint",
     database: "table_name",
+    decision: "User Decision",
+    start: "Start",
+    end: "Loop",
+    document: "Document",
   };
 
   const defaultSubs: Record<NodeSpawnerType, string> = {
@@ -367,6 +407,10 @@ export function createNewNodeConfig(
     validation: "Validation",
     controller: "Controller",
     database: "Table",
+    decision: "Decision",
+    start: "Start",
+    end: "Loop",
+    document: "Document",
   };
 
   return {
