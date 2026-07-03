@@ -251,85 +251,42 @@ export async function analyzeRepository(
   // - Fuzzy accelerated route matcher
   const blueprint = analyzeBlueprintEnhanced(modules, fileContents, filePaths);
 
+  // ── Architecture Decision Engine: primary layout ──────────────────────
+  // Every file is classified into UI_NODE / LOGIC_NODE / DB_NODE and laid
+  // out as a left-to-right flowchart (UI → LOGIC → DB). This is the primary
+  // visual output when pasting a repo link.
+  const archGraph = buildArchGraph(modules);
+
   // ── Zero-knowledge local crawler: scan file tree + raw contents ──────
-  // The crawler runs alongside the AST-based blueprint analyzer, providing
-  // a lightweight directory-structure-first scan that catches routes and
-  // interactions the AST parser might miss.
+  // The crawler runs alongside the arch engine, providing a lightweight
+  // directory-structure-first scan that catches routes and interactions
+  // the AST parser might miss. Used to enrich the arch graph's edge set.
   const crawlerGraph = crawlRepository(filePaths, fileContents);
 
   onProgress?.({
     phase: "building",
-    message: "Laying out user-journey timeline...",
+    message: "Laying out architecture flowchart...",
     percent: 92,
   });
 
-  // Lay out the enhanced blueprint with style hints for dynamic routes
-  // and domain sectioning (sections, gateways, portals)
-  const baseLayout = layoutEnhancedBlueprint(blueprint);
-  const sectionedLayout = layoutSectionedBlueprint({
-    nodes: blueprint.nodes,
-    edges: blueprint.edges,
-    sections: blueprint.sections,
-    roleGateways: blueprint.roleGateways,
-    portalLinks: blueprint.portalLinks,
-    edgesToPortals: blueprint.edgesToPortals,
-  }, baseLayout);
+  // ── Lay out the arch graph as the primary visual ─────────────────────
+  // Three columns: UI_NODE (left) → LOGIC_NODE (center) → DB_NODE (right)
+  const archColWidth = 300;
+  const archRowHeight = 140;
+  const archStartX = 120;
+  const archStartY = 100;
 
-  // Filter edges that are replaced by portal links
-  const filteredEdges = filterPortalEdges(sectionedLayout.edges, sectionedLayout.edgesToReplace);
+  const categoryOrder: ArchCategory[] = ["UI_NODE", "LOGIC_NODE", "DB_NODE"];
+  const colByCategory = new Map<ArchCategory, number>();
+  categoryOrder.forEach((cat, i) => colByCategory.set(cat, i));
 
-  // Fallback: if the AST blueprint produced 0 nodes (e.g. unrecognized framework),
-  // derive nodes from the zero-knowledge crawler instead — or, if the crawler also
-  // found nothing, from the Architecture Decision Engine (UI/DB/LOGIC classification).
-  const useCrawlerFallback = sectionedLayout.nodes.length === 0 && crawlerGraph.nodes.length > 0;
-  const useArchFallback = sectionedLayout.nodes.length === 0 && crawlerGraph.nodes.length === 0;
+  const rowByCategory = new Map<ArchCategory, number>();
 
   let graphNodes: AnalysisGraph["nodes"];
   let graphEdges: AnalysisGraph["edges"];
 
-  if (useCrawlerFallback) {
-    const COL_W = 320;
-    const ROW_H = 160;
-    const X0 = 80;
-    const Y0 = 80;
-    const colOf = (type: string) => type === "page" ? 0 : type === "validation" ? 1 : 2;
-    const rowCounts = [0, 0, 0];
-
-    graphNodes = crawlerGraph.nodes.map((n) => {
-      const col = colOf(n.type);
-      const row = rowCounts[col]++;
-      return {
-        id: n.id,
-        label: n.label,
-        sub: n.sub,
-        shape: n.shape,
-        accent: n.accent as AnalysisGraph["nodes"][number]["accent"],
-        x: X0 + col * COL_W,
-        y: Y0 + row * ROW_H,
-      };
-    });
-
-    graphEdges = crawlerGraph.edges.map((e) => ({
-      id: e.id,
-      from: e.from,
-      to: e.to,
-      renderOpacity: e.inferred ? 0.4 : 1,
-      strokeDasharray: e.inferred ? "4 4" : undefined,
-    }));
-  } else if (useArchFallback) {
-    // Architecture Decision Engine fallback: classify files as UI/DB/LOGIC
-    // and lay them out in a simple left-to-right flow.
-    const archColWidth = 280;
-    const archRowHeight = 140;
-    const archStartX = 120;
-    const archStartY = 120;
-
-    // Group nodes by category for column layout
-    const categoryOrder: ArchCategory[] = ["UI_NODE", "LOGIC_NODE", "DB_NODE"];
-    const colByCategory = new Map<ArchCategory, number>();
-    categoryOrder.forEach((cat, i) => colByCategory.set(cat, i));
-
-    const rowByCategory = new Map<ArchCategory, number>();
+  if (archGraph.nodes.length > 0) {
+    // Primary path: Architecture Decision Engine flowchart
     graphNodes = archGraph.nodes.map((n) => {
       const col = colByCategory.get(n.category) ?? 0;
       const row = rowByCategory.get(n.category) ?? 0;
@@ -351,33 +308,78 @@ export async function analyzeRepository(
       to: e.to,
     }));
   } else {
-    graphNodes = sectionedLayout.nodes.map((n) => ({
-      id: n.id,
-      label: n.label,
-      sub: n.sub,
-      shape: n.shape,
-      accent: n.accent,
-      x: n.x,
-      y: n.y,
-      styleHints: n.styleHints,
-      hasFuzzyReferences: n.hasFuzzyReferences,
-    }));
+    // Fallback: if the arch engine found no categorized files, use the
+    // blueprint layout (sophisticated route/controller/DB detection) or
+    // the zero-knowledge crawler as a last resort.
+    const baseLayout = layoutEnhancedBlueprint(blueprint);
+    const sectionedLayout = layoutSectionedBlueprint({
+      nodes: blueprint.nodes,
+      edges: blueprint.edges,
+      sections: blueprint.sections,
+      roleGateways: blueprint.roleGateways,
+      portalLinks: blueprint.portalLinks,
+      edgesToPortals: blueprint.edgesToPortals,
+    }, baseLayout);
 
-    graphEdges = filteredEdges.map((e) => ({
-      id: e.id,
-      from: e.from,
-      to: e.to,
-      fromHandle: e.fromHandle,
-      toHandle: e.toHandle,
-      isRouteReference: e.isRouteReference,
-      referenceType: e.referenceType,
-      renderOpacity: e.renderOpacity,
-      strokeDasharray: e.strokeDasharray,
-    }));
+    const filteredEdges = filterPortalEdges(sectionedLayout.edges, sectionedLayout.edgesToReplace);
+
+    const useCrawlerFallback = sectionedLayout.nodes.length === 0 && crawlerGraph.nodes.length > 0;
+
+    if (useCrawlerFallback) {
+      const COL_W = 320;
+      const ROW_H = 160;
+      const X0 = 80;
+      const Y0 = 80;
+      const colOf = (type: string) => type === "page" ? 0 : type === "validation" ? 1 : 2;
+      const rowCounts = [0, 0, 0];
+
+      graphNodes = crawlerGraph.nodes.map((n) => {
+        const col = colOf(n.type);
+        const row = rowCounts[col]++;
+        return {
+          id: n.id,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          accent: n.accent as AnalysisGraph["nodes"][number]["accent"],
+          x: X0 + col * COL_W,
+          y: Y0 + row * ROW_H,
+        };
+      });
+
+      graphEdges = crawlerGraph.edges.map((e) => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+        renderOpacity: e.inferred ? 0.4 : 1,
+        strokeDasharray: e.inferred ? "4 4" : undefined,
+      }));
+    } else {
+      graphNodes = sectionedLayout.nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+        accent: n.accent,
+        x: n.x,
+        y: n.y,
+        styleHints: n.styleHints,
+        hasFuzzyReferences: n.hasFuzzyReferences,
+      }));
+
+      graphEdges = filteredEdges.map((e) => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+        fromHandle: e.fromHandle,
+        toHandle: e.toHandle,
+        isRouteReference: e.isRouteReference,
+        referenceType: e.referenceType,
+        renderOpacity: e.renderOpacity,
+        strokeDasharray: e.strokeDasharray,
+      }));
+    }
   }
-
-  // ── Architecture Decision Engine: classify every file into UI/DB/LOGIC ──
-  const archGraph = buildArchGraph(modules);
 
   const graph: AnalysisGraph = {
     nodes: graphNodes,
