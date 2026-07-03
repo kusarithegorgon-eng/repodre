@@ -134,27 +134,30 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
       continue;
     }
 
-    // ── Express.js routes: routes/*.js or server files ──────────────────
-    // Detected via HTTP method patterns in the source
-    if (isExpressRouteFile(p) && p.endsWith(".js") || p.endsWith(".ts")) {
-      // Mark these for later Express route extraction
-      // We'll scan the source content during crawlRepository
-      const baseName = p.split("/").pop()?.replace(/\.(js|ts)$/, "") || "api";
-      if (!baseName.startsWith(".")) {
-        // Placeholder route - actual paths extracted from source
-        const routePath = `/api/${baseName}`;
-        if (!seen.has(routePath)) {
-          seen.add(routePath);
-          routes.push({ route: routePath, file: p, pattern: "app-router", dynamic: false });
-        }
-      }
-    }
-
     // ── Vite/CRA entry: src/index.js or src/index.jsx ──────────────────
     if (/(?:^|\/)src\/index\.(js|jsx|ts|tsx)$/.test(p)) {
       if (!seen.has("/")) {
         seen.add("/");
         routes.push({ route: "/", file: p, pattern: "vite-index", dynamic: false });
+      }
+      continue;
+    }
+
+    // ── Express.js routes: routes/*.js or server files (excluding src/) ────────────
+    // Detected via HTTP method patterns in the source
+    // Skip this if it's already been handled as a src/index entry
+    if (isExpressRouteFile(p) && !p.startsWith("src/") && (p.endsWith(".js") || p.endsWith(".ts"))) {
+      // Only add placeholder routes for actual server files, not generic index files
+      const baseName = p.split("/").pop()?.replace(/\.(js|ts)$/, "") || "";
+      if (baseName && ["server", "app", "main", "router", "routes", "index"].includes(baseName)) {
+        // Don't add duplicate "/" routes
+        if (baseName !== "index" || !seen.has("/")) {
+          const routePath = baseName === "index" ? "/" : `/api/${baseName}`;
+          if (!seen.has(routePath)) {
+            seen.add(routePath);
+            routes.push({ route: routePath, file: p, pattern: "app-router", dynamic: false });
+          }
+        }
       }
       continue;
     }
@@ -180,11 +183,19 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
 
 /**
  * Check if a file path looks like an Express.js route file.
+ * Must be in a routes/, server/, or backend/ directory, or be a top-level server file.
  */
 function isExpressRouteFile(p: string): boolean {
+  // Skip src/ files - they're handled by other patterns
+  if (p.startsWith("src/")) return false;
+  // Skip lib/, utils/, components/ directories
+  if (/(?:^|\/)(lib|utils|components|hooks|config|types)\//.test(p)) return false;
+
   // Common Express route file patterns
   if (/(?:^|\/)routes?\//.test(p)) return true;
-  if (/(?:^|\/)(server|app|main|index)\.(js|ts)$/.test(p)) return true;
+  if (/(?:^|\/)server\//.test(p)) return true;
+  if (/(?:^|\/)backend\//.test(p)) return true;
+  if (/(?:^|\/)(server|app|main)\.(js|ts)$/.test(p)) return true;
   if (/(?:^|\/)api\//.test(p)) return true;
   // Controllers directory
   if (/(?:^|\/)controllers?\//.test(p)) return true;
