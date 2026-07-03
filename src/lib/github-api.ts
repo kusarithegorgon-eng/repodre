@@ -64,21 +64,22 @@ export interface AccessCheckResult {
  * - owner/repo
  */
 export function parseGitHubUrl(input: string): { owner: string; repo: string } | null {
-  // This line cleans up the input immediately!
-  const trimmed = input.trim().replace(/\.git$/i, "");
-  
+  const trimmed = input.trim();
+
+  // Handle owner/repo format
   const shortMatch = trimmed.match(/^([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.-]+)$/);
   if (shortMatch) {
     return { owner: shortMatch[1], repo: shortMatch[2] };
   }
-  
+
+  // Handle full URL format
   const urlMatch = trimmed.match(
     /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.-]+)/
   );
   if (urlMatch) {
     return { owner: urlMatch[1], repo: urlMatch[2] };
   }
-  
+
   return null;
 }
 
@@ -160,41 +161,33 @@ export async function checkRepositoryAccess(
 /**
  * Fetch the complete file tree for a repository.
  * Uses the Git Trees API with recursive=1 for full tree.
- *
- * `branch` is required (no "main" default) so callers can't accidentally
- * fetch against a branch that doesn't exist. Resolve the real default branch
- * first via getDefaultBranch() (or reuse repo.default_branch from
- * checkRepositoryAccess) and pass it in explicitly.
  */
 export async function fetchRepositoryTree(
   owner: string,
   repo: string,
-  branch: string
+  branch = "main"
 ): Promise<GitHubTree | null> {
   const token = await getGitHubAccessToken();
   if (!token) return null;
 
-  const response = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    }
-  );
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }
+    );
 
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error(
-        `Branch "${branch}" was not found on ${owner}/${repo}. The default branch may have changed.`
-      );
-    }
-    throw new Error(`Failed to fetch tree for ${owner}/${repo}@${branch} (HTTP ${response.status}).`);
+    if (!response.ok) return null;
+
+    return await response.json();
+  } catch {
+    return null;
   }
-
-  return await response.json();
 }
 
 /**
@@ -283,40 +276,26 @@ export function filterSourceFiles(tree: GitHubTree): string[] {
 }
 
 /**
- * Get the true default branch for a repository from the GitHub repo metadata API.
- *
- * Important: this does NOT silently fall back to "main" on failure. A repo's
- * default branch can be "master", "develop", "trunk", etc, so guessing "main"
- * on error just trades a clear failure for a confusing 404 downstream. Callers
- * must handle the thrown error (e.g. surface it as a real access/error state).
+ * Get the default branch for a repository (fallback to 'main' or 'master').
  */
 export async function getDefaultBranch(owner: string, repo: string): Promise<string> {
   const token = await getGitHubAccessToken();
-  if (!token) {
-    throw new Error("No GitHub access token available to resolve the default branch.");
+  if (!token) return "main";
+
+  try {
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+
+    if (!response.ok) return "main";
+
+    const data = await response.json();
+    return data.default_branch || "main";
+  } catch {
+    return "main";
   }
-
-  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch repository metadata for ${owner}/${repo} (HTTP ${response.status}). ` +
-        `Could not determine the default branch.`
-    );
-  }
-
-  const data = await response.json();
-  if (!data.default_branch) {
-    throw new Error(
-      `Repository metadata for ${owner}/${repo} did not include a default_branch field.`
-    );
-  }
-
-  return data.default_branch as string;
 }

@@ -18,7 +18,7 @@ export function AuthCallbackPage() {
         // Redirect to studio workspace after successful auth
         setTimeout(() => {
           navigate({ to: "/studio" });
-        }, 300);
+        }, 1000);
       } catch (err) {
         setStatus("error");
         setError(err instanceof Error ? err.message : "Authentication failed");

@@ -89,12 +89,7 @@ export function HomePage() {
         setError(analysisResult.error || "Analysis failed");
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "An unexpected error occurred";
-      if (msg.includes("Authentication required") || msg.includes("no active user session")) {
-        setError("Please sign in with GitHub first, then try analyzing the repository again.");
-      } else {
-        setError(msg);
-      }
+      setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setIsAnalyzing(false);
       setProgress(null);

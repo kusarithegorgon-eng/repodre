@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GitBranch, Loader as Loader2, Search, TriangleAlert as AlertTriangle } from "lucide-react";
+import { GitBranch, Loader as Loader2, Search } from "lucide-react";
 import { parseGitHubUrl } from "@/lib/github-api";
 
 interface RepoInputProps {
@@ -21,7 +21,6 @@ export function RepoInput({ value, onChange, onSubmit, isLoading, error }: RepoI
   };
 
   const isValid = parseGitHubUrl(value) !== null;
-  const hasGitSuffix = /\.git([/?#]|$)/i.test(value.trim());
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
@@ -72,20 +71,7 @@ export function RepoInput({ value, onChange, onSubmit, isLoading, error }: RepoI
         <p className="mt-2 text-sm text-red-500">{error}</p>
       )}
 
-      {hasGitSuffix && !error && (
-        <div className="mt-2 flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-yellow-600" />
-          <p className="text-xs text-yellow-600">
-            Your link ends with <code className="font-mono font-semibold">.git</code>.
-            If you have access to this repo, remove the{" "}
-            <code className="font-mono font-semibold">.git</code> suffix first —
-            the analyzer accepts plain URLs like{" "}
-            <code className="font-mono">github.com/owner/repo</code>.
-          </p>
-        </div>
-      )}
-
-      {!isValid && value.trim() && !error && !hasGitSuffix && (
+      {!isValid && value.trim() && !error && (
         <p className="mt-2 text-xs text-yellow-600">
           Enter a valid GitHub repository URL (e.g., facebook/react)
         </p>

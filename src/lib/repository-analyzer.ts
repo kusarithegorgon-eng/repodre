@@ -161,34 +161,11 @@ export async function analyzeRepository(
     percent: 20,
   });
 
-  // Resolve the true default branch. Prefer the value already returned by the
-  // access check (repo.default_branch) to avoid a duplicate API call; only
-  // fall back to a fresh getDefaultBranch() lookup if that's missing for some
-  // reason. Neither path silently guesses "main" on failure anymore.
-  let branch: string;
-  try {
-    branch = explicitBranch || accessCheck.repo?.default_branch || (await getDefaultBranch(owner, repo));
-  } catch (error) {
-    return {
-      success: false,
-      error:
-        error instanceof Error
-          ? `Could not determine the repository's default branch: ${error.message}`
-          : "Could not determine the repository's default branch.",
-    };
-  }
+  // Get default branch
+  const branch = explicitBranch || await getDefaultBranch(owner, repo);
 
   // Fetch the file tree
-  let tree;
-  try {
-    tree = await fetchRepositoryTree(owner, repo, branch);
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : `Failed to fetch the tree for branch "${branch}".`,
-    };
-  }
-
+  const tree = await fetchRepositoryTree(owner, repo, branch);
   if (!tree) {
     return {
       success: false,
