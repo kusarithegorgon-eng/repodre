@@ -331,6 +331,92 @@ export async function batchCreateNodes(
   return (data ?? []).map(rowToNode);
 }
 
+/**
+ * Sync repository files to Supabase as nodes.
+ * Uses upsert to prevent duplicates based on (project_id, label).
+ * Files are mapped to nodes with inferred shapes and positions.
+ */
+export async function syncRepoToSupabase(
+  projectId: string,
+  files: Array<{ id: string; name: string }>
+): Promise<{ success: boolean; count: number; error?: string }> {
+  if (!files.length) {
+    return { success: true, count: 0 };
+  }
+
+  // Map files to node format
+  const nodes = files.map((file, index) => ({
+    label: file.name,
+    sub: inferSubLabel(file.id),
+    shape: inferShape(file.id) as Shape,
+    accent: "teal" as Accent,
+    x: 80 + (index % 6) * 200,
+    y: 80 + Math.floor(index / 6) * 140,
+    workspace: "app" as Workspace,
+    columns: null,
+    tableName: null,
+  }));
+
+  try {
+    const { data, error } = await supabase
+      .from("nodes")
+      .upsert(
+        nodes.map((n) => ({
+          project_id: projectId,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          accent: n.accent,
+          x: n.x,
+          y: n.y,
+          w: null,
+          h: null,
+          workspace: n.workspace,
+          columns: null,
+          table_name: null,
+        })),
+        {
+          onConflict: "project_id,label",
+          ignoreDuplicates: false,
+        }
+      )
+      .select();
+
+    if (error) {
+      console.error("Supabase upsert error:", error);
+      return { success: false, count: 0, error: error.message };
+    }
+
+    console.log(`Successfully synced ${data?.length ?? 0} nodes to database`);
+    return { success: true, count: data?.length ?? 0 };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("syncRepoToSupabase error:", message);
+    return { success: false, count: 0, error: message };
+  }
+}
+
+function inferSubLabel(path: string): string {
+  if (path.includes("/api/") || path.includes("/routes/")) return "Endpoint · Route";
+  if (path.includes("component") || path.includes("Component")) return "UI · Component";
+  if (path.includes("hook") || path.includes("use")) return "Hook · Logic";
+  if (path.includes("util") || path.includes("lib")) return "Utility · Helper";
+  if (path.includes("test") || path.includes(".spec.")) return "Test · Coverage";
+  if (path.endsWith(".css") || path.endsWith(".scss")) return "Style · CSS";
+  if (path.endsWith(".md")) return "Docs · Markdown";
+  return "File · Source";
+}
+
+function inferShape(path: string): string {
+  if (path.includes("/api/") || path.includes("/routes/")) return "rectangle";
+  if (path.includes("component") || path.includes("Component")) return "pill";
+  if (path.includes("hook") || path.includes("use")) return "hexagon";
+  if (path.includes("util") || path.includes("lib")) return "parallelogram";
+  if (path.includes("test") || path.includes(".spec.")) return "diamond";
+  if (path.endsWith(".css") || path.endsWith(".scss")) return "document";
+  return "rectangle";
+}
+
 // Edge operations
 
 export async function listEdges(projectId: string): Promise<Edge[]> {

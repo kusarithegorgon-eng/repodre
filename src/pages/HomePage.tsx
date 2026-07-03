@@ -7,6 +7,7 @@ import {
   Shield,
   Globe,
   ArrowRight,
+  Database,
 } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
@@ -18,7 +19,7 @@ import { PrivacyShield } from "@/components/PrivacyShield";
 import { AiDisclosureBadge } from "@/components/AiDisclosureBadge";
 import { analyzeRepository, type AnalysisResult, type AnalysisProgress as AnalysisProgressType } from "@/lib/repository-analyzer";
 import { signInWithGitHub } from "@/lib/github-auth";
-import { createProject, batchCreateNodes, batchCreateEdges } from "@/lib/db-client";
+import { createProject, batchCreateNodes, batchCreateEdges, syncRepoToSupabase } from "@/lib/db-client";
 import type { HandleSegment } from "@/lib/canvas-geometry";
 import { parseRepository } from "@/utils/github-parser";
 
@@ -30,6 +31,7 @@ export function HomePage() {
   const [progress, setProgress] = useState<AnalysisProgressType | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   // Test function for github-parser
   const handleTestParser = useCallback(async () => {
@@ -42,6 +44,53 @@ export function HomePage() {
       console.log(`Successfully parsed ${parseResult.files.length} files`);
     } else {
       console.log("Parse failed:", parseResult.error);
+    }
+  }, [patToken]);
+
+  // Sync parsed files to Supabase
+  const handleSyncToDatabase = useCallback(async () => {
+    const sampleUrl = "https://github.com/vercel/next.js";
+    setSyncStatus("Parsing repository...");
+    console.log("Sync to Database: parsing", sampleUrl);
+
+    const parseResult = await parseRepository(sampleUrl, patToken || undefined);
+
+    if (!parseResult.success || !parseResult.files) {
+      setSyncStatus(`Parse failed: ${parseResult.error}`);
+      console.error("Sync failed:", parseResult.error);
+      return;
+    }
+
+    setSyncStatus(`Found ${parseResult.files.length} files. Creating project...`);
+
+    try {
+      // Create a new project for the sync
+      const project = await createProject({
+        name: "next.js",
+        description: `Synced from ${sampleUrl}`,
+        zoom: 100,
+        autoLayout: true,
+        smartRoute: true,
+        workspace: "app",
+        schemaSource: null,
+      });
+
+      setSyncStatus(`Syncing ${parseResult.files.length} files to database...`);
+
+      // Sync files to Supabase
+      const syncResult = await syncRepoToSupabase(project.id, parseResult.files);
+
+      if (syncResult.success) {
+        setSyncStatus(`Success! ${syncResult.count} nodes synced to database.`);
+        console.log(`Sync complete: ${syncResult.count} nodes pushed to database`);
+      } else {
+        setSyncStatus(`Sync failed: ${syncResult.error}`);
+        console.error("Sync failed:", syncResult.error);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setSyncStatus(`Error: ${message}`);
+      console.error("Sync error:", message);
     }
   }, [patToken]);
 
@@ -267,8 +316,20 @@ export function HomePage() {
               Test GitHub Parser
               <GitBranch className="h-4 w-4" />
             </button>
+
+            {/* Sync to Database button */}
+            <button
+              onClick={handleSyncToDatabase}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue/10 border border-blue/30 px-4 py-2 text-sm font-medium text-blue transition-all duration-200 hover:bg-blue/20"
+            >
+              Sync to Database
+              <Database className="h-4 w-4" />
+            </button>
+            {syncStatus && (
+              <p className="text-xs text-muted-foreground">{syncStatus}</p>
+            )}
             <p className="text-xs text-muted-foreground">
-              Click to test parseRepository with vercel/next.js (check console for output)
+              Click to sync repository files to Supabase database (check console for output)
             </p>
           </div>
         </div>
