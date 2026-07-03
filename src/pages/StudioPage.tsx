@@ -39,7 +39,9 @@ import { EnvironmentToggle, useProductionOverlay, type Environment } from "@/com
 import { WebhookSyncPanel, WebhookSyncToggle, useWebhookSync } from "@/components/WebhookSyncPanel";
 import { MultiplayerPresence, MultiplayerToggle, GhostCursors, useMultiplayerPresence } from "@/components/MultiplayerPresence";
 import { GitDiffOverlay, GitDiffToggle, useGitDiff, getDiffNodeStyles } from "@/components/GitDiffOverlay";
+import { ControllerBadge, isControllerNode, classifyNodeLayer, useSmartLinks, getSmartLinkClasses } from "@/components/Flow";
 import type { WebhookEvent, NodeMutation } from "@/lib/webhook-sync";
+import type { SmartLinkEdge } from "@/components/Flow";
 import type { DiffStatus } from "@/lib/git-diff-engine";
 import { getNodeDiffStatus } from "@/lib/git-diff-engine";
 import {
@@ -941,6 +943,25 @@ export async function POST(req: Request) {
     edges,
   );
 
+  // Smart Links: classify edges by architectural layer (UI -> Controller -> DB)
+  const smartLinksResult = useMemo(
+    () =>
+      useSmartLinks(
+        nodes.map((n) => ({
+          id: n.id,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          accent: n.accent,
+          x: n.x,
+          y: n.y,
+          workspace: n.workspace,
+        })),
+        edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))
+      ),
+    [nodes, edges]
+  );
+
   // For edges without explicit handles, fall back to the collision-aware
   // routeEdge (which may detour around obstacles). Edges with handles use
   // the snapped port path from useEdgeSnap.
@@ -1395,37 +1416,69 @@ export async function POST(req: Request) {
                       >
                         <path d="M0 1 L9 5 L0 9 L2.5 5 Z" fill="var(--teal)" fillOpacity="0.5" />
                       </marker>
+                      {/* Database flow arrow marker (blue) */}
+                      <marker
+                        id="arrow-db"
+                        viewBox="0 0 10 10"
+                        refX="9"
+                        refY="5"
+                        markerWidth="5"
+                        markerHeight="5"
+                        orient="auto-start-reverse"
+                      >
+                        <path d="M0 1 L9 5 L0 9 L2.5 5 Z" fill="var(--node-database-stroke)" />
+                      </marker>
                     </defs>
 
-                    {routed.map((r) =>
-                      r.path ? (
+                    {routed.map((r) => {
+                      // Get smart link classification for this edge
+                      const smartLink = smartLinksResult.smartLinks.find(sl => sl.id === r.id);
+                      const linkType = smartLink?.linkType || "direct";
+
+                      // Smart link styling based on architectural layer
+                      const smartStrokeColor = highlightedEdgeIds.includes(r.id)
+                        ? "var(--teal)"
+                        : linkType === "ui-to-controller"
+                          ? "var(--node-controller-stroke)"
+                          : linkType === "controller-to-db"
+                            ? "var(--node-database-stroke)"
+                            : "var(--wire-primary)";
+
+                      const smartDashArray = liveTrafficActive
+                        ? "8 4"
+                        : linkType === "controller-to-db"
+                          ? "6 3"
+                          : r.detoured
+                            ? "5 3"
+                            : undefined;
+
+                      return r.path ? (
                         <path
                           key={r.id}
                           data-testid={`edge-${r.id}`}
                           data-detoured={r.detoured}
+                          data-link-type={linkType}
                           d={r.path}
                           fill="none"
-                          stroke={highlightedEdgeIds.includes(r.id) ? "var(--teal)" : "var(--wire-primary)"}
+                          stroke={smartStrokeColor}
                           strokeWidth={highlightedEdgeIds.includes(r.id) ? 3 : r.detoured ? 1.5 : 2}
                           strokeOpacity={highlightedEdgeIds.includes(r.id) ? 1 : 1}
-                          strokeDasharray={
-                            liveTrafficActive
-                              ? "8 4"
-                              : r.detoured
-                                ? "5 3"
-                                : undefined
-                          }
-                          markerEnd="url(#arrow)"
+                          strokeDasharray={smartDashArray}
+                          markerEnd={linkType === "controller-to-db" ? "url(#arrow-db)" : "url(#arrow)"}
                           className={
                             highlightedEdgeIds.includes(r.id)
                               ? "animate-pulse-glow"
-                              : liveTrafficActive
-                                ? "repodre-traffic-flow"
-                                : ""
+                              : linkType === "ui-to-controller"
+                                ? "repodre-controller-flow"
+                                : linkType === "controller-to-db"
+                                  ? "repodre-db-flow"
+                                  : liveTrafficActive
+                                    ? "repodre-traffic-flow"
+                                    : ""
                           }
                         />
-                      ) : null
-                    )}
+                      ) : null;
+                    })}
 
                     {/* Cross-reference links (low-opacity relation wires) */}
                     {crossRefLinks.map((xref) => {
@@ -2074,6 +2127,11 @@ function CanvasNode({
       >
         <Sparkles className="h-3 w-3" />
       </button>
+
+      {/* ── Controller Badge (for logic layer nodes) ── */}
+      {isControllerNode(node) && (
+        <ControllerBadge className="absolute -left-1 -top-2 z-20" />
+      )}
 
       {/* ── Anti-Pattern Warning Banner (View-to-DB Bypass) ── */}
       {antiPatternWarnings && antiPatternWarnings.length > 0 && (

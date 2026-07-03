@@ -372,6 +372,33 @@ body {
   animation: repodre-dash-flow 1.5s linear infinite;
 }
 
+/* ─── Controller Flow Animation (UI -> Controller) ─────────────────────────── */
+@keyframes repodre-controller-pulse {
+  0%, 100% {
+    stroke-opacity: 0.8;
+    stroke-width: 2;
+  }
+  50% {
+    stroke-opacity: 1;
+    stroke-width: 2.5;
+  }
+}
+
+.repodre-controller-flow {
+  animation: repodre-controller-pulse 2s ease-in-out infinite;
+}
+
+/* ─── Database Flow Animation (Controller -> DB) ───────────────────────────── */
+@keyframes repodre-db-dash-flow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+.repodre-db-flow {
+  animation: repodre-db-dash-flow 2s linear infinite;
+}
+
 /* ─── Cross-Reference Link Animation ──────────────────────────────────── */
 @keyframes repodre-xref-pulse {
   0%, 100% {
