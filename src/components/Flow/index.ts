@@ -11,8 +11,19 @@ export {
   withControllerBadge,
   isControllerNode,
   classifyNodeLayer,
+  createControllerNode,
+  linkUiToController,
+  linkControllerToDatabase,
+  linkUiThroughControllerToDatabase,
+  validateConnection,
+  findAntiPatternWarnings,
+  SecurityWarningBadge,
+  LinkButton,
   type ControllerNodeData,
   type ArchitecturalLayer,
+  type FlowNode,
+  type FlowEdge,
+  type ValidationResult,
 } from "./ControllerNode";
 
 export {
