@@ -326,8 +326,9 @@ function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
 // ─── Studio page ────────────────────────────────────────────────────────────
 
 export function StudioPage() {
-  const search = useSearch({ strict: false }) as { demo?: boolean; project?: string };
+  const search = useSearch({ strict: false }) as { demo?: boolean; draft?: boolean; project?: string };
   const isDemoMode = search?.demo === true;
+  const isDraftMode = search?.draft === true;
   const [isLoading, setIsLoading] = useState(!isDemoMode);
   const [project, setProject] = useState<Project | null>(null);
   const [workspace, setWorkspace] = useState<Workspace>("app");
@@ -554,10 +555,35 @@ export async function POST(req: Request) {
       return;
     }
 
+    // Draft mode: load analysis result from sessionStorage (unauthenticated flow)
+    if (isDraftMode) {
+      try {
+        const raw = sessionStorage.getItem("repodre-draft-graph");
+        if (raw) {
+          const draft = JSON.parse(raw) as {
+            nodes: Array<{ id: string; label: string; sub: string; shape: Shape; accent: Accent; x: number; y: number }>;
+            edges: Array<{ id: string; from: string; to: string; fromHandle?: string; toHandle?: string }>;
+            repoName: string;
+          };
+          setNodes(draft.nodes.map((n) => ({ ...n, workspace: "app" as Workspace })));
+          setEdges(draft.edges.map((e) => ({
+            id: e.id,
+            from: e.from,
+            to: e.to,
+            fromHandle: e.fromHandle as HandleSegment | undefined,
+            toHandle: e.toHandle as HandleSegment | undefined,
+          })));
+        }
+      } catch { /* ignore parse errors */ }
+      setIsLoading(false);
+      return;
+    }
+
     async function loadProject() {
       setIsLoading(true);
       setSelected(null);
-      const projectId = workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID;
+      // Use explicit project ID from URL, or fall back to demo project
+      const projectId = search.project ?? (workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID);
       try {
         const fullProject = await loadFullProject(projectId);
         if (fullProject) {
@@ -594,15 +620,21 @@ export async function POST(req: Request) {
           setAutoLayout(fullProject.project.autoLayout);
           setSmartRoute(fullProject.project.smartRoute);
           setSchemaSource(fullProject.project.schemaSource ?? "");
+        } else if (search.project) {
+          // Specified project not found — fall back to demo data
+          setNodes(INITIAL_NODES);
+          setEdges(INITIAL_EDGES);
         }
       } catch (err) {
         console.error("DB load failed, using demo data:", err);
+        setNodes(INITIAL_NODES);
+        setEdges(INITIAL_EDGES);
       } finally {
         setIsLoading(false);
       }
     }
     loadProject();
-  }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID, isDemoMode]);
+  }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID, isDemoMode, isDraftMode, search.project]);
 
   const sel = nodes.find((n) => n.id === selected) ?? null;
 

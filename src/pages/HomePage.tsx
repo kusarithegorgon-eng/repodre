@@ -44,47 +44,56 @@ export function HomePage() {
       setResult(analysisResult);
 
       if (analysisResult.success && analysisResult.graph) {
-        // Save the project to the database
-        const project = await createProject({
-          name: analysisResult.repo?.name || "Untitled Projects",
-          description: `Dependency graph for ${analysisResult.repo?.full_name || repoUrl}`,
-          zoom: 100,
-          autoLayout: true,
-          smartRoute: true,
-        });
+        try {
+          // Save the project to the database (requires authentication)
+          const project = await createProject({
+            name: analysisResult.repo?.name || "Untitled Project",
+            description: `Dependency graph for ${analysisResult.repo?.full_name || repoUrl}`,
+            zoom: 100,
+            autoLayout: true,
+            smartRoute: true,
+          });
 
-        // Save nodes
-        const savedNodes = await batchCreateNodes(
-          project.id,
-          analysisResult.graph.nodes.map((n) => ({
-            label: n.label,
-            sub: n.sub,
-            shape: n.shape,
-            accent: n.accent,
-            x: n.x,
-            y: n.y,
-          }))
-        );
+          // Save nodes
+          const savedNodes = await batchCreateNodes(
+            project.id,
+            analysisResult.graph.nodes.map((n) => ({
+              label: n.label,
+              sub: n.sub,
+              shape: n.shape,
+              accent: n.accent,
+              x: n.x,
+              y: n.y,
+            }))
+          );
 
-        // Create a mapping from generated IDs to DB IDs for edges
-        const nodeIdMap = new Map<string, string>();
-        analysisResult.graph.nodes.forEach((n, i) => {
-          nodeIdMap.set(n.id, savedNodes[i].id);
-        });
+          // Create a mapping from generated IDs to DB IDs for edges
+          const nodeIdMap = new Map<string, string>();
+          analysisResult.graph.nodes.forEach((n, i) => {
+            nodeIdMap.set(n.id, savedNodes[i].id);
+          });
 
-        // Save edges
-        await batchCreateEdges(
-          project.id,
-          analysisResult.graph.edges.map((e) => ({
-            from: nodeIdMap.get(e.from) || e.from,
-            to: nodeIdMap.get(e.to) || e.to,
-            fromHandle: e.fromHandle as HandleSegment | undefined,
-            toHandle: e.toHandle as HandleSegment | undefined,
-          }))
-        );
+          // Save edges
+          await batchCreateEdges(
+            project.id,
+            analysisResult.graph.edges.map((e) => ({
+              from: nodeIdMap.get(e.from) || e.from,
+              to: nodeIdMap.get(e.to) || e.to,
+              fromHandle: e.fromHandle as HandleSegment | undefined,
+              toHandle: e.toHandle as HandleSegment | undefined,
+            }))
+          );
 
-        // Navigate to the studio with the new project
-        navigate({ to: "/studio", search: { project: project.id } });
+          navigate({ to: "/studio", search: { project: project.id } });
+        } catch {
+          // DB save failed (user not signed in or constraint error) — open in-memory
+          sessionStorage.setItem("repodre-draft-graph", JSON.stringify({
+            nodes: analysisResult.graph.nodes,
+            edges: analysisResult.graph.edges,
+            repoName: analysisResult.repo?.name || "Analysis Result",
+          }));
+          navigate({ to: "/studio", search: { draft: true } });
+        }
       } else if (!analysisResult.success) {
         if (analysisResult.accessIssue) {
           setError(analysisResult.accessIssue.message);

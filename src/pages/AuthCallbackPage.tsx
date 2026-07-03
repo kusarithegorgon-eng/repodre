@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Loader as Loader2, CircleCheck as CheckCircle, Circle as XCircle } from "lucide-react";
-import { handleAuthCallback } from "@/lib/github-auth";
+import { supabase } from "@/lib/supabase";
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
@@ -9,21 +9,33 @@ export function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function processCallback() {
-      try {
-        // Handle the OAuth callback from GitHub
-        await handleAuthCallback();
+    // detectSessionInUrl:true already exchanges the code on Supabase client init.
+    // We just need to wait for the SIGNED_IN event to fire.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN") {
         setStatus("success");
-
-        // Redirect immediately — no artificial delay
-        navigate({ to: "/studio" });
-      } catch (err) {
-        setStatus("error");
-        setError(err instanceof Error ? err.message : "Authentication failed");
+        subscription.unsubscribe();
+        navigate({ to: "/" });
       }
-    }
+    });
 
-    processCallback();
+    // Fallback: if the URL has no code, or something goes wrong, timeout after 8s
+    const timeout = setTimeout(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setStatus("success");
+        navigate({ to: "/" });
+      } else {
+        setStatus("error");
+        setError("Sign in timed out. Please try again.");
+      }
+      subscription.unsubscribe();
+    }, 8000);
+
+    return () => {
+      clearTimeout(timeout);
+      subscription.unsubscribe();
+    };
   }, [navigate]);
 
   return (

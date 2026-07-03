@@ -102,7 +102,7 @@ export interface SectionedBlueprint {
   /** Portal links for cross-section navigation */
   portalLinks: PortalLink[];
   /** Edges that should be replaced by portal links */
-  edgesTo portals: string[];
+  edgesToPortals: string[];
 }
 
 // ─── Section Detection ────────────────────────────────────────────────────────
