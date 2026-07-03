@@ -1,6 +1,6 @@
 import { Link, useSearch } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
@@ -76,6 +76,7 @@ import {
 } from "@/lib/db-client";
 import { detectCardinality, type ParsedTable } from "@/lib/sql-tokenizer";
 import { useEdgeSnap } from "@/hooks/useEdgeSnap";
+import { supabase } from "@/lib/supabase";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -548,7 +549,68 @@ export async function POST(req: Request) {
   const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
   const ERD_PROJECT_ID = "00000000-0000-0000-0000-000000000002";
 
-  // Load the project for the active workspace
+  // Resolve the active project ID from the URL or fall back to the demo workspace ID
+  const activeProjectId = search.project ?? (workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID);
+
+  // Refresh Canvas: reloads nodes and edges from Supabase for the active project.
+  // Called on initial render, on project/workspace change, on realtime updates,
+  // and manually via the "Refresh Canvas" button.
+  const refreshCanvas = useCallback(async () => {
+    if (isDemoMode || isDraftMode) return;
+    setIsLoading(true);
+    setSelected(null);
+    try {
+      const graphData = await loadGraphFromDatabase(activeProjectId);
+      if (graphData) {
+        setProject(graphData.project);
+        setNodes(
+          graphData.nodes.map((n) => ({
+            id: n.id,
+            label: n.label,
+            sub: n.sub,
+            shape: n.shape as Shape,
+            accent: n.accent as Accent,
+            x: n.x,
+            y: n.y,
+            w: n.w,
+            h: n.h,
+            workspace: n.workspace,
+            columns: n.columns,
+            tableName: n.tableName,
+          }))
+        );
+        setEdges(
+          graphData.edges.map((e) => ({
+            id: e.id,
+            from: e.from,
+            to: e.to,
+            fromHandle: e.fromHandle,
+            toHandle: e.toHandle,
+            cardinality: e.cardinality,
+            fromColumn: e.fromColumn,
+            toColumn: e.toColumn,
+          }))
+        );
+        if (graphData.project) {
+          setZoom(graphData.project.zoom);
+          setAutoLayout(graphData.project.autoLayout);
+          setSmartRoute(graphData.project.smartRoute);
+          setSchemaSource(graphData.project.schemaSource ?? "");
+        }
+      } else if (search.project) {
+        setNodes(INITIAL_NODES);
+        setEdges(INITIAL_EDGES);
+      }
+    } catch (err) {
+      console.error("DB load failed, using demo data:", err);
+      setNodes(INITIAL_NODES);
+      setEdges(INITIAL_EDGES);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeProjectId, isDemoMode, isDraftMode, search.project, workspace]);
+
+  // Load the project for the active workspace on initial render and when project/workspace changes
   useEffect(() => {
     // Demo mode: instantly hydrate from static seed data, skip all DB fetches
     if (isDemoMode) {
@@ -582,64 +644,29 @@ export async function POST(req: Request) {
       return;
     }
 
-    async function loadProject() {
-      setIsLoading(true);
-      setSelected(null);
-      // Use explicit project ID from URL, or fall back to demo project
-      const projectId = search.project ?? (workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID);
-      try {
-        const graphData = await loadGraphFromDatabase(projectId);
-        if (graphData) {
-          setProject(graphData.project);
-          setNodes(
-            graphData.nodes.map((n) => ({
-              id: n.id,
-              label: n.label,
-              sub: n.sub,
-              shape: n.shape as Shape,
-              accent: n.accent as Accent,
-              x: n.x,
-              y: n.y,
-              w: n.w,
-              h: n.h,
-              workspace: n.workspace,
-              columns: n.columns,
-              tableName: n.tableName,
-            }))
-          );
-          setEdges(
-            graphData.edges.map((e) => ({
-              id: e.id,
-              from: e.from,
-              to: e.to,
-              fromHandle: e.fromHandle,
-              toHandle: e.toHandle,
-              cardinality: e.cardinality,
-              fromColumn: e.fromColumn,
-              toColumn: e.toColumn,
-            }))
-          );
-          if (graphData.project) {
-            setZoom(graphData.project.zoom);
-            setAutoLayout(graphData.project.autoLayout);
-            setSmartRoute(graphData.project.smartRoute);
-            setSchemaSource(graphData.project.schemaSource ?? "");
-          }
-        } else if (search.project) {
-          // Specified project not found — fall back to demo data
-          setNodes(INITIAL_NODES);
-          setEdges(INITIAL_EDGES);
-        }
-      } catch (err) {
-        console.error("DB load failed, using demo data:", err);
-        setNodes(INITIAL_NODES);
-        setEdges(INITIAL_EDGES);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    loadProject();
-  }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID, isDemoMode, isDraftMode, search.project]);
+    refreshCanvas();
+  }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID, isDemoMode, isDraftMode, search.project, refreshCanvas]);
+
+  // Auto-refresh canvas when the nodes or edges table updates in Supabase (realtime)
+  useEffect(() => {
+    if (isDemoMode || isDraftMode) return;
+
+    const channel = supabase
+      .channel(`canvas-${activeProjectId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "nodes", filter: `project_id=eq.${activeProjectId}` }, () => {
+        console.log("[Repodre Realtime] nodes table changed — refreshing canvas");
+        refreshCanvas();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "edges", filter: `project_id=eq.${activeProjectId}` }, () => {
+        console.log("[Repodre Realtime] edges table changed — refreshing canvas");
+        refreshCanvas();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeProjectId, isDemoMode, isDraftMode, refreshCanvas]);
 
   const sel = nodes.find((n) => n.id === selected) ?? null;
 
@@ -1223,6 +1250,16 @@ export async function POST(req: Request) {
 
           <RecenterButton onClick={canvasPan.resetPan} />
 
+          {/* Refresh Canvas — manual reload from Supabase */}
+          <button
+            onClick={refreshCanvas}
+            disabled={isLoading || isDemoMode || isDraftMode}
+            title="Refresh Canvas — reload nodes and edges from database"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-all hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          </button>
+
           {/* API Test Export (App viewport only) */}
           {workspace === "app" && (
             <ApiTestExportButton
@@ -1361,6 +1398,16 @@ export async function POST(req: Request) {
 
           {/* Recenter workspace button */}
           <RecenterButton onClick={canvasPan.resetPan} />
+
+          {/* Refresh Canvas — manual reload from Supabase */}
+          <button
+            onClick={refreshCanvas}
+            disabled={isLoading || isDemoMode || isDraftMode}
+            title="Refresh Canvas — reload nodes and edges from database"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-all hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          </button>
 
           <ThemeToggle />
           <AuthButton />
