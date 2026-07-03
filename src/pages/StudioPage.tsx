@@ -1165,6 +1165,8 @@ export async function POST(req: Request) {
             </button>
           </div>
 
+          <RecenterButton onClick={canvasPan.resetPan} />
+
           {/* API Test Export (App viewport only) */}
           {workspace === "app" && (
             <ApiTestExportButton
@@ -1555,6 +1557,10 @@ export async function POST(req: Request) {
               onDragEnd={setPosition}
               onDeleteNode={handleDeleteNode}
               zoom={zoom}
+              panX={canvasPan.panX}
+              panY={canvasPan.panY}
+              onCanvasMouseDown={canvasPan.handleMouseDown}
+              cursor={canvasPan.cursor}
             />
           )}
         </main>

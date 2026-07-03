@@ -25,9 +25,13 @@ interface ErdCanvasProps {
   onDragEnd: (id: string, x: number, y: number) => void;
   onDeleteNode?: (id: string) => void;
   zoom: number;
+  panX?: number;
+  panY?: number;
+  onCanvasMouseDown?: (e: React.MouseEvent) => void;
+  cursor?: string;
 }
 
-export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, onDeleteNode, zoom }: ErdCanvasProps) {
+export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, onDeleteNode, zoom, panX = 0, panY = 0, onCanvasMouseDown, cursor }: ErdCanvasProps) {
   // Filter to ERD table nodes only
   const tableNodes = nodes.filter((n) => n.workspace === "erd" && n.columns);
 
@@ -135,10 +139,12 @@ export function ErdCanvas({ nodes, edges, selected, onSelect, onDragEnd, onDelet
     <div
       className="grid-canvas absolute inset-0 overflow-hidden"
       onClick={() => onSelect(null)}
+      onMouseDown={onCanvasMouseDown}
+      style={{ cursor }}
     >
       <div
         className="relative h-full w-full origin-top-left"
-        style={{ transform: `scale(${zoom / 100})` }}
+        style={{ transform: `translate3d(${panX}px, ${panY}px, 0) scale(${zoom / 100})` }}
       >
         {/* Edge SVG layer with Crow's Foot markers */}
         <svg
