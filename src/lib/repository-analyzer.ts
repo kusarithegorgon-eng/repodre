@@ -17,6 +17,7 @@ import { parseModule } from "./ast-parser";
 import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-analyzer";
 import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
+import { buildArchGraph, type ArchGraph, type ArchCategory } from "./architecture-decision-engine";
 import type { AccessCheckResult } from "./github-api";
 import type { HandleSegment, Shape } from "./canvas-geometry";
 import type { RoleGateway, PortalLink, CanvasSection } from "./domain-sectioning";
@@ -51,6 +52,8 @@ export interface AnalysisGraph {
   portalLinks: PortalLink[];
   /** zero-knowledge crawler graph (routes, interactions, validations) */
   crawlerGraph?: FlowchartGraph;
+  /** Architecture Decision Engine graph (UI/DB/LOGIC categorization) */
+  archGraph?: ArchGraph;
 }
 
 export interface AnalysisGraphNode {
@@ -276,8 +279,10 @@ export async function analyzeRepository(
   const filteredEdges = filterPortalEdges(sectionedLayout.edges, sectionedLayout.edgesToReplace);
 
   // Fallback: if the AST blueprint produced 0 nodes (e.g. unrecognized framework),
-  // derive nodes from the zero-knowledge crawler instead.
+  // derive nodes from the zero-knowledge crawler instead — or, if the crawler also
+  // found nothing, from the Architecture Decision Engine (UI/DB/LOGIC classification).
   const useCrawlerFallback = sectionedLayout.nodes.length === 0 && crawlerGraph.nodes.length > 0;
+  const useArchFallback = sectionedLayout.nodes.length === 0 && crawlerGraph.nodes.length === 0;
 
   let graphNodes: AnalysisGraph["nodes"];
   let graphEdges: AnalysisGraph["edges"];
@@ -311,6 +316,40 @@ export async function analyzeRepository(
       renderOpacity: e.inferred ? 0.4 : 1,
       strokeDasharray: e.inferred ? "4 4" : undefined,
     }));
+  } else if (useArchFallback) {
+    // Architecture Decision Engine fallback: classify files as UI/DB/LOGIC
+    // and lay them out in a simple left-to-right flow.
+    const archColWidth = 280;
+    const archRowHeight = 140;
+    const archStartX = 120;
+    const archStartY = 120;
+
+    // Group nodes by category for column layout
+    const categoryOrder: ArchCategory[] = ["UI_NODE", "LOGIC_NODE", "DB_NODE"];
+    const colByCategory = new Map<ArchCategory, number>();
+    categoryOrder.forEach((cat, i) => colByCategory.set(cat, i));
+
+    const rowByCategory = new Map<ArchCategory, number>();
+    graphNodes = archGraph.nodes.map((n) => {
+      const col = colByCategory.get(n.category) ?? 0;
+      const row = rowByCategory.get(n.category) ?? 0;
+      rowByCategory.set(n.category, row + 1);
+      return {
+        id: n.id,
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+        accent: n.accent,
+        x: archStartX + col * archColWidth,
+        y: archStartY + row * archRowHeight,
+      };
+    });
+
+    graphEdges = archGraph.edges.map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+    }));
   } else {
     graphNodes = sectionedLayout.nodes.map((n) => ({
       id: n.id,
@@ -337,6 +376,9 @@ export async function analyzeRepository(
     }));
   }
 
+  // ── Architecture Decision Engine: classify every file into UI/DB/LOGIC ──
+  const archGraph = buildArchGraph(modules);
+
   const graph: AnalysisGraph = {
     nodes: graphNodes,
     edges: graphEdges,
@@ -345,6 +387,7 @@ export async function analyzeRepository(
     sections: sectionedLayout.sections,
     roleGateways: sectionedLayout.roleGateways,
     portalLinks: sectionedLayout.portalLinks,
+    archGraph,
   };
 
   // Phase: Complete
