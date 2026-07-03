@@ -154,15 +154,30 @@ export function onAuthStateChange(
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    const hasRepoScope = session ? await verifyRepoScope() : false;
 
+    // Emit immediately so the UI doesn't wait on a GitHub API round-trip
     callback({
       user,
       session,
-      isLoading: event === "INITIAL_SESSION",
+      isLoading: false,
       error: null,
-      hasRepoScope,
+      hasRepoScope: false,
     });
+
+    // Verify repo scope asynchronously, then patch the state
+    if (session) {
+      verifyRepoScope().then((hasRepoScope) => {
+        if (mounted && hasRepoScope) {
+          callback({
+            user,
+            session,
+            isLoading: false,
+            error: null,
+            hasRepoScope,
+          });
+        }
+      });
+    }
   });
 
   return () => {

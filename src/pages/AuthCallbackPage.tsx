@@ -15,10 +15,8 @@ export function AuthCallbackPage() {
         await handleAuthCallback();
         setStatus("success");
 
-        // Redirect to studio workspace after successful auth
-        setTimeout(() => {
-          navigate({ to: "/studio" });
-        }, 1000);
+        // Redirect immediately — no artificial delay
+        navigate({ to: "/studio" });
       } catch (err) {
         setStatus("error");
         setError(err instanceof Error ? err.message : "Authentication failed");
