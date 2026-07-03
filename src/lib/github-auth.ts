@@ -74,21 +74,22 @@ export async function getCurrentUser(): Promise<User | null> {
  * Supabase stores the provider token in session.provider_token.
  */
 export async function getGitHubAccessToken(): Promise<string | null> {
-  const session = await getCurrentSession();
-  if (!session) return null;
-
-  // Supabase stores the GitHub OAuth token in provider_token
-  const providerToken = session.provider_token;
-  if (typeof providerToken === "string") {
-    return providerToken;
+  // The session may not be fully hydrated immediately after the OAuth callback.
+  // Retry a few times with a short delay before giving up.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const session = await getCurrentSession();
+    if (session) {
+      const providerToken = session.provider_token;
+      if (typeof providerToken === "string" && providerToken.length > 0) {
+        return providerToken;
+      }
+      const user = await getCurrentUser();
+      if (user?.user_metadata?.provider_token) {
+        return user.user_metadata.provider_token;
+      }
+    }
+    if (attempt < 4) await new Promise((r) => setTimeout(r, 200));
   }
-
-  // Fallback: check user metadata for GitHub token
-  const user = await getCurrentUser();
-  if (user?.user_metadata?.provider_token) {
-    return user.user_metadata.provider_token;
-  }
-
   return null;
 }
 

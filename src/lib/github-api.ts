@@ -64,7 +64,7 @@ export interface AccessCheckResult {
  * - owner/repo
  */
 export function parseGitHubUrl(input: string): { owner: string; repo: string } | null {
-  const trimmed = input.trim();
+  const trimmed = input.trim().replace(/\.git$/, "");
 
   // Handle owner/repo format
   const shortMatch = trimmed.match(/^([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.-]+)$/);
