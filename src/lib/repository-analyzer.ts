@@ -18,6 +18,7 @@ import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-ana
 import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
 import { buildArchGraph, type ArchGraph, type ArchCategory } from "./architecture-decision-engine";
+import { buildJourneyGraph, type JourneyGraph } from "./journey-flow-builder";
 import type { AccessCheckResult } from "./github-api";
 import type { HandleSegment, Shape } from "./canvas-geometry";
 import type { RoleGateway, PortalLink, CanvasSection } from "./domain-sectioning";
@@ -54,6 +55,8 @@ export interface AnalysisGraph {
   crawlerGraph?: FlowchartGraph;
   /** Architecture Decision Engine graph (UI/DB/LOGIC categorization) */
   archGraph?: ArchGraph;
+  /** User-journey flowchart (Start → Landing → Auth → ... → Logout → loop) */
+  journeyGraph?: JourneyGraph;
 }
 
 export interface AnalysisGraphNode {
@@ -251,42 +254,74 @@ export async function analyzeRepository(
   // - Fuzzy accelerated route matcher
   const blueprint = analyzeBlueprintEnhanced(modules, fileContents, filePaths);
 
-  // ── Architecture Decision Engine: primary layout ──────────────────────
-  // Every file is classified into UI_NODE / LOGIC_NODE / DB_NODE and laid
-  // out as a left-to-right flowchart (UI → LOGIC → DB). This is the primary
-  // visual output when pasting a repo link.
+  // ── Blueprint layout (computed once; used by the fallback path) ──────
+  const baseLayout = layoutEnhancedBlueprint(blueprint);
+  const sectionedLayout = layoutSectionedBlueprint({
+    nodes: blueprint.nodes,
+    edges: blueprint.edges,
+    sections: blueprint.sections,
+    roleGateways: blueprint.roleGateways,
+    portalLinks: blueprint.portalLinks,
+    edgesToPortals: blueprint.edgesToPortals,
+  }, baseLayout);
+
+  // ── Journey Flow Builder: primary layout ──────────────────────────────
+  // Constructs a continuous user-journey flowchart:
+  //   Start → Landing → Auth → Validation → Decisions → Actions → DB → Logout → loop
+  // Every node is connected — no dead-ends, no orphans.
+  const journeyGraph = buildJourneyGraph(modules);
+
+  // ── Architecture Decision Engine (enrichment / fallback) ──────────────
   const archGraph = buildArchGraph(modules);
 
-  // ── Zero-knowledge local crawler: scan file tree + raw contents ──────
-  // The crawler runs alongside the arch engine, providing a lightweight
-  // directory-structure-first scan that catches routes and interactions
-  // the AST parser might miss. Used to enrich the arch graph's edge set.
+  // ── Zero-knowledge local crawler (last-resort fallback) ──────────────
   const crawlerGraph = crawlRepository(filePaths, fileContents);
 
   onProgress?.({
     phase: "building",
-    message: "Laying out architecture flowchart...",
+    message: "Laying out user-journey flowchart...",
     percent: 92,
   });
 
-  // ── Lay out the arch graph as the primary visual ─────────────────────
-  // Three columns: UI_NODE (left) → LOGIC_NODE (center) → DB_NODE (right)
-  const archColWidth = 300;
-  const archRowHeight = 140;
-  const archStartX = 120;
-  const archStartY = 100;
-
-  const categoryOrder: ArchCategory[] = ["UI_NODE", "LOGIC_NODE", "DB_NODE"];
-  const colByCategory = new Map<ArchCategory, number>();
-  categoryOrder.forEach((cat, i) => colByCategory.set(cat, i));
-
-  const rowByCategory = new Map<ArchCategory, number>();
+  // ── Layout: journey graph is primary; arch/blueprint/crawler fallback ──
+  const JOURNEY_COL_W = 300;
+  const JOURNEY_ROW_H = 140;
+  const JOURNEY_X0 = 120;
+  const JOURNEY_Y0 = 100;
 
   let graphNodes: AnalysisGraph["nodes"];
   let graphEdges: AnalysisGraph["edges"];
 
-  if (archGraph.nodes.length > 0) {
-    // Primary path: Architecture Decision Engine flowchart
+  if (journeyGraph.nodes.length > 1) {
+    // Primary path: user-journey flowchart
+    graphNodes = journeyGraph.nodes.map((n) => ({
+      id: n.id,
+      label: n.label,
+      sub: n.sub,
+      shape: n.shape,
+      accent: n.accent,
+      x: JOURNEY_X0 + n.col * JOURNEY_COL_W,
+      y: JOURNEY_Y0 + n.row * JOURNEY_ROW_H,
+    }));
+
+    graphEdges = journeyGraph.edges.map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+    }));
+  } else if (archGraph.nodes.length > 0) {
+    // Fallback 1: Architecture Decision Engine (UI/DB/LOGIC columns)
+    const archColWidth = 300;
+    const archRowHeight = 140;
+    const archStartX = 120;
+    const archStartY = 100;
+
+    const categoryOrder: ArchCategory[] = ["UI_NODE", "LOGIC_NODE", "DB_NODE"];
+    const colByCategory = new Map<ArchCategory, number>();
+    categoryOrder.forEach((cat, i) => colByCategory.set(cat, i));
+
+    const rowByCategory = new Map<ArchCategory, number>();
+
     graphNodes = archGraph.nodes.map((n) => {
       const col = colByCategory.get(n.category) ?? 0;
       const row = rowByCategory.get(n.category) ?? 0;
@@ -308,19 +343,7 @@ export async function analyzeRepository(
       to: e.to,
     }));
   } else {
-    // Fallback: if the arch engine found no categorized files, use the
-    // blueprint layout (sophisticated route/controller/DB detection) or
-    // the zero-knowledge crawler as a last resort.
-    const baseLayout = layoutEnhancedBlueprint(blueprint);
-    const sectionedLayout = layoutSectionedBlueprint({
-      nodes: blueprint.nodes,
-      edges: blueprint.edges,
-      sections: blueprint.sections,
-      roleGateways: blueprint.roleGateways,
-      portalLinks: blueprint.portalLinks,
-      edgesToPortals: blueprint.edgesToPortals,
-    }, baseLayout);
-
+    // Fallback 2: blueprint layout or zero-knowledge crawler
     const filteredEdges = filterPortalEdges(sectionedLayout.edges, sectionedLayout.edgesToReplace);
 
     const useCrawlerFallback = sectionedLayout.nodes.length === 0 && crawlerGraph.nodes.length > 0;
@@ -390,6 +413,7 @@ export async function analyzeRepository(
     roleGateways: sectionedLayout.roleGateways,
     portalLinks: sectionedLayout.portalLinks,
     archGraph,
+    journeyGraph,
   };
 
   // Phase: Complete
