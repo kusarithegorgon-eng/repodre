@@ -152,10 +152,13 @@ export function analyzeBlueprintEnhanced(
 
   // ── 1. Normalize all routes with dynamic parameter detection ────────────
   const routePaths = modules
-    .filter((m) =>
-      m.path.includes("/app/") && m.path.endsWith("page.tsx") ||
-      m.path.includes("/pages/") && /\.(tsx|jsx)$/.test(m.path)
-    )
+    .filter((m) => {
+      const p = m.path;
+      // Match both "/app/" (nested) and "app/" (root-level) paths
+      const isAppRouter = (p.includes("/app/") || p.startsWith("app/")) && p.endsWith("page.tsx");
+      const isPagesRouter = (p.includes("/pages/") || p.startsWith("pages/")) && /\.(tsx|jsx)$/.test(p);
+      return isAppRouter || isPagesRouter;
+    })
     .map((m) => m.path);
 
   const normalizedRoutes = normalizeRoutes(routePaths, "app-router");

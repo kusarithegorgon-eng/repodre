@@ -275,8 +275,44 @@ export async function analyzeRepository(
   // Filter edges that are replaced by portal links
   const filteredEdges = filterPortalEdges(sectionedLayout.edges, sectionedLayout.edgesToReplace);
 
-  const graph: AnalysisGraph = {
-    nodes: sectionedLayout.nodes.map((n) => ({
+  // Fallback: if the AST blueprint produced 0 nodes (e.g. unrecognized framework),
+  // derive nodes from the zero-knowledge crawler instead.
+  const useCrawlerFallback = sectionedLayout.nodes.length === 0 && crawlerGraph.nodes.length > 0;
+
+  let graphNodes: AnalysisGraph["nodes"];
+  let graphEdges: AnalysisGraph["edges"];
+
+  if (useCrawlerFallback) {
+    const COL_W = 320;
+    const ROW_H = 160;
+    const X0 = 80;
+    const Y0 = 80;
+    const colOf = (type: string) => type === "page" ? 0 : type === "validation" ? 1 : 2;
+    const rowCounts = [0, 0, 0];
+
+    graphNodes = crawlerGraph.nodes.map((n) => {
+      const col = colOf(n.type);
+      const row = rowCounts[col]++;
+      return {
+        id: n.id,
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+        accent: n.accent as AnalysisGraph["nodes"][number]["accent"],
+        x: X0 + col * COL_W,
+        y: Y0 + row * ROW_H,
+      };
+    });
+
+    graphEdges = crawlerGraph.edges.map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      renderOpacity: e.inferred ? 0.4 : 1,
+      strokeDasharray: e.inferred ? "4 4" : undefined,
+    }));
+  } else {
+    graphNodes = sectionedLayout.nodes.map((n) => ({
       id: n.id,
       label: n.label,
       sub: n.sub,
@@ -286,9 +322,9 @@ export async function analyzeRepository(
       y: n.y,
       styleHints: n.styleHints,
       hasFuzzyReferences: n.hasFuzzyReferences,
-      parseError: parseErrors.get(n.id) ?? null,
-    })),
-    edges: filteredEdges.map((e) => ({
+    }));
+
+    graphEdges = filteredEdges.map((e) => ({
       id: e.id,
       from: e.from,
       to: e.to,
@@ -298,7 +334,12 @@ export async function analyzeRepository(
       referenceType: e.referenceType,
       renderOpacity: e.renderOpacity,
       strokeDasharray: e.strokeDasharray,
-    })),
+    }));
+  }
+
+  const graph: AnalysisGraph = {
+    nodes: graphNodes,
+    edges: graphEdges,
     blueprint,
     layout: sectionedLayout,
     sections: sectionedLayout.sections,
