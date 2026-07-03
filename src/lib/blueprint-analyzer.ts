@@ -546,6 +546,96 @@ export function detectDatabases(mod: ParsedModule): DetectedDatabase[] {
 // ─── Top-level analyzer: assemble the full blueprint ───────────────────────
 
 /**
+ * Infer foreign key edges between database tables based on naming conventions.
+ *
+ * Patterns detected:
+ *   - Singular table referenced by plural: "profiles.user_id" → "users"
+ *   - Common suffix patterns: *_id, *_ref, *_fk
+ *   - Same-prefix tables: "order_items" might reference "orders"
+ */
+function inferForeignKeyEdges(
+  dbKeys: Set<string>,
+  nodeByKey: Map<string, string>,
+  edges: BlueprintEdge[]
+): void {
+  // Extract table names (last part after colon if client-prefixed)
+  const tableNames = new Map<string, string>(); // table name → full key
+  for (const key of dbKeys) {
+    const tableName = key.includes(":") ? key.split(":")[1] : key;
+    tableNames.set(tableName, key);
+  }
+
+  // Build singular→plural mapping
+  const singularToPlural = new Map<string, string>();
+  for (const name of tableNames.keys()) {
+    // Simple pluralization heuristics
+    if (name.endsWith("s")) {
+      singularToPlural.set(name.slice(0, -1), name); // users → user
+    }
+    if (name.endsWith("ies")) {
+      singularToPlural.set(name.slice(0, -3) + "y", name); // categories → category
+    }
+    if (name.endsWith("es")) {
+      singularToPlural.set(name.slice(0, -2), name); // statuses → status
+    }
+  }
+
+  // For each table, infer FK relationships by scanning for references
+  for (const [table, key] of tableNames) {
+    // Check if table name suggests it references another table
+    // e.g., "user_profiles" might reference "users"
+    const parts = table.split("_");
+    for (let i = 1; i <= parts.length; i++) {
+      const prefix = parts.slice(0, -i).join("_");
+      const suffix = parts.slice(-i).join("_");
+
+      // Check for singular reference
+      const pluralRef = singularToPlural.get(suffix) || (suffix.endsWith("s") ? suffix : `${suffix}s`);
+      if (tableNames.has(pluralRef) && pluralRef !== table) {
+        const from = nodeByKey.get(key);
+        const to = nodeByKey.get(tableNames.get(pluralRef)!);
+        if (from && to && from !== to) {
+          const exists = edges.some((e) => e.from === from && e.to === to);
+          if (!exists) {
+            edges.push({
+              id: nextEdgeId(),
+              from,
+              to,
+              label: "FK",
+            });
+          }
+        }
+      }
+    }
+
+    // Also check if table contains common FK suffix patterns in source
+    // This is a naming-based heuristic
+    if (table.includes("_")) {
+      const potentialRefs = table.match(/(\w+)_id/g) || [];
+      for (const ref of potentialRefs) {
+        const refTable = ref.replace("_id", "");
+        const pluralRef = singularToPlural.get(refTable) || `${refTable}s`;
+        if (tableNames.has(pluralRef) && pluralRef !== table) {
+          const from = nodeByKey.get(key);
+          const to = nodeByKey.get(tableNames.get(pluralRef)!);
+          if (from && to && from !== to) {
+            const exists = edges.some((e) => e.from === from && e.to === to);
+            if (!exists) {
+              edges.push({
+                id: nextEdgeId(),
+                from,
+                to,
+                label: "FK",
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
  * Run the full app-mapping pipeline over a set of parsed modules and produce
  * a Blueprint of nodes + edges ready for the layout engine.
  */
@@ -638,6 +728,9 @@ export function analyzeBlueprint(modules: ParsedModule[]): Blueprint {
   const viewToValidation = new Map<string, string>(); // viewKey → validationKey
   const validationToView = new Map<string, string>(); // validationKey → viewKey
 
+  // Track all detected database tables for FK inference
+  const allDbKeys = new Set<string>();
+
   for (const mod of modules) {
     const route = routeByPath.get(mod.path);
 
@@ -718,6 +811,7 @@ export function analyzeBlueprint(modules: ParsedModule[]): Blueprint {
         db.path,
         db.line
       );
+      allDbKeys.add(db.key);
 
       // If this DB query is inside a controller, link Controller → DB
       const ctrl = controllerByPath.get(mod.path);
@@ -728,6 +822,13 @@ export function analyzeBlueprint(modules: ParsedModule[]): Blueprint {
         link(route.key, db.key);
       }
     }
+  }
+
+  // ── Pass 4: Infer FK edges between database tables ───────────────────────────
+  // When only database nodes exist (no routes/controllers), infer FK relationships
+  // based on naming conventions: "user_id" → "users", "profile_id" → "profiles"
+  if (allDbKeys.size > 1) {
+    inferForeignKeyEdges(allDbKeys, nodeByKey, edges);
   }
 
   return {

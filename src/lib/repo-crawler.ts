@@ -88,8 +88,9 @@ interface RawRoute {
  * Scan a list of file paths and detect all route-bearing files.
  *
  * Recognized patterns:
- *   - Next.js App Router:  app/page.tsx, app/page.jsx, app/page.ts, app/page.js
+ *   - Next.js App Router:  app/page.tsx, app/page.jsx, app/page.ts, app.page.js
  *   - Next.js Pages Router: pages/tsx, pages/jsx, pages/ts, pages/js
+ *   - Express.js:          routes/*.js, server.js, app.js (via HTTP method patterns)
  *   - Vite/CRA:            src/index.js, src/index.jsx (root entry only)
  *   - Generic:             any/index.js, any/index.jsx (when in a route-like directory)
  */
@@ -133,8 +134,24 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
       continue;
     }
 
+    // ── Express.js routes: routes/*.js or server files ──────────────────
+    // Detected via HTTP method patterns in the source
+    if (isExpressRouteFile(p) && p.endsWith(".js") || p.endsWith(".ts")) {
+      // Mark these for later Express route extraction
+      // We'll scan the source content during crawlRepository
+      const baseName = p.split("/").pop()?.replace(/\.(js|ts)$/, "") || "api";
+      if (!baseName.startsWith(".")) {
+        // Placeholder route - actual paths extracted from source
+        const routePath = `/api/${baseName}`;
+        if (!seen.has(routePath)) {
+          seen.add(routePath);
+          routes.push({ route: routePath, file: p, pattern: "app-router", dynamic: false });
+        }
+      }
+    }
+
     // ── Vite/CRA entry: src/index.js or src/index.jsx ──────────────────
-    if (/(?:^|\/)src\/index\.(js|jsx)$/.test(p)) {
+    if (/(?:^|\/)src\/index\.(js|jsx|ts|tsx)$/.test(p)) {
       if (!seen.has("/")) {
         seen.add("/");
         routes.push({ route: "/", file: p, pattern: "vite-index", dynamic: false });
@@ -145,7 +162,7 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
     // ── Generic index.js/index.jsx in route-like directories ────────────
     // Only match if the directory path looks like a route segment
     // (not node_modules, not config dirs, not lib/utils)
-    m = p.match(/(.+)\/index\.(js|jsx)$/);
+    m = p.match(/(.+)\/index\.(js|jsx|ts|tsx)$/);
     if (m) {
       const dir = m[1];
       if (isRouteLikeDirectory(dir)) {
@@ -159,6 +176,19 @@ export function crawlRoutes(filePaths: string[]): RawRoute[] {
   }
 
   return routes.sort((a, b) => a.route.localeCompare(b.route));
+}
+
+/**
+ * Check if a file path looks like an Express.js route file.
+ */
+function isExpressRouteFile(p: string): boolean {
+  // Common Express route file patterns
+  if (/(?:^|\/)routes?\//.test(p)) return true;
+  if (/(?:^|\/)(server|app|main|index)\.(js|ts)$/.test(p)) return true;
+  if (/(?:^|\/)api\//.test(p)) return true;
+  // Controllers directory
+  if (/(?:^|\/)controllers?\//.test(p)) return true;
+  return false;
 }
 
 /**
@@ -223,6 +253,40 @@ export interface DetectedInteraction {
   line: number;
   /** raw matched text */
   match: string;
+}
+
+/**
+ * Scan a file's source content for navigation and interaction patterns.
+ *
+ * Detects:
+ *   - <Link href="/path"> (Next.js Link)
+ *   - router.push("/path"), router.replace("/path")
+ *   - navigate("/path") (React Router v6)
+ *   - onClick={...}, onSubmit={...}
+ *   - Express.js: app.get("/path", ...), router.post("/path", ...)
+ */
+export function extractExpressRoutes(source: string, filePath: string): RawRoute[] {
+  const routes: RawRoute[] = [];
+  const seen = new Set<string>();
+
+  // Express patterns: app.get(), app.post(), router.get(), router.post(), etc.
+  const expressRe = /(?:app|router)\s*\.\s*(get|post|put|delete|patch|all)\s*\(\s*['"`]([^'"`]+)['"`]/g;
+  let m: RegExpExecArray | null;
+  while ((m = expressRe.exec(source)) !== null) {
+    const routePath = m[2];
+    if (seen.has(routePath)) continue;
+    seen.add(routePath);
+
+    const dynamic = routePath.includes(":") || routePath.includes("*");
+    routes.push({
+      route: routePath,
+      file: filePath,
+      pattern: "app-router",
+      dynamic,
+    });
+  }
+
+  return routes;
 }
 
 /**
@@ -638,7 +702,29 @@ export function crawlRepository(
   // ── 1. ROUTE CRAWL: instantiate Page View Nodes ─────────────────────
   const routes = crawlRoutes(filePaths);
 
-  for (const r of routes) {
+  // Also scan for Express routes in server files
+  const expressRouteFiles = filePaths.filter((p) =>
+    isExpressRouteFile(p) && (p.endsWith(".js") || p.endsWith(".ts"))
+  );
+
+  for (const file of expressRouteFiles) {
+    const content = fileContents.get(file);
+    if (content) {
+      const expressRoutes = extractExpressRoutes(content, file);
+      for (const r of expressRoutes) {
+        if (!routeNodeIds.has(r.route)) {
+          routes.push(r);
+        }
+      }
+    }
+  }
+
+  // Dedupe routes by route path
+  const dedupedRoutes = routes.filter((r, i, arr) =>
+    arr.findIndex((x) => x.route === r.route) === i
+  );
+
+  for (const r of dedupedRoutes) {
     const id = nextNodeId("page");
     routeNodeIds.set(r.route, id);
     pageFileToNodeId.set(r.file, id);
@@ -661,7 +747,7 @@ export function crawlRepository(
   const knownRoutes = Array.from(routeNodeIds.keys());
 
   // ── 2. INTERACTION EXTRACTION + CONSOLIDATED SOURCE ──────────────────
-  for (const r of routes) {
+  for (const r of dedupedRoutes) {
     const pageSource = fileContents.get(r.file);
     if (!pageSource) continue;
 

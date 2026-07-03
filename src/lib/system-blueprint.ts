@@ -126,6 +126,73 @@ function columnFor(type: BlueprintNode["type"]): number {
 }
 
 /**
+ * Grid layout fallback for single-type node graphs.
+ * Distributes nodes in a horizontal-first grid pattern.
+ */
+function layoutAsGrid(blueprint: Blueprint): LaidOutBlueprint {
+  const { nodes, edges } = blueprint;
+
+  // Sort nodes by label for stable ordering
+  const sortedNodes = [...nodes].sort((a, b) => a.label.localeCompare(b.label));
+
+  // Compute grid dimensions: aim for roughly square aspect ratio
+  const cols = Math.ceil(Math.sqrt(sortedNodes.length));
+  const rowsAlloc = Math.ceil(sortedNodes.length / cols);
+
+  const GRID_COL_WIDTH = NODE_W + 100;
+  const GRID_ROW_HEIGHT = NODE_H + 60;
+
+  const positionedNodes: PositionedBlueprintNode[] = sortedNodes.map((n, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return {
+      id: n.id,
+      label: n.label,
+      sub: n.sub,
+      shape: n.shape,
+      accent: n.accent,
+      type: n.type,
+      x: START_X + col * GRID_COL_WIDTH,
+      y: START_Y + row * GRID_ROW_HEIGHT,
+    };
+  });
+
+  // For edges, use auto-routing based on relative positions
+  const positionedEdges: PositionedBlueprintEdge[] = edges.map((e) => {
+    const fromNode = positionedNodes.find((n) => n.id === e.from);
+    const toNode = positionedNodes.find((n) => n.id === e.to);
+    let fromHandle: HandleSegment | undefined;
+    let toHandle: HandleSegment | undefined;
+
+    if (fromNode && toNode) {
+      const dx = toNode.x - fromNode.x;
+      const dy = toNode.y - fromNode.y;
+
+      if (Math.abs(dx) > Math.abs(dy)) {
+        // Horizontal connection
+        fromHandle = dx > 0 ? "e" : "w";
+        toHandle = dx > 0 ? "w" : "e";
+      } else {
+        // Vertical connection
+        fromHandle = dy > 0 ? "s" : "n";
+        toHandle = dy > 0 ? "n" : "s";
+      }
+    }
+
+    return {
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      fromHandle,
+      toHandle,
+      label: e.label,
+    };
+  });
+
+  return { nodes: positionedNodes, edges: positionedEdges };
+}
+
+/**
  * Lay out a blueprint as a left-to-right user-journey timeline.
  *
  * Strategy:
@@ -134,9 +201,17 @@ function columnFor(type: BlueprintNode["type"]): number {
  *      participate in the same journey (share an edge) are placed on the
  *      same row so connectors stay short and horizontal.
  *   3. Assign (x, y) coordinates from the column/row grid.
+ *   4. FALLBACK: When all nodes fall into a single column (e.g., only database
+ *      tables detected), apply a grid layout instead of vertical stacking.
  */
 export function layoutBlueprint(blueprint: Blueprint): LaidOutBlueprint {
   const { nodes, edges } = blueprint;
+
+  // ── 0. Grid fallback for single-type node graphs ───────────────────────────
+  const uniqueColumns = new Set(nodes.map((n) => columnFor(n.type)));
+  if (uniqueColumns.size === 1 && nodes.length > 1) {
+    return layoutAsGrid(blueprint);
+  }
 
   // ── 1. Assign each node to a column ──────────────────────────────────
   const byColumn = new Map<number, BlueprintNode[]>();
