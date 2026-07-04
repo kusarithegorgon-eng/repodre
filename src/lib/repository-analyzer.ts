@@ -87,6 +87,8 @@ export interface AnalysisGraphEdge {
   to: string;
   fromHandle?: HandleSegment;
   toHandle?: HandleSegment;
+  /** Semantic label from the blueprint ("Success", "Failure", etc.) used for YES/NO annotations */
+  label?: string;
   /** Whether this is a route reference edge (fuzzy match) */
   isRouteReference?: boolean;
   /** Detection method for route references */
@@ -396,6 +398,7 @@ export async function analyzeRepository(
         to: e.to,
         fromHandle: e.fromHandle,
         toHandle: e.toHandle,
+        label: e.label,
         isRouteReference: e.isRouteReference,
         referenceType: e.referenceType,
         renderOpacity: e.renderOpacity,

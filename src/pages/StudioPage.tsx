@@ -60,6 +60,7 @@ import {
   snappedEdgePath,
   textMaxWidth,
 } from "@/lib/canvas-geometry";
+import { layoutHierarchicalGraph } from "@/lib/system-blueprint";
 import {
   loadFullProject,
   loadGraphFromDatabase,
@@ -142,6 +143,8 @@ interface EdgeData {
   cardinality?: "one-to-one" | "one-to-many";
   fromColumn?: string;
   toColumn?: string;
+  /** Semantic label carried from the blueprint ("Success", "Failure", etc.) */
+  label?: string;
 }
 
 // ─── Design tokens - HIGH-CONTRAST ACADEMIC PALETTE ───────────────────────
@@ -837,22 +840,44 @@ export async function POST(req: Request) {
   // ─── Apply layout directives ──────────────────────────────────────────────
   const handleApplyLayout = useCallback(() => {
     const { direction, gapX, gapY } = parseLayoutDirectives(layoutDirectives);
-    const START_X = 80, START_Y = 80;
-    const COLS = direction === "LR" ? 4 : 1;
-    let idx = 0;
-    setNodes((prev) =>
-      prev.map((n) => {
-        if (n.isManuallyPositioned) return n;
-        const col = idx % COLS;
-        const row = Math.floor(idx / COLS);
-        idx++;
-        const x = snapToGrid(direction === "LR" ? START_X + col * gapX : START_X + row * gapX);
-        const y = snapToGrid(direction === "LR" ? START_Y + row * gapY : START_Y + col * gapY);
-        return { ...n, x, y };
-      })
-    );
+
+    if (direction === "TB") {
+      // ── Hierarchical top-to-bottom tree layout ────────────────────────
+      setNodes((prev) => {
+        const layoutNodes = prev.filter((n) => !n.isManuallyPositioned);
+        const positions = layoutHierarchicalGraph(layoutNodes, edges, {
+          rankSep: gapY,
+          nodeSep: gapX,
+        });
+        return prev.map((n) => {
+          if (n.isManuallyPositioned) return n;
+          const pos = positions.get(n.id);
+          if (!pos) return n;
+          return { ...n, x: snapToGrid(pos.x), y: snapToGrid(pos.y) };
+        });
+      });
+    } else {
+      // ── Legacy left-to-right grid layout ─────────────────────────────
+      const START_X = 80, START_Y = 80;
+      const COLS = 4;
+      let idx = 0;
+      setNodes((prev) =>
+        prev.map((n) => {
+          if (n.isManuallyPositioned) return n;
+          const col = idx % COLS;
+          const row = Math.floor(idx / COLS);
+          idx++;
+          return {
+            ...n,
+            x: snapToGrid(START_X + col * gapX),
+            y: snapToGrid(START_Y + row * gapY),
+          };
+        })
+      );
+    }
+
     setShowLayoutPopover(false);
-  }, [layoutDirectives]);
+  }, [layoutDirectives, edges]);
 
   const setSub = useCallback(async (id: string, sub: string) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, sub } : n)));
@@ -1192,8 +1217,11 @@ export async function POST(req: Request) {
               {showLayoutPopover && (
                 <div className="absolute right-0 top-11 z-50 w-72 rounded-xl border border-border bg-popover p-4 shadow-2xl">
                   <p className="mb-2 text-xs font-semibold text-foreground">Layout Directives</p>
+                  <p className="mb-1 text-[11px] text-muted-foreground">
+                    <code className="rounded bg-surface px-1">direction: TB</code> — hierarchical family-tree (top → down)
+                  </p>
                   <p className="mb-3 text-[11px] text-muted-foreground">
-                    e.g. <code className="rounded bg-surface px-1">direction: LR, gap-x: 280, gap-y: 160</code>
+                    <code className="rounded bg-surface px-1">direction: LR</code> — left-to-right pipeline grid
                   </p>
                   <input
                     type="text"
@@ -1518,31 +1546,86 @@ export async function POST(req: Request) {
                             ? "5 3"
                             : undefined;
 
+                      // ── Decision-node edge labels (YES / NO) ─────────────
+                      const edgeDef = edges.find((e) => e.id === r.id);
+                      const fromNode = edgeDef ? nodes.find((n) => n.id === edgeDef.from) : undefined;
+                      const toNode   = edgeDef ? nodes.find((n) => n.id === edgeDef.to)   : undefined;
+
+                      let decisionLabel: string | null = null;
+                      if (fromNode?.shape === "diamond") {
+                        // Derive YES/NO from the stored semantic label first, then handle
+                        const stored = edgeDef?.label ?? "";
+                        if (/success/i.test(stored)) {
+                          decisionLabel = "YES";
+                        } else if (/fail|error/i.test(stored)) {
+                          decisionLabel = "NO";
+                        } else {
+                          // Fall back to handle direction: "s" (downward) = failure branch
+                          decisionLabel = edgeDef?.fromHandle === "s" ? "NO" : "YES";
+                        }
+                      }
+
+                      // Midpoint between node centres for label placement
+                      let labelX = 0, labelY = 0;
+                      if (decisionLabel && fromNode && toNode) {
+                        const fc = centerOf(fromNode);
+                        const tc = centerOf(toNode);
+                        labelX = (fc.x + tc.x) / 2;
+                        labelY = (fc.y + tc.y) / 2;
+                      }
+
                       return r.path ? (
-                        <path
-                          key={r.id}
-                          data-testid={`edge-${r.id}`}
-                          data-detoured={r.detoured}
-                          data-link-type={linkType}
-                          d={r.path}
-                          fill="none"
-                          stroke={smartStrokeColor}
-                          strokeWidth={highlightedEdgeIds.includes(r.id) ? 3 : r.detoured ? 1.5 : 2}
-                          strokeOpacity={highlightedEdgeIds.includes(r.id) ? 1 : 1}
-                          strokeDasharray={smartDashArray}
-                          markerEnd={linkType === "controller-to-db" ? "url(#arrow-db)" : "url(#arrow)"}
-                          className={
-                            highlightedEdgeIds.includes(r.id)
-                              ? "animate-pulse-glow"
-                              : linkType === "ui-to-controller"
-                                ? "repodre-controller-flow"
-                                : linkType === "controller-to-db"
-                                  ? "repodre-db-flow"
-                                  : liveTrafficActive
-                                    ? "repodre-traffic-flow"
-                                    : ""
-                          }
-                        />
+                        <g key={r.id}>
+                          <path
+                            data-testid={`edge-${r.id}`}
+                            data-detoured={r.detoured}
+                            data-link-type={linkType}
+                            d={r.path}
+                            fill="none"
+                            stroke={smartStrokeColor}
+                            strokeWidth={highlightedEdgeIds.includes(r.id) ? 3 : r.detoured ? 1.5 : 2}
+                            strokeOpacity={highlightedEdgeIds.includes(r.id) ? 1 : 1}
+                            strokeDasharray={smartDashArray}
+                            markerEnd={linkType === "controller-to-db" ? "url(#arrow-db)" : "url(#arrow)"}
+                            className={
+                              highlightedEdgeIds.includes(r.id)
+                                ? "animate-pulse-glow"
+                                : linkType === "ui-to-controller"
+                                  ? "repodre-controller-flow"
+                                  : linkType === "controller-to-db"
+                                    ? "repodre-db-flow"
+                                    : liveTrafficActive
+                                      ? "repodre-traffic-flow"
+                                      : ""
+                            }
+                          />
+                          {decisionLabel && (
+                            <g transform={`translate(${labelX}, ${labelY})`} style={{ pointerEvents: "none" }}>
+                              {/* pill background for legibility at all zoom levels */}
+                              <rect
+                                x="-14"
+                                y="-9"
+                                width="28"
+                                height="18"
+                                rx="9"
+                                fill={decisionLabel === "YES" ? "var(--node-view-stroke)" : "var(--node-error-stroke)"}
+                                fillOpacity="0.92"
+                              />
+                              <text
+                                x="0"
+                                y="4"
+                                textAnchor="middle"
+                                fontSize="9"
+                                fontWeight="700"
+                                fontFamily="ui-monospace, monospace"
+                                letterSpacing="0.08em"
+                                fill="white"
+                              >
+                                {decisionLabel}
+                              </text>
+                            </g>
+                          )}
+                        </g>
                       ) : null;
                     })}
 

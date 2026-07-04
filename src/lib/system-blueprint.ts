@@ -192,6 +192,170 @@ function layoutAsGrid(blueprint: Blueprint): LaidOutBlueprint {
   return { nodes: positionedNodes, edges: positionedEdges };
 }
 
+// ─── Hierarchical TB Layout ────────────────────────────────────────────────────
+
+/**
+ * Position a generic {id} graph in a top-to-bottom hierarchical tree.
+ *
+ * Algorithm:
+ *   1. Assign ranks using the longest-path rule (BFS from roots, maximise depth).
+ *   2. Within each rank, order nodes by barycenter of parent positions (2 passes).
+ *   3. Spread nodes evenly within each rank; centre shorter ranks relative to
+ *      the widest rank.
+ *
+ * @returns Map<nodeId, {x, y}>
+ */
+export function layoutHierarchicalGraph(
+  nodes: { id: string }[],
+  edges: { from: string; to: string; label?: string }[],
+  options: {
+    rankSep?: number;
+    nodeSep?: number;
+    startX?: number;
+    startY?: number;
+  } = {}
+): Map<string, { x: number; y: number }> {
+  const { rankSep = NODE_H + 100, nodeSep = NODE_W + 80, startX = 80, startY = 80 } = options;
+
+  if (nodes.length === 0) return new Map();
+  if (nodes.length === 1) return new Map([[nodes[0].id, { x: startX, y: startY }]]);
+
+  // Build adjacency (skip "Failure" back-edges for rank computation, but keep
+  // all edges for ordering so failure branches drop to a lower rank).
+  const children = new Map<string, string[]>();
+  const parents = new Map<string, string[]>();
+  for (const n of nodes) {
+    children.set(n.id, []);
+    parents.set(n.id, []);
+  }
+  for (const e of edges) {
+    if (!children.has(e.from) || !children.has(e.to)) continue;
+    children.get(e.from)!.push(e.to);
+    parents.get(e.to)!.push(e.from);
+  }
+
+  // ── 1. Rank assignment: longest path from roots ───────────────────────────
+  const rank = new Map<string, number>();
+  // Iterative relaxation: keeps pushing each node to the maximum depth reachable
+  for (const n of nodes) rank.set(n.id, 0);
+
+  // Topological BFS
+  const inDeg = new Map<string, number>();
+  for (const n of nodes) inDeg.set(n.id, parents.get(n.id)!.length);
+
+  const queue: string[] = [];
+  for (const n of nodes) if (inDeg.get(n.id) === 0) queue.push(n.id);
+
+  let head = 0;
+  while (head < queue.length) {
+    const cur = queue[head++];
+    const curRank = rank.get(cur)!;
+    for (const child of children.get(cur)!) {
+      const newRank = curRank + 1;
+      if (newRank > (rank.get(child) ?? 0)) rank.set(child, newRank);
+      const deg = inDeg.get(child)! - 1;
+      inDeg.set(child, deg);
+      if (deg === 0) queue.push(child);
+    }
+  }
+  // Nodes not visited (cycles): assign to max rank + 1
+  const maxRank = Math.max(0, ...rank.values());
+  for (const n of nodes) if (!rank.has(n.id)) rank.set(n.id, maxRank + 1);
+
+  // ── 2. Group nodes by rank ────────────────────────────────────────────────
+  const byRank = new Map<number, string[]>();
+  for (const n of nodes) {
+    const r = rank.get(n.id)!;
+    if (!byRank.has(r)) byRank.set(r, []);
+    byRank.get(r)!.push(n.id);
+  }
+  const numRanks = Math.max(0, ...byRank.keys()) + 1;
+
+  // ── 3. Order within each rank: top-down barycenter pass ──────────────────
+  // Compute an order index within each rank, then sort the next rank by
+  // the average order index of their parents.
+  const rankPos = new Map<string, number>(); // node → position index in its rank
+
+  // initialise from the rank 0 order (stable sort by id for determinism)
+  (byRank.get(0) ?? []).forEach((id, i) => rankPos.set(id, i));
+
+  for (let r = 1; r < numRanks; r++) {
+    const rankNodes = byRank.get(r) ?? [];
+    rankNodes.sort((a, b) => {
+      const ps = parents.get(a)!;
+      const qs = parents.get(b)!;
+      const bc = (ids: string[]) =>
+        ids.length === 0
+          ? 0
+          : ids.reduce((s, p) => s + (rankPos.get(p) ?? 0), 0) / ids.length;
+      return bc(ps) - bc(qs);
+    });
+    rankNodes.forEach((id, i) => rankPos.set(id, i));
+    byRank.set(r, rankNodes);
+  }
+
+  // ── 4. Assign (x, y) coordinates ─────────────────────────────────────────
+  const maxWidth = Math.max(...Array.from(byRank.values()).map((r) => r.length));
+  const totalCanvasWidth = maxWidth * nodeSep;
+
+  const positions = new Map<string, { x: number; y: number }>();
+
+  for (let r = 0; r < numRanks; r++) {
+    const rankNodes = byRank.get(r) ?? [];
+    const rankWidth = rankNodes.length * nodeSep - (nodeSep - NODE_W);
+    // Centre this rank's nodes relative to the widest rank
+    const xOffset = startX + Math.max(0, (totalCanvasWidth - rankWidth) / 2);
+    const y = startY + r * rankSep;
+
+    rankNodes.forEach((id, i) => {
+      positions.set(id, { x: xOffset + i * nodeSep, y });
+    });
+  }
+
+  return positions;
+}
+
+/**
+ * Lay out a blueprint as a top-to-bottom hierarchical tree.
+ * Used when direction: TB is requested.
+ */
+export function layoutBlueprintTB(blueprint: Blueprint): LaidOutBlueprint {
+  const { nodes, edges } = blueprint;
+
+  const positions = layoutHierarchicalGraph(nodes, edges, {
+    rankSep: NODE_H + 100,
+    nodeSep: NODE_W + 80,
+  });
+
+  const positionedNodes: PositionedBlueprintNode[] = nodes.map((n) => {
+    const pos = positions.get(n.id) ?? { x: START_X, y: START_Y };
+    return { id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, type: n.type, ...pos };
+  });
+
+  const positionedEdges: PositionedBlueprintEdge[] = edges.map((e) => {
+    const from = positions.get(e.from);
+    const to = positions.get(e.to);
+    let fromHandle: HandleSegment | undefined;
+    let toHandle: HandleSegment | undefined;
+
+    if (from && to) {
+      const dy = to.y - from.y;
+      const dx = to.x - from.x;
+      if (Math.abs(dy) >= Math.abs(dx) * 0.5) {
+        fromHandle = dy >= 0 ? "s" : "n";
+        toHandle   = dy >= 0 ? "n" : "s";
+      } else {
+        fromHandle = dx > 0 ? "e" : "w";
+        toHandle   = dx > 0 ? "w" : "e";
+      }
+    }
+
+    return { id: e.id, from: e.from, to: e.to, fromHandle, toHandle, label: e.label };
+  });
+
+  return { nodes: positionedNodes, edges: positionedEdges };
+}
+
 /**
  * Lay out a blueprint as a left-to-right user-journey timeline.
  *
