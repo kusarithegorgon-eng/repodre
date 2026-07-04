@@ -5,10 +5,11 @@
  * Clicking a project loads it into the studio.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "@tanstack/react-router";
 import { Clock, GitBranch, ArrowRight, FolderOpen, Loader as Loader2, CircleAlert as AlertCircle, RefreshCw } from "lucide-react";
 import { listProjects, type Project } from "@/lib/db-client";
+import { supabase } from "@/lib/supabase";
 
 interface RecentProjectsPanelProps {
   onSelectProject: (projectId: string) => void;
@@ -23,7 +24,7 @@ export function RecentProjectsPanel({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -38,11 +39,22 @@ export function RecentProjectsPanel({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
+  // Refresh when refreshKey changes (e.g. after a new project is saved)
   useEffect(() => {
     fetchProjects();
-  }, [refreshKey]);
+  }, [refreshKey, fetchProjects]);
+
+  // Refresh when the user logs in or out
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "INITIAL_SESSION") {
+        fetchProjects();
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [fetchProjects]);
 
   const formatDate = (date: Date) => {
     const now = new Date();

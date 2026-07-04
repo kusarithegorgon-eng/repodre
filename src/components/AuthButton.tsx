@@ -16,18 +16,30 @@ export function AuthButton() {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    // Initial session check
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-      setIsLoading(false);
-    });
+    let mounted = true;
 
-    // Subscribe to changes
+    // Subscribe first — onAuthStateChange fires INITIAL_SESSION on mount
+    // which catches the session set by the OAuth callback redirect.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      if (mounted) {
+        setUser(session?.user ?? null);
+        setIsLoading(false);
+      }
     });
 
-    return () => subscription.unsubscribe();
+    // getSession() reads localStorage without a network round-trip, so it's
+    // safe to use as a fast initial hydration in case the event fires late.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (mounted) {
+        setUser(session?.user ?? null);
+        setIsLoading(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const meta = user?.user_metadata as GitHubMeta | undefined;
