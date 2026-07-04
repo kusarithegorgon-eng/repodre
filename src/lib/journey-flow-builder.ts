@@ -13,6 +13,17 @@
  * Detection is file-content-driven: the builder scans parsed modules for
  * auth, validation, CRUD, logout, and route signals and weaves them into
  * a single connected journey graph.
+ *
+ * Action Refinement (Code Peek):
+ *   For files identified as Actions/Controllers, the builder inspects the
+ *   file content for ORM method calls to refine the action type:
+ *     - .create / .insert / .save  → "CREATE Action" (green)
+ *     - .find / .findOne / .get    → "READ Action" (blue)
+ *     - .update / .patch / .put    → "UPDATE Action" (amber)
+ *     - .delete / .remove          → "DELETE Action" (red)
+ *
+ *   Context-aware edges: an Action is only connected to the Database node
+ *   whose model name appears in the Action file's import statements.
  */
 
 import type { ParsedModule } from "./ast-parser";
@@ -21,15 +32,18 @@ import type { Shape } from "./canvas-geometry";
 // ─── Types ────────────────────────────────────────────────────────────────
 
 export type JourneyNodeType =
-  | "start" // entry point
-  | "page" // user-facing page/view
-  | "auth" // login / signup
-  | "validation" // form / schema validation
-  | "decision" // user decision branch
-  | "action" // API / controller / logic
-  | "database" // data persistence
-  | "logout" // sign-out
-  | "end"; // terminal (loops back)
+  | "start"
+  | "page"
+  | "auth"
+  | "validation"
+  | "decision"
+  | "action"
+  | "database"
+  | "logout"
+  | "end";
+
+/** Fine-grained CRUD classification for action nodes */
+export type ActionCrudType = "CREATE" | "READ" | "UPDATE" | "DELETE" | "API";
 
 export interface JourneyNode {
   id: string;
@@ -38,12 +52,13 @@ export interface JourneyNode {
   sub: string;
   shape: Shape;
   accent: "green" | "teal" | "blue" | "purple" | "orange" | "red";
-  /** source file that inspired this node, if any */
   sourcePath?: string;
-  /** column in the left-to-right layout */
   col: number;
-  /** row within the column */
   row: number;
+  /** For action nodes: the refined CRUD type */
+  crudType?: ActionCrudType;
+  /** DB model names this action imports/references */
+  referencedModels?: string[];
 }
 
 export interface JourneyEdge {
@@ -60,16 +75,25 @@ export interface JourneyGraph {
 
 // ─── Visual style per node type ───────────────────────────────────────────
 
-const STYLE: Record<JourneyNodeType, { shape: Shape; accent: JourneyNode["accent"]; sub: string }> = {
-  start: { shape: "pill", accent: "green", sub: "Start" },
-  page: { shape: "pill", accent: "teal", sub: "Page" },
-  auth: { shape: "diamond", accent: "orange", sub: "Auth" },
-  validation: { shape: "diamond", accent: "purple", sub: "Validation" },
-  decision: { shape: "diamond", accent: "orange", sub: "Decision" },
-  action: { shape: "rectangle", accent: "blue", sub: "Action" },
-  database: { shape: "cylinder", accent: "blue", sub: "Database" },
-  logout: { shape: "pill", accent: "red", sub: "Logout" },
-  end: { shape: "pill", accent: "green", sub: "Loop" },
+const BASE_STYLE: Record<JourneyNodeType, { shape: Shape; accent: JourneyNode["accent"]; sub: string }> = {
+  start:      { shape: "pill",      accent: "green",  sub: "Start" },
+  page:       { shape: "pill",      accent: "teal",   sub: "Page" },
+  auth:       { shape: "diamond",   accent: "orange", sub: "Auth" },
+  validation: { shape: "diamond",   accent: "purple", sub: "Validation" },
+  decision:   { shape: "diamond",   accent: "orange", sub: "Decision" },
+  action:     { shape: "rectangle", accent: "teal",   sub: "Action" },
+  database:   { shape: "cylinder",  accent: "blue",   sub: "Database" },
+  logout:     { shape: "pill",      accent: "red",    sub: "Logout" },
+  end:        { shape: "pill",      accent: "green",  sub: "Loop" },
+};
+
+/** Per-CRUD styling overrides for action nodes */
+const CRUD_STYLE: Record<ActionCrudType, { accent: JourneyNode["accent"]; sub: string; label: string }> = {
+  CREATE: { accent: "green",  sub: "CREATE Action", label: "CREATE Action" },
+  READ:   { accent: "blue",   sub: "READ Action",   label: "READ Action" },
+  UPDATE: { accent: "purple", sub: "UPDATE Action", label: "UPDATE Action" },
+  DELETE: { accent: "red",    sub: "DELETE Action", label: "DELETE Action" },
+  API:    { accent: "teal",   sub: "Action",        label: "API Action" },
 };
 
 // ─── Signal detection ─────────────────────────────────────────────────────
@@ -81,28 +105,127 @@ interface DetectedSignals {
   isValidation: boolean;
   isApi: boolean;
   isDatabase: boolean;
-  isCrudCreate: boolean;
-  isCrudRead: boolean;
-  isCrudUpdate: boolean;
-  isCrudDelete: boolean;
+  crudType: ActionCrudType;
   routePath: string | null;
   decisions: string[];
-  /** detected data-storing actions with descriptive labels */
   storageActions: StorageAction[];
+  /** DB model names inferred from import statements */
+  importedModels: string[];
 }
 
 interface StorageAction {
-  /** what the user is doing, e.g. "register", "create project" */
   trigger: string;
-  /** descriptive label for the DB node, e.g. "auth profile created" */
   dbLabel: string;
-  /** edge label connecting the decision/action to the DB node */
   edgeLabel: string;
+}
+
+/**
+ * Extract model/table names referenced in import statements.
+ * Looks for patterns like:
+ *   import User from './models/user'
+ *   import { Post } from '@/models/post'
+ *   const db = require('./db/order')
+ *   from 'prisma/client' (prisma generated types)
+ */
+function extractImportedModels(source: string): string[] {
+  const models: string[] = [];
+  const src = source.toLowerCase();
+
+  // Match: from './models/something' or from '../models/something'
+  const modelPathMatches = [...src.matchAll(/from\s+['"`][^'"`]*(?:models?|schema|entity|entities|db|database)\/([a-z0-9_-]+)/g)];
+  for (const m of modelPathMatches) {
+    if (m[1]) models.push(m[1].replace(/[-_]/g, " ").trim());
+  }
+
+  // Match: import Something from './something.model' or './something.schema'
+  const modelFileMatches = [...src.matchAll(/from\s+['"`][^'"`]*\/([a-z0-9_-]+)\.(?:model|schema|entity|service)\b/g)];
+  for (const m of modelFileMatches) {
+    if (m[1]) models.push(m[1].replace(/[-_]/g, " ").trim());
+  }
+
+  // Match Prisma-style: prisma.user.create / prisma.post.findMany etc.
+  const prismaMatches = [...src.matchAll(/prisma\.([a-z][a-z0-9_]*)\./g)];
+  for (const m of prismaMatches) {
+    if (m[1] && !["$connect", "$disconnect", "$transaction"].includes(m[1])) {
+      models.push(m[1].replace(/[-_]/g, " ").trim());
+    }
+  }
+
+  // Match Mongoose: User.find / Post.create etc.
+  const mongooseMatches = [...src.matchAll(/\b([a-z][a-z0-9]*)\s*\.\s*(?:find|findone|findbyid|create|update|delete|save|remove|insertmany|updatemany|deletemany)\s*\(/g)];
+  for (const m of mongooseMatches) {
+    const name = m[1];
+    // Skip common non-model words
+    if (!["db", "client", "conn", "res", "req", "err", "data", "result", "body"].includes(name)) {
+      models.push(name);
+    }
+  }
+
+  // Match Supabase: supabase.from('users') / supabase.from('posts')
+  const supabaseMatches = [...src.matchAll(/supabase\s*\.\s*from\s*\(\s*['"`]([a-z0-9_]+)['"`]/g)];
+  for (const m of supabaseMatches) {
+    if (m[1]) models.push(m[1].replace(/_/g, " ").trim());
+  }
+
+  return [...new Set(models)];
+}
+
+/**
+ * Detect the most specific CRUD type from file content.
+ * Uses ORM method call patterns for precision.
+ * Logs the result for debugging.
+ */
+function detectCrudType(src: string, filename: string, isApi: boolean): ActionCrudType {
+  if (!isApi) return "API";
+
+  // ORM method-call patterns (highest precision)
+  const hasOrmCreate = /\.\s*create\s*\(|\.insert\s*\(|\.insertMany\s*\(|\.insertOne\s*\(|\.save\s*\(|\.add\s*\(/.test(src);
+  const hasOrmRead   = /\.\s*find\s*\(|\.findOne\s*\(|\.findMany\s*\(|\.findById\s*\(|\.findFirst\s*\(|\.get\s*\(|\.select\s*\(|\.findAll\s*\(|\.findUnique\s*\(/.test(src);
+  const hasOrmUpdate = /\.\s*update\s*\(|\.updateOne\s*\(|\.updateMany\s*\(|\.patch\s*\(|\.put\s*\(|\.upsert\s*\(/.test(src);
+  const hasOrmDelete = /\.\s*delete\s*\(|\.deleteOne\s*\(|\.deleteMany\s*\(|\.remove\s*\(|\.destroy\s*\(/.test(src);
+
+  // HTTP method exports (secondary signal)
+  const hasPost   = /export\s+async\s+function\s+post\b/.test(src);
+  const hasGet    = /export\s+async\s+function\s+get\b/.test(src);
+  const hasPut    = /export\s+async\s+function\s+put\b/.test(src);
+  const hasDelete = /export\s+async\s+function\s+delete\b/.test(src);
+  const hasPatch  = /export\s+async\s+function\s+patch\b/.test(src);
+
+  let crudType: ActionCrudType = "API";
+
+  // ORM method calls take priority over HTTP export names
+  if (hasOrmCreate && !hasOrmRead && !hasOrmUpdate) {
+    crudType = "CREATE";
+  } else if (hasOrmRead && !hasOrmCreate && !hasOrmUpdate) {
+    crudType = "READ";
+  } else if (hasOrmUpdate && !hasOrmCreate) {
+    crudType = "UPDATE";
+  } else if (hasOrmDelete && !hasOrmCreate && !hasOrmRead) {
+    crudType = "DELETE";
+  } else if (hasOrmCreate) {
+    // Mixed signals: CREATE takes precedence when both create and read present
+    crudType = "CREATE";
+  } else if (hasPost) {
+    crudType = "CREATE";
+  } else if (hasGet) {
+    crudType = "READ";
+  } else if (hasPut || hasPatch) {
+    crudType = "UPDATE";
+  } else if (hasDelete) {
+    crudType = "DELETE";
+  }
+
+  if (crudType !== "API") {
+    console.log(`Refining Action node: ${filename} identified as ${crudType} Action`);
+  }
+
+  return crudType;
 }
 
 function detectSignals(mod: ParsedModule): DetectedSignals {
   const src = mod.source.toLowerCase();
   const path = mod.path.toLowerCase();
+  const filename = mod.path.split("/").pop() ?? mod.path;
 
   const isLanding =
     /(?:^|\/)app\/page\.(tsx|ts|js|jsx)$/.test(mod.path) ||
@@ -142,10 +265,8 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     src.includes("create table") ||
     src.includes("select * from");
 
-  const isCrudCreate = /create|insert|add|post/.test(src) && isApi;
-  const isCrudRead = /get|find|fetch|select|read/.test(src) && isApi;
-  const isCrudUpdate = /update|edit|patch|put/.test(src) && isApi;
-  const isCrudDelete = /delete|remove|destroy/.test(src) && isApi;
+  // Refined CRUD detection using ORM method calls
+  const crudType = detectCrudType(src, filename, isApi);
 
   // Route path extraction
   let routePath: string | null = null;
@@ -158,7 +279,7 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     }
   }
 
-  // Detect user decisions: router.push, Link href, conditional navigation
+  // Detect user decisions
   const decisions: string[] = [];
   const navMatches = [...src.matchAll(/router\.push\s*\(\s*['"`]([^'"`]+)['"`]/g)];
   for (const m of navMatches) {
@@ -173,67 +294,37 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     if (m[1] && !m[1].startsWith("#") && !decisions.includes(m[1])) decisions.push(m[1]);
   }
 
-  // Detect data-storing actions: when a user decision stores something in the DB
+  // Detect data-storing actions
   const storageActions: StorageAction[] = [];
   const has = (kw: string) => src.includes(kw) || path.includes(kw);
 
   if (isAuth && (has("register") || has("signup") || has("sign up") || has("create"))) {
-    storageActions.push({
-      trigger: "register",
-      dbLabel: "auth profile created",
-      edgeLabel: "store profile",
-    });
+    storageActions.push({ trigger: "register", dbLabel: "auth profile created", edgeLabel: "store profile" });
   }
-  if (has("project") && (has("create") || has("add") || has("insert") || isCrudCreate)) {
-    storageActions.push({
-      trigger: "create project",
-      dbLabel: "project stored",
-      edgeLabel: "save project",
-    });
+  if (has("project") && (has("create") || has("add") || has("insert") || crudType === "CREATE")) {
+    storageActions.push({ trigger: "create project", dbLabel: "project stored", edgeLabel: "save project" });
   }
-  if (has("post") && (has("create") || has("add") || has("publish") || isCrudCreate)) {
-    storageActions.push({
-      trigger: "create post",
-      dbLabel: "post stored",
-      edgeLabel: "save post",
-    });
+  if (has("post") && (has("create") || has("add") || has("publish") || crudType === "CREATE")) {
+    storageActions.push({ trigger: "create post", dbLabel: "post stored", edgeLabel: "save post" });
   }
-  if (has("comment") && (has("create") || has("add") || has("post") || isCrudCreate)) {
-    storageActions.push({
-      trigger: "add comment",
-      dbLabel: "comment stored",
-      edgeLabel: "save comment",
-    });
+  if (has("comment") && (has("create") || has("add") || has("post") || crudType === "CREATE")) {
+    storageActions.push({ trigger: "add comment", dbLabel: "comment stored", edgeLabel: "save comment" });
   }
   if (has("upload") && (has("file") || has("image") || has("avatar"))) {
-    storageActions.push({
-      trigger: "upload file",
-      dbLabel: "file stored",
-      edgeLabel: "save file",
-    });
+    storageActions.push({ trigger: "upload file", dbLabel: "file stored", edgeLabel: "save file" });
   }
-  if (has("order") && (has("create") || has("place") || has("submit") || isCrudCreate)) {
-    storageActions.push({
-      trigger: "place order",
-      dbLabel: "order stored",
-      edgeLabel: "save order",
-    });
+  if (has("order") && (has("create") || has("place") || has("submit") || crudType === "CREATE")) {
+    storageActions.push({ trigger: "place order", dbLabel: "order stored", edgeLabel: "save order" });
   }
-  if (has("profile") && (has("update") || has("edit") || isCrudUpdate)) {
-    storageActions.push({
-      trigger: "update profile",
-      dbLabel: "profile updated",
-      edgeLabel: "update record",
-    });
+  if (has("profile") && (has("update") || has("edit") || crudType === "UPDATE")) {
+    storageActions.push({ trigger: "update profile", dbLabel: "profile updated", edgeLabel: "update record" });
   }
-  // Generic fallback: any CRUD create action that doesn't match a specific pattern
-  if (isCrudCreate && storageActions.length === 0) {
-    storageActions.push({
-      trigger: "create",
-      dbLabel: "record stored",
-      edgeLabel: "save data",
-    });
+  if (crudType === "CREATE" && storageActions.length === 0) {
+    storageActions.push({ trigger: "create", dbLabel: "record stored", edgeLabel: "save data" });
   }
+
+  // Extract referenced DB models from imports
+  const importedModels = extractImportedModels(mod.source);
 
   return {
     isLanding,
@@ -242,13 +333,11 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     isValidation,
     isApi,
     isDatabase,
-    isCrudCreate,
-    isCrudRead,
-    isCrudUpdate,
-    isCrudDelete,
+    crudType,
     routePath,
     decisions,
     storageActions,
+    importedModels,
   };
 }
 
@@ -257,26 +346,14 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
 let nodeCounter = 0;
 let edgeCounter = 0;
 
-function nextNodeId(): string {
-  return `j_${++nodeCounter}`;
-}
-function nextEdgeId(): string {
-  return `j_e${++edgeCounter}`;
-}
-function resetCounters(): void {
-  nodeCounter = 0;
-  edgeCounter = 0;
-}
+function nextNodeId(): string { return `j_${++nodeCounter}`; }
+function nextEdgeId(): string { return `j_e${++edgeCounter}`; }
+function resetCounters(): void { nodeCounter = 0; edgeCounter = 0; }
 
 // ─── Main builder ─────────────────────────────────────────────────────────
 
 /**
  * Build a continuous user-journey flowchart from parsed modules.
- *
- * The graph always contains a Start node, a Landing node, and a Logout node
- * that loops back to Landing. In between, detected auth, validation,
- * decision, action, and database nodes are woven in. Every node has at
- * least one incoming and one outgoing edge — no orphans, no dead-ends.
  */
 export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   resetCounters();
@@ -290,19 +367,22 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     label: string,
     col: number,
     row: number,
-    sourcePath?: string
+    sourcePath?: string,
+    overrides?: Partial<Pick<JourneyNode, "accent" | "sub" | "crudType" | "referencedModels">>
   ): JourneyNode => {
-    const style = STYLE[type];
+    const style = BASE_STYLE[type];
     const node: JourneyNode = {
       id: nextNodeId(),
       type,
       label,
-      sub: style.sub,
+      sub: overrides?.sub ?? style.sub,
       shape: style.shape,
-      accent: style.accent,
+      accent: overrides?.accent ?? style.accent,
       col,
       row,
       sourcePath,
+      crudType: overrides?.crudType,
+      referencedModels: overrides?.referencedModels,
     };
     nodes.push(node);
     return node;
@@ -315,8 +395,6 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     edges.push({ id: nextEdgeId(), from, to, label });
   };
 
-  // ── Column layout counters ───────────────────────────────────────────
-  // Each column tracks how many nodes have been placed in it.
   const colRows = new Map<number, number>();
   const placeInCol = (col: number): number => {
     const row = colRows.get(col) ?? 0;
@@ -324,22 +402,12 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     return row;
   };
 
-  // ── Fixed skeleton: Start → Landing ──────────────────────────────────
-  // Col 0: Start
-  // Col 1: Landing page
-  // Col 2: Auth
-  // Col 3: Validation
-  // Col 4: Decisions
-  // Col 5: Actions (API)
-  // Col 6: Database
-  // Col 7: Logout
-  // Col 8: End (loops back to Landing)
-
+  // ── Fixed skeleton ───────────────────────────────────────────────────
   const startNode = addNode("start", "Start", 0, placeInCol(0));
   const landingNode = addNode("page", "Landing Page", 1, placeInCol(1));
   addEdge(startNode.id, landingNode.id, "open app");
 
-  // ── Scan modules for journey signals ─────────────────────────────────
+  // ── Scan modules ─────────────────────────────────────────────────────
   let authNode: JourneyNode | null = null;
   let logoutNode: JourneyNode | null = null;
   const validationNodes: JourneyNode[] = [];
@@ -347,93 +415,90 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   const actionNodes: JourneyNode[] = [];
   const dbNodes: JourneyNode[] = [];
   const pageNodes: JourneyNode[] = [];
-  /** storage action edges: connect actions to their dedicated DB nodes */
   const storageEdges: { dbNode: JourneyNode; edgeLabel: string; trigger: string }[] = [];
+
+  // Track DB nodes by label for context-aware edge matching
+  const dbNodeByLabel = new Map<string, JourneyNode>();
 
   for (const mod of modules) {
     const sig = detectSignals(mod);
 
-    // Auth node
     if (sig.isAuth && !authNode) {
       authNode = addNode("auth", "Auth Login", 2, placeInCol(2), mod.path);
     }
 
-    // Logout node
     if (sig.isLogout && !logoutNode) {
       logoutNode = addNode("logout", "Logout", 7, placeInCol(7), mod.path);
     }
 
-    // Validation nodes
     if (sig.isValidation) {
       const label = sig.isAuth ? "Validate Credentials" : "Validate Input";
-      // Avoid duplicate validation labels
       if (!validationNodes.some((v) => v.label === label)) {
-        const vNode = addNode("validation", label, 3, placeInCol(3), mod.path);
-        validationNodes.push(vNode);
+        validationNodes.push(addNode("validation", label, 3, placeInCol(3), mod.path));
       }
     }
 
-    // Decision nodes (from navigation links / router.push)
     if (sig.decisions.length > 0 && sig.routePath) {
       const label = `Choose: ${sig.routePath}`;
       if (!decisionNodes.some((d) => d.label === label)) {
-        const dNode = addNode("decision", label, 4, placeInCol(4), mod.path);
-        decisionNodes.push(dNode);
+        decisionNodes.push(addNode("decision", label, 4, placeInCol(4), mod.path));
       }
     }
 
-    // Action / API nodes
+    // Action nodes — use refined CRUD type for label, color, and sub
     if (sig.isApi) {
-      let label = "API Action";
-      if (sig.isCrudCreate) label = "Create";
-      else if (sig.isCrudRead) label = "Read";
-      else if (sig.isCrudUpdate) label = "Update";
-      else if (sig.isCrudDelete) label = "Delete";
+      const crudStyle = CRUD_STYLE[sig.crudType];
+      const label = crudStyle.label;
+
       if (!actionNodes.some((a) => a.label === label)) {
-        const aNode = addNode("action", label, 5, placeInCol(5), mod.path);
+        const aNode = addNode("action", label, 5, placeInCol(5), mod.path, {
+          accent: crudStyle.accent,
+          sub: crudStyle.sub,
+          crudType: sig.crudType,
+          referencedModels: sig.importedModels,
+        });
         actionNodes.push(aNode);
+      } else if (sig.importedModels.length > 0) {
+        // Merge referenced models into existing action node of same type
+        const existing = actionNodes.find((a) => a.label === label);
+        if (existing) {
+          existing.referencedModels = [
+            ...(existing.referencedModels ?? []),
+            ...sig.importedModels,
+          ];
+        }
       }
     }
 
-    // Storage action DB nodes — when a user decision stores data, create a
-    // dedicated DB node with a descriptive label (e.g. "auth profile created",
-    // "project stored") and connect the action → DB with a labeled edge.
+    // Storage DB nodes
     for (const sa of sig.storageActions) {
-      if (!dbNodes.some((d) => d.label === sa.dbLabel)) {
+      if (!dbNodeByLabel.has(sa.dbLabel)) {
         const dbNode = addNode("database", sa.dbLabel, 6, placeInCol(6), mod.path);
         dbNodes.push(dbNode);
-        // Track which action node this storage connects to
+        dbNodeByLabel.set(sa.dbLabel, dbNode);
         storageEdges.push({ dbNode, edgeLabel: sa.edgeLabel, trigger: sa.trigger });
       }
     }
 
-    // Database nodes
+    // File-based DB nodes
     if (sig.isDatabase) {
       const filename = mod.path.split("/").pop()?.replace(/\.\w+$/, "") || "Database";
       const label = `DB: ${filename}`;
-      if (!dbNodes.some((d) => d.label === label)) {
+      if (!dbNodeByLabel.has(label)) {
         const dbNode = addNode("database", label, 6, placeInCol(6), mod.path);
         dbNodes.push(dbNode);
+        dbNodeByLabel.set(label, dbNode);
       }
     }
 
-    // Additional page nodes (non-landing routes)
     if (sig.routePath && !sig.isLanding && !sig.isAuth && !sig.isLogout) {
       if (!pageNodes.some((p) => p.label === sig.routePath) && !sig.isApi) {
-        const pNode = addNode("page", sig.routePath, 4, placeInCol(4), mod.path);
-        pageNodes.push(pNode);
+        pageNodes.push(addNode("page", sig.routePath, 4, placeInCol(4), mod.path));
       }
     }
   }
 
-  // ── Weave the skeleton together ─────────────────────────────────────
-  //
-  // Start → Landing → (Auth?) → (Validation?) → (Decisions/Pages?) →
-  // (Actions?) → (Database?) → (Logout?) → End → Landing (loop)
-  //
-  // Every node must have an incoming and outgoing edge.
-
-  // Landing → Auth (or skip to decisions if no auth)
+  // ── Weave skeleton ───────────────────────────────────────────────────
   let lastNode = landingNode;
 
   if (authNode) {
@@ -441,73 +506,76 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     lastNode = authNode;
   }
 
-  // Auth → Validation (credential check)
   if (validationNodes.length > 0 && authNode) {
     const credValidation = validationNodes.find((v) => v.label === "Validate Credentials");
     if (credValidation) {
       addEdge(authNode.id, credValidation.id, "check");
-      // Validation success → continue; failure → back to Auth
       addEdge(credValidation.id, authNode.id, "fail → retry");
       lastNode = credValidation;
     }
   }
 
-  // Last node → Decisions / Pages
   const decisionAndPages = [...decisionNodes, ...pageNodes];
   if (decisionAndPages.length > 0) {
-    // Connect last node to the first decision/page
     addEdge(lastNode.id, decisionAndPages[0].id, "browse");
-
-    // Chain decisions/pages together
     for (let i = 0; i < decisionAndPages.length - 1; i++) {
       addEdge(decisionAndPages[i].id, decisionAndPages[i + 1].id, "navigate");
     }
-
-    // Each decision branches to actions if they exist
     for (const decision of decisionAndPages) {
       if (actionNodes.length > 0) {
-        // Connect decision to the first matching action
         addEdge(decision.id, actionNodes[0].id, "select");
       }
     }
-
     lastNode = decisionAndPages[decisionAndPages.length - 1];
   }
 
-  // Actions → Database
+  // Actions → Database (context-aware)
   if (actionNodes.length > 0) {
-    // Chain actions together
     for (let i = 0; i < actionNodes.length - 1; i++) {
       addEdge(actionNodes[i].id, actionNodes[i + 1].id, "next");
     }
 
-    // Each action → database
     for (const action of actionNodes) {
-      if (dbNodes.length > 0) {
+      const models = action.referencedModels ?? [];
+
+      if (models.length > 0) {
+        // Context-aware: only connect to DB nodes whose label matches an imported model
+        let matched = false;
+        for (const [dbLabel, dbNode] of dbNodeByLabel) {
+          const dbLabelLower = dbLabel.toLowerCase();
+          for (const model of models) {
+            if (dbLabelLower.includes(model) || model.includes(dbLabelLower.replace(/^db:\s*/, ""))) {
+              addEdge(action.id, dbNode.id, `${action.crudType ?? "query"} → ${model}`);
+              matched = true;
+              break;
+            }
+          }
+        }
+
+        // Fallback: if no model match, connect to first DB node
+        if (!matched && dbNodes.length > 0) {
+          addEdge(action.id, dbNodes[0].id, "query");
+        }
+      } else if (dbNodes.length > 0) {
+        // No model info: fall back to first DB node
         addEdge(action.id, dbNodes[0].id, "query");
       }
     }
 
-    // Storage action edges: connect specific actions to their dedicated DB nodes
-    // with descriptive labels (e.g. "store profile", "save project")
+    // Storage-action labelled edges
     for (const se of storageEdges) {
-      // Find the matching action node (Create action for create-type triggers)
       const matchingAction = actionNodes.find((a) => {
-        if (se.trigger === "update profile") return a.label === "Update";
-        return a.label === "Create";
+        if (se.trigger === "update profile") return a.crudType === "UPDATE";
+        return a.crudType === "CREATE";
       });
       if (matchingAction) {
         addEdge(matchingAction.id, se.dbNode.id, se.edgeLabel);
       } else if (actionNodes.length > 0) {
-        // No specific match — connect from the first action
         addEdge(actionNodes[0].id, se.dbNode.id, se.edgeLabel);
+      } else if (decisionAndPages.length > 0) {
+        addEdge(decisionAndPages[0].id, se.dbNode.id, se.edgeLabel);
       } else {
-        // No actions at all — connect from the last decision/page directly to DB
-        if (decisionAndPages.length > 0) {
-          addEdge(decisionAndPages[0].id, se.dbNode.id, se.edgeLabel);
-        } else {
-          addEdge(lastNode.id, se.dbNode.id, se.edgeLabel);
-        }
+        addEdge(lastNode.id, se.dbNode.id, se.edgeLabel);
       }
     }
 
@@ -522,34 +590,29 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     lastNode = dbNodes[dbNodes.length - 1];
   }
 
-  // Input validation (non-credential) — connect after decisions, before actions
+  // Input validations (non-credential)
   const inputValidations = validationNodes.filter((v) => v.label !== "Validate Credentials");
   for (const v of inputValidations) {
-    // Connect from the last decision/page to validation
     if (decisionAndPages.length > 0) {
       addEdge(decisionAndPages[0].id, v.id, "submit");
-      // Validation → action (success path)
       if (actionNodes.length > 0) {
         addEdge(v.id, actionNodes[0].id, "valid");
       } else {
-        // No actions — connect to logout or end
         addEdge(v.id, logoutNode?.id ?? lastNode.id, "valid");
       }
     }
   }
 
-  // → Logout
   if (logoutNode) {
     addEdge(lastNode.id, logoutNode.id, "session end");
     lastNode = logoutNode;
   }
 
-  // End node — loops back to Landing
   const endNode = addNode("end", "Loop", 8, placeInCol(8));
   addEdge(lastNode.id, endNode.id, "complete");
   addEdge(endNode.id, landingNode.id, "restart");
 
-  // ── Orphan insurance: ensure every node has ≥1 in and ≥1 out edge ──
+  // ── Orphan insurance ─────────────────────────────────────────────────
   const hasIncoming = new Set<string>();
   const hasOutgoing = new Set<string>();
   for (const e of edges) {
@@ -558,29 +621,22 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   }
 
   for (const node of nodes) {
-    if (node.type === "start") continue; // start has no incoming by design
+    if (node.type === "start") continue;
 
     if (!hasIncoming.has(node.id)) {
-      // Connect from the nearest previous-column node
-      const prev = nodes
-        .filter((n) => n.col < node.col)
-        .sort((a, b) => b.col - a.col)[0];
+      const prev = nodes.filter((n) => n.col < node.col).sort((a, b) => b.col - a.col)[0];
       if (prev) {
         addEdge(prev.id, node.id, "flow");
         hasOutgoing.add(prev.id);
         hasIncoming.add(node.id);
       } else {
-        // No previous column — connect from start
         addEdge(startNode.id, node.id, "flow");
         hasIncoming.add(node.id);
       }
     }
 
     if (!hasOutgoing.has(node.id) && node.type !== "end") {
-      // Connect to the nearest next-column node, or to end
-      const next = nodes
-        .filter((n) => n.col > node.col && n.type !== "end")
-        .sort((a, b) => a.col - b.col)[0];
+      const next = nodes.filter((n) => n.col > node.col && n.type !== "end").sort((a, b) => a.col - b.col)[0];
       if (next) {
         addEdge(node.id, next.id, "flow");
         hasOutgoing.add(node.id);
