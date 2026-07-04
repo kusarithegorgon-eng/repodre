@@ -17,6 +17,7 @@ import { AccessRestrictedState } from "@/components/AccessRestrictedState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
 import { AiDisclosureBadge } from "@/components/AiDisclosureBadge";
+import { RecentProjectsPanel } from "@/components/RecentProjectsPanel";
 import { analyzeRepository, type AnalysisResult, type AnalysisProgress as AnalysisProgressType } from "@/lib/repository-analyzer";
 import { signInWithGitHub } from "@/lib/github-auth";
 import { createProject, batchCreateNodes, batchCreateEdges, syncRepoToSupabase } from "@/lib/db-client";
@@ -32,6 +33,11 @@ export function HomePage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleSelectProject = useCallback((projectId: string) => {
+    navigate({ to: "/studio", search: { project: projectId } });
+  }, [navigate]);
 
   // Test function for github-parser
   const handleTestParser = useCallback(async () => {
@@ -202,8 +208,16 @@ export function HomePage() {
       {/* Privacy Shield banner */}
       <PrivacyShield />
 
-      {/* Hero */}
-      <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
+      {/* Main Content with Sidebar */}
+      <div className="flex flex-1">
+        {/* Recent Projects Sidebar */}
+        <RecentProjectsPanel
+          onSelectProject={handleSelectProject}
+          refreshKey={refreshKey}
+        />
+
+        {/* Hero */}
+        <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
         <div className="mx-auto max-w-2xl text-center">
           <div className="mb-6 flex items-center justify-center gap-2">
             <Sparkles className="h-5 w-5 text-teal" />
@@ -337,6 +351,7 @@ export function HomePage() {
           </div>
         </div>
       </main>
+      </div>
 
       {/* Features Grid */}
       <section className="border-t border-border bg-surface/50 px-6 py-16">

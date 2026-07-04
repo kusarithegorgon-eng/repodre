@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
 import { ApiTestExportButton } from "@/components/ApiTestExportButton";
 import { GuideModal, GuideToggle } from "@/components/GuideModal";
+import { GettingStartedOverlay } from "@/components/RecentProjectsPanel";
 import { CodePreviewPanel, CodePreviewToggle } from "@/components/CodePreviewPanel";
 import { BottleneckBadge } from "@/components/BottleneckBadge";
 import { EditableLabel } from "@/components/InlineLabelEditor";
@@ -1572,6 +1573,9 @@ export async function POST(req: Request) {
                   </svg>
 
                   {/* Node layer */}
+                  {nodes.length === 0 && !isLoading && !isDemoMode && !isDraftMode && (
+                    <GettingStartedOverlay />
+                  )}
                   {nodes.map((n) => (
                     <CanvasNode
                       key={n.id}
