@@ -18,7 +18,7 @@ import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-ana
 import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
 import { buildArchGraph, type ArchGraph, type ArchCategory } from "./architecture-decision-engine";
-import { buildJourneyGraph, type JourneyGraph } from "./journey-flow-builder";
+import { buildJourneyGraph, layoutJourneyTree, type JourneyGraph } from "./journey-flow-builder";
 import type { AccessCheckResult } from "./github-api";
 import type { HandleSegment, Shape } from "./canvas-geometry";
 import type { RoleGateway, PortalLink, CanvasSection } from "./domain-sectioning";
@@ -286,25 +286,33 @@ export async function analyzeRepository(
   });
 
   // ── Layout: journey graph is primary; arch/blueprint/crawler fallback ──
-  const JOURNEY_COL_W = 300;
-  const JOURNEY_ROW_H = 140;
-  const JOURNEY_X0 = 120;
-  const JOURNEY_Y0 = 100;
+  // Use a hierarchical tree layout so decision nodes branch their children
+  // horizontally (family-tree look) instead of stacking everything in a
+  // single vertical column.
+  const treePositions = layoutJourneyTree(journeyGraph, {
+    nodeSep: 240,
+    rankSep: 180,
+    startX: 120,
+    startY: 100,
+  });
 
   let graphNodes: AnalysisGraph["nodes"];
   let graphEdges: AnalysisGraph["edges"];
 
   if (journeyGraph.nodes.length > 1) {
-    // Primary path: user-journey flowchart
-    graphNodes = journeyGraph.nodes.map((n) => ({
-      id: n.id,
-      label: n.label,
-      sub: n.sub,
-      shape: n.shape,
-      accent: n.accent,
-      x: JOURNEY_X0 + n.col * JOURNEY_COL_W,
-      y: JOURNEY_Y0 + n.row * JOURNEY_ROW_H,
-    }));
+    // Primary path: user-journey flowchart with tree layout
+    graphNodes = journeyGraph.nodes.map((n) => {
+      const pos = treePositions.get(n.id);
+      return {
+        id: n.id,
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+        accent: n.accent,
+        x: pos?.x ?? 120,
+        y: pos?.y ?? 100,
+      };
+    });
 
     graphEdges = journeyGraph.edges.map((e) => ({
       id: e.id,

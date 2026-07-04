@@ -64,6 +64,8 @@ export interface JourneyNode {
   crudType?: ActionCrudType;
   /** DB model names this action imports/references */
   referencedModels?: string[];
+  /** For decision nodes: the route targets this decision branches to */
+  decisionTargets?: string[];
 }
 
 export interface JourneyEdge {
@@ -473,7 +475,7 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     col: number,
     row: number,
     sourcePath?: string,
-    overrides?: Partial<Pick<JourneyNode, "accent" | "sub" | "crudType" | "referencedModels">>
+    overrides?: Partial<Pick<JourneyNode, "accent" | "sub" | "crudType" | "referencedModels" | "decisionTargets">>
   ): JourneyNode => {
     const style = BASE_STYLE[type];
     const node: JourneyNode = {
@@ -488,6 +490,7 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
       sourcePath,
       crudType: overrides?.crudType,
       referencedModels: overrides?.referencedModels,
+      decisionTargets: overrides?.decisionTargets,
     };
     nodes.push(node);
     return node;
@@ -553,7 +556,9 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     if (sig.decisions.length > 0 && sig.routePath) {
       const label = `Choose: ${sig.routePath}`;
       if (!decisionNodes.some((d) => d.label === label)) {
-        decisionNodes.push(addNode("decision", label, 4, placeInCol(4), mod.path));
+        decisionNodes.push(addNode("decision", label, 4, placeInCol(4), mod.path, {
+          decisionTargets: sig.decisions,
+        }));
       }
     }
 
@@ -676,10 +681,50 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
 
   const decisionAndPages = [...decisionNodes, ...pageNodes];
   if (decisionAndPages.length > 0) {
+    // Connect the entry point (last skeleton node) to the first decision/page
     addEdge(lastNode.id, decisionAndPages[0].id, "browse");
-    for (let i = 0; i < decisionAndPages.length - 1; i++) {
-      addEdge(decisionAndPages[i].id, decisionAndPages[i + 1].id, "navigate");
+
+    // Branch decisions to their target pages so the tree layout can spread
+    // children horizontally (family-tree look). Each decision node stores the
+    // route targets it navigates to; we create a "yes" edge to each matching
+    // page node. This makes the target pages SIBLINGS (all children of the
+    // decision) rather than a sequential chain.
+    const branchedPageIds = new Set<string>();
+    for (const decision of decisionNodes) {
+      const targets = decision.decisionTargets ?? [];
+      for (const target of targets) {
+        const targetPage = pageNodes.find((p) => p.label === target);
+        if (targetPage) {
+          addEdge(decision.id, targetPage.id, "yes");
+          branchedPageIds.add(targetPage.id);
+        }
+      }
     }
+
+    // Sequential fallback for pages NOT reachable via decision branches.
+    // Skip pages that are already branched (they're siblings, not a chain).
+    const unbranched = decisionAndPages.filter((n) => !branchedPageIds.has(n.id));
+    for (let i = 0; i < unbranched.length - 1; i++) {
+      const from = unbranched[i];
+      const to = unbranched[i + 1];
+      const hasBranch = edges.some((e) => e.from === from.id && e.to === to.id);
+      if (!hasBranch) {
+        addEdge(from.id, to.id, "navigate");
+      }
+    }
+
+    // Connect the last page in the tree to the first action via a "flow" edge
+    // so the action subtree is reachable from the root in the tree layout.
+    // (The per-decision "select" convergence edges are still added below for
+    // the visual graph, but "flow" is the tree edge that keeps the layout
+    // connected.)
+    if (actionNodes.length > 0 && decisionAndPages.length > 0) {
+      const lastPage = decisionAndPages[decisionAndPages.length - 1];
+      addEdge(lastPage.id, actionNodes[0].id, "flow");
+    }
+
+    // All decisions/pages converge to the first action (if any) — these are
+    // convergence edges for the visual graph, not tree edges.
     for (const decision of decisionAndPages) {
       if (actionNodes.length > 0) {
         addEdge(decision.id, actionNodes[0].id, "select");
@@ -883,4 +928,172 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   }
 
   return { nodes, edges };
+}
+
+// ─── Tree Layout ──────────────────────────────────────────────────────────
+
+export interface TreeLayoutOptions {
+  /** Horizontal spacing between sibling nodes at the same depth */
+  nodeSep: number;
+  /** Vertical spacing between tree levels (depths) */
+  rankSep: number;
+  /** Starting x offset */
+  startX: number;
+  /** Starting y offset */
+  startY: number;
+}
+
+const DEFAULT_TREE_OPTIONS: TreeLayoutOptions = {
+  nodeSep: 220,
+  rankSep: 160,
+  startX: 120,
+  startY: 100,
+};
+
+/**
+ * Compute a hierarchical tree layout for the journey graph.
+ *
+ * Builds a parent → children adjacency from the edges, roots at the
+ * "start" node, and performs a post-order DFS:
+ *   - Leaf nodes receive sequential x positions (left to right).
+ *   - Internal nodes are centered over their children (average of
+ *     direct children's x positions).
+ *   - y is determined by depth (rank) in the tree.
+ *
+ * This produces a "family tree" look where decision nodes branch
+ * their children horizontally rather than stacking everything in a
+ * single vertical column.
+ *
+ * Nodes unreachable from the root are placed in a fallback column
+ * to the right, ordered by depth.
+ */
+export function layoutJourneyTree(
+  graph: JourneyGraph,
+  options: Partial<TreeLayoutOptions> = {}
+): Map<string, { x: number; y: number; depth: number }> {
+  const opts = { ...DEFAULT_TREE_OPTIONS, ...options };
+  const positions = new Map<string, { x: number; y: number; depth: number }>();
+
+  if (graph.nodes.length === 0) return positions;
+
+  // Build parent → children adjacency (deduplicated, preserving order).
+  // Only follow "tree" edges that form the branching structure. Convergence
+  // edges (select, query, call external, enqueue, catch error, check cache,
+  // cache miss, log, process, relate, save, store, update record) merge
+  // multiple parents into the same child, which would make the child an
+  // "internal" node and prevent it from getting a sequential leaf x.
+  // By ignoring convergence edges, the tree layout treats pages as leaves
+  // and lets decision branches spread horizontally.
+  const CONVERGENCE_LABELS = new Set([
+    "select", "call external", "enqueue", "catch error",
+    "check cache", "cache miss", "log",
+    "save project", "save post", "save comment", "save file", "save order",
+    "save data", "store profile", "update record",
+  ]);
+  const isTreeEdge = (label: string | undefined): boolean => {
+    if (!label) return true;
+    if (CONVERGENCE_LABELS.has(label)) return false;
+    // CRUD-labelled edges (e.g., "CREATE → user") are convergence edges
+    if (/^(CREATE|READ|UPDATE|DELETE)\s*→/.test(label)) return false;
+    return true;
+  };
+
+  const children = new Map<string, string[]>();
+  const parents = new Map<string, string[]>();
+  for (const node of graph.nodes) {
+    children.set(node.id, []);
+    parents.set(node.id, []);
+  }
+  for (const edge of graph.edges) {
+    if (edge.from === edge.to) continue; // skip self-loops
+    if (!isTreeEdge(edge.label)) continue; // skip convergence edges
+    const kids = children.get(edge.from);
+    if (kids && !kids.includes(edge.to)) kids.push(edge.to);
+    const pars = parents.get(edge.to);
+    if (pars && !pars.includes(edge.from)) pars.push(edge.from);
+  }
+
+  // Find the root: prefer the "start" node, otherwise a node with no parents
+  const startNode = graph.nodes.find((n) => n.type === "start");
+  let root: string | undefined = startNode?.id;
+  if (!root) {
+    root = graph.nodes.find((n) => parents.get(n.id)!.length === 0)?.id;
+  }
+  if (!root) {
+    root = graph.nodes[0].id;
+  }
+
+  // Track visited nodes to handle cycles (back edges)
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+  let leafCounter = 0;
+
+  /**
+   * Post-order DFS: assign x to leaves sequentially, center internal
+   * nodes over their children. Returns the depth of the subtree.
+   */
+  function dfs(nodeId: string, depth: number): number {
+    if (inStack.has(nodeId)) return depth; // cycle — stop
+    if (visited.has(nodeId)) {
+      // Already positioned; return its existing depth
+      return positions.get(nodeId)?.depth ?? depth;
+    }
+    visited.add(nodeId);
+    inStack.add(nodeId);
+
+    const kids = children.get(nodeId) ?? [];
+    let maxDepth = depth;
+
+    if (kids.length === 0) {
+      // Leaf: assign next sequential x
+      const x = opts.startX + leafCounter * opts.nodeSep;
+      positions.set(nodeId, { x, y: opts.startY + depth * opts.rankSep, depth });
+      leafCounter++;
+    } else {
+      // Internal node: recurse children first, then center over them
+      const childDepths: number[] = [];
+      for (const childId of kids) {
+        const childDepth = dfs(childId, depth + 1);
+        childDepths.push(childDepth);
+        maxDepth = Math.max(maxDepth, childDepth);
+      }
+
+      // Center this node over its children's x positions
+      const childXs = kids
+        .map((cid) => positions.get(cid)?.x)
+        .filter((x): x is number => x !== undefined);
+      const x =
+        childXs.length > 0
+          ? childXs.reduce((a, b) => a + b, 0) / childXs.length
+          : opts.startX + leafCounter * opts.nodeSep;
+      positions.set(nodeId, { x, y: opts.startY + depth * opts.rankSep, depth });
+    }
+
+    inStack.delete(nodeId);
+    return maxDepth;
+  }
+
+  dfs(root, 0);
+
+  // Place any unreachable nodes in a fallback column to the right
+  const unreachable = graph.nodes.filter((n) => !positions.has(n.id));
+  if (unreachable.length > 0) {
+    const fallbackX = opts.startX + (leafCounter + 1) * opts.nodeSep;
+    unreachable.forEach((n, i) => {
+      // Estimate depth from shortest path to any visited node
+      let depth = 0;
+      const pars = parents.get(n.id) ?? [];
+      for (const p of pars) {
+        const pd = positions.get(p)?.depth;
+        if (pd !== undefined) depth = Math.max(depth, pd + 1);
+      }
+      positions.set(n.id, {
+        x: fallbackX,
+        y: opts.startY + depth * opts.rankSep + i * opts.nodeSep * 0.5,
+        depth,
+      });
+    });
+  }
+
+  return positions;
 }
