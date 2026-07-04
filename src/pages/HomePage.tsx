@@ -209,7 +209,7 @@ export function HomePage() {
       <PrivacyShield />
 
       {/* Main Content with Sidebar */}
-      <div className="flex flex-1">
+      <div className="flex min-h-0 flex-1">
         {/* Recent Projects Sidebar */}
         <RecentProjectsPanel
           onSelectProject={handleSelectProject}
@@ -217,7 +217,7 @@ export function HomePage() {
         />
 
         {/* Hero */}
-        <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
+        <main className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12">
         <div className="mx-auto max-w-2xl text-center">
           <div className="mb-6 flex items-center justify-center gap-2">
             <Sparkles className="h-5 w-5 text-teal" />

@@ -5,5 +5,5 @@ import type { ImgHTMLAttributes } from "react";
  * legal pages, and the browser favicon.
  */
 export function RepodreLogo(props: ImgHTMLAttributes<HTMLImageElement>) {
-  return <img src="/logo.png" alt="Repodre" {...props} />;
+  return <img src="/image.png" alt="Repodre" {...props} />;
 }

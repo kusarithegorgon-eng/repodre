@@ -6,9 +6,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { Link } from "@tanstack/react-router";
-import { Clock, GitBranch, ArrowRight, FolderOpen, Loader as Loader2, CircleAlert as AlertCircle, RefreshCw } from "lucide-react";
-import { listProjects, type Project } from "@/lib/db-client";
+import { Clock, GitBranch, ArrowRight, FolderOpen, Loader as Loader2, CircleAlert as AlertCircle, RefreshCw, Trash2 } from "lucide-react";
+import { listProjects, deleteProject, type Project } from "@/lib/db-client";
 import { supabase } from "@/lib/supabase";
 
 interface RecentProjectsPanelProps {
@@ -23,6 +22,7 @@ export function RecentProjectsPanel({
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchProjects = useCallback(async () => {
     setIsLoading(true);
@@ -70,6 +70,19 @@ export function RecentProjectsPanel({
     return date.toLocaleDateString();
   };
 
+  const handleDelete = async (e: React.MouseEvent, projectId: string) => {
+    e.stopPropagation();
+    setDeletingId(projectId);
+    try {
+      await deleteProject(projectId);
+      setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    } catch (err) {
+      console.error("Failed to delete project:", err);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const extractRepoName = (project: Project) => {
     // Extract repo name from description if available
     // Format: "Dependency graph for owner/repo"
@@ -81,7 +94,7 @@ export function RecentProjectsPanel({
   };
 
   return (
-    <div className="flex w-72 flex-col border-r border-border bg-surface">
+    <div className="flex w-72 shrink-0 flex-col overflow-hidden border-r border-border bg-surface">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
@@ -129,10 +142,10 @@ export function RecentProjectsPanel({
         ) : (
           <ul className="space-y-1">
             {projects.map((project) => (
-              <li key={project.id}>
+              <li key={project.id} className="group relative">
                 <button
                   onClick={() => onSelectProject(project.id)}
-                  className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all hover:border-border hover:bg-accent/50"
+                  className="flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 pr-8 text-left transition-all hover:border-border hover:bg-accent/50"
                 >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal">
                     <GitBranch className="h-4 w-4" />
@@ -145,12 +158,23 @@ export function RecentProjectsPanel({
                       {extractRepoName(project)}
                     </p>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-0.5">
-                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-                    <span className="text-[10px] text-muted-foreground/60">
-                      {formatDate(project.updatedAt)}
-                    </span>
-                  </div>
+                  <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                    {formatDate(project.updatedAt)}
+                  </span>
+                </button>
+
+                {/* Delete button — visible on row hover */}
+                <button
+                  onClick={(e) => handleDelete(e, project.id)}
+                  disabled={deletingId === project.id}
+                  title="Delete project"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-all hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {deletingId === project.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
                 </button>
               </li>
             ))}
