@@ -19,7 +19,7 @@ import { CYLINDER_CAP } from "@/lib/canvas-geometry";
 /**
  * Node type for determining fill/stroke colors from CSS variables.
  */
-export type NodeType = "view" | "controller" | "validation" | "database" | "error" | "gateway";
+export type NodeType = "view" | "controller" | "validation" | "database" | "error" | "gateway" | "misc";
 
 interface NodeShapeSVGProps {
   shape: Shape;
@@ -51,6 +51,8 @@ function getFillForType(type: NodeType | undefined): string {
       return "var(--node-error-fill)";
     case "gateway":
       return "var(--node-gateway-fill)";
+    case "misc":
+      return "var(--node-misc-fill, #f5f5f5)";
     default:
       return "#ffffff";
   }
@@ -73,6 +75,8 @@ function getStrokeForType(type: NodeType | undefined, fallbackColor: string): st
       return "var(--node-error-stroke)";
     case "gateway":
       return "var(--node-gateway-stroke)";
+    case "misc":
+      return "var(--node-misc-stroke, #78716c)";
     default:
       return fallbackColor;
   }

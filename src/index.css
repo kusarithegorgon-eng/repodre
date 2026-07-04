@@ -57,6 +57,11 @@
   --node-gateway-stroke: #9a3412; /* orange-800 */
   --node-gateway-text: #7c2d12;   /* orange-900 */
 
+  /* Misc/Unclassified Nodes: Light stone with dark border */
+  --node-misc-fill: #f5f5f4;     /* stone-100 */
+  --node-misc-stroke: #78716c;   /* stone-500 */
+  --node-misc-text: #44403c;     /* stone-700 */
+
   /* Primary accent color - solid teal */
   --teal: #0d9488;                 /* teal-600: solid, no glow */
   --orange: #ea580c;               /* orange-600 */
@@ -135,6 +140,11 @@
   --node-gateway-fill: #7c2d12;   /* orange-900 */
   --node-gateway-stroke: #fb923c; /* orange-400 */
   --node-gateway-text: #fed7aa;   /* orange-200 */
+
+  /* Misc/Unclassified Nodes: Dark stone with light border */
+  --node-misc-fill: #292524;     /* stone-800 */
+  --node-misc-stroke: #a8a29e;   /* stone-400 */
+  --node-misc-text: #d6d3d1;     /* stone-300 */
 
   /* Primary accent color - solid teal */
   --teal: #2dd4bf;                 /* teal-400: brighter for dark mode */

@@ -3,10 +3,11 @@
  *
  * A slide-out drawer panel from the right margin that displays
  * syntax-highlighted source code or SQL schema for the selected node.
+ * Includes "View Raw" toggle to see full GitHub source content.
  */
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { X, FileCode, Database, Code as Code2, FileText, Copy, Check, ExternalLink } from "lucide-react";
+import { X, FileCode, Database, Code as Code2, FileText, Copy, Check, ExternalLink, Eye, EyeOff, CircleHelp as HelpCircle } from "lucide-react";
 import type { BlueprintNode } from "@/lib/blueprint-analyzer";
 import type { ParsedModule } from "@/lib/ast-parser";
 
@@ -216,6 +217,7 @@ export function CodePreviewPanel({
   width = 480,
 }: CodePreviewPanelProps) {
   const [copied, setCopied] = useState(false);
+  const [viewRaw, setViewRaw] = useState(false);
   const codeRef = useRef<HTMLPreElement>(null);
 
   // Find the matching module for the selected node
@@ -242,12 +244,83 @@ export function CodePreviewPanel({
       return { code: "", language: "unknown", highlightedCode: "" };
     }
 
+    // If "View Raw" is enabled, show the full source
+    if (viewRaw) {
+      const rawCode = module.source;
+      const lang = detectLanguage(rawCode);
+      const highlighted = highlightCode(rawCode, lang);
+      return { code: rawCode, language: lang, highlightedCode: highlighted };
+    }
+
     const relevantCode = extractRelevantCode(module.source, selectedNode);
     const lang = detectLanguage(relevantCode);
     const highlighted = highlightCode(relevantCode, lang);
 
     return { code: relevantCode, language: lang, highlightedCode: highlighted };
-  }, [module, selectedNode]);
+  }, [module, selectedNode, viewRaw]);
+
+  // Generate decision explanation for why this node was classified
+  const decisionExplanation = useMemo(() => {
+    if (!selectedNode || !module) return null;
+
+    const explanations: string[] = [];
+    const path = module.path.toLowerCase();
+    const src = module.source;
+
+    switch (selectedNode.type) {
+      case "view":
+        if (path.includes("/app/") && path.endsWith("page.tsx")) {
+          explanations.push("Detected Next.js App Router page (app/**/page.tsx)");
+        } else if (path.includes("/pages/") && /\.(tsx|jsx)$/.test(path)) {
+          explanations.push("Detected Next.js Pages Router file (pages/*.tsx)");
+        } else if (/path\s*:\s*["']\//.test(src)) {
+          explanations.push("Found route path definition in source");
+        }
+        explanations.push("Represents a user-facing route/screen");
+        break;
+
+      case "controller":
+        if (path.includes("/api/") && path.includes("route.ts")) {
+          explanations.push("Detected Next.js App Router API handler (app/api/**/route.ts)");
+        } else if (path.includes("/pages/api/")) {
+          explanations.push("Detected Pages Router API endpoint (pages/api/*)");
+        }
+        if (/export\s+(async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH)/.test(src)) {
+          explanations.push("Contains exported HTTP method handler");
+        }
+        break;
+
+      case "validation":
+        if (/z\.\s*object\s*\(/.test(src)) {
+          explanations.push("Contains Zod schema definition (z.object())");
+        } else if (/yup\.\s*object\s*\(/.test(src)) {
+          explanations.push("Contains Yup schema definition (yup.object())");
+        } else if (/if\s*\(\s*!/.test(src)) {
+          explanations.push("Contains custom validation guards (if (!x))");
+        }
+        break;
+
+      case "database":
+        if (/\.from\s*\(\s*['"`]/.test(src)) {
+          explanations.push("Contains Supabase query (.from())");
+        } else if (/prisma\.\w+\.\w+/.test(src)) {
+          explanations.push("Contains Prisma client query (prisma.model.method())");
+        } else if (/CREATE\s+TABLE/i.test(src)) {
+          explanations.push("Contains SQL CREATE TABLE statement");
+        }
+        break;
+
+      case "misc":
+        explanations.push("File did not match classification patterns for routes, controllers, validation, or database");
+        explanations.push("Labeled as MISC to ensure nothing is lost during analysis");
+        break;
+
+      default:
+        explanations.push("Classification method: " + selectedNode.type);
+    }
+
+    return explanations;
+  }, [selectedNode, module]);
 
   // Handle copy
   const handleCopy = async () => {
@@ -271,6 +344,11 @@ export function CodePreviewPanel({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Reset viewRaw when node changes
+  useEffect(() => {
+    setViewRaw(false);
+  }, [selectedNode?.id]);
+
   if (!isOpen) return null;
 
   return (
@@ -287,6 +365,8 @@ export function CodePreviewPanel({
             <Code2 className="h-4 w-4 text-teal" />
           ) : selectedNode?.type === "validation" ? (
             <FileText className="h-4 w-4 text-purple-400" />
+          ) : selectedNode?.type === "misc" ? (
+            <FileCode className="h-4 w-4 text-stone-400" />
           ) : (
             <FileCode className="h-4 w-4 text-green-400" />
           )}
@@ -325,6 +405,28 @@ export function CodePreviewPanel({
             {selectedNode?.sub}
           </span>
           <div className="flex-1" />
+          {/* View Raw toggle */}
+          <button
+            onClick={() => setViewRaw(!viewRaw)}
+            title={viewRaw ? "Show extracted code" : "Show full file content"}
+            className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
+              viewRaw
+                ? "bg-teal/10 text-teal"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            }`}
+          >
+            {viewRaw ? (
+              <>
+                <EyeOff className="h-3 w-3" />
+                Raw
+              </>
+            ) : (
+              <>
+                <Eye className="h-3 w-3" />
+                View Raw
+              </>
+            )}
+          </button>
           <button
             onClick={handleCopy}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -341,6 +443,28 @@ export function CodePreviewPanel({
               </>
             )}
           </button>
+        </div>
+      )}
+
+      {/* Decision Explanation */}
+      {decisionExplanation && decisionExplanation.length > 0 && (
+        <div className="border-b border-border px-4 py-2 bg-accent/30">
+          <div className="flex items-start gap-2">
+            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-medium text-foreground mb-1">
+                Why this classification?
+              </p>
+              <ul className="space-y-0.5">
+                {decisionExplanation.map((reason, i) => (
+                  <li key={i} className="text-xs text-muted-foreground flex items-start gap-1">
+                    <span className="text-teal shrink-0">•</span>
+                    {reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
       )}
 

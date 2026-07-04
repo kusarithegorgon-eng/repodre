@@ -11,6 +11,7 @@ import { ExportSchemaButton } from "@/components/ExportSchemaButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
 import { ApiTestExportButton } from "@/components/ApiTestExportButton";
+import { GuideModal, GuideToggle } from "@/components/GuideModal";
 import { CodePreviewPanel, CodePreviewToggle } from "@/components/CodePreviewPanel";
 import { BottleneckBadge } from "@/components/BottleneckBadge";
 import { EditableLabel } from "@/components/InlineLabelEditor";
@@ -151,6 +152,18 @@ const ACCENT: Record<Accent, { color: string; glow: string; label: string; nodeT
   blue:   { color: "var(--node-database-stroke)", glow: "transparent", label: "Database", nodeType: "database" },
   orange: { color: "var(--node-gateway-stroke)", glow: "transparent", label: "Gateway", nodeType: "gateway" },
   red:    { color: "var(--node-error-stroke)", glow: "transparent", label: "Error", nodeType: "error" },
+};
+
+// Mapping from shape to NodeType for misc nodes
+const SHAPE_TO_NODE_TYPE: Record<string, import("@/components/NodeShapeSVG").NodeType> = {
+  pill: "view",
+  diamond: "validation",
+  rectangle: "controller",
+  cylinder: "database",
+  hexagon: "gateway",
+  triangle: "error",
+  document: "misc",
+  parallelogram: "view",
 };
 
 const ALL_SHAPES: Shape[] = [
@@ -362,6 +375,7 @@ export function StudioPage() {
   const [webhookSyncOpen, setWebhookSyncOpen] = useState(false);
   const [multiplayerOpen, setMultiplayerOpen] = useState(false);
   const [gitDiffOpen, setGitDiffOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1411,6 +1425,7 @@ export async function POST(req: Request) {
 
           <ThemeToggle />
           <AuthButton />
+          <GuideToggle onClick={() => setGuideOpen(!guideOpen)} isOpen={guideOpen} />
         </div>
       </header>
 
@@ -1674,7 +1689,7 @@ export async function POST(req: Request) {
                   nodes={nodes.map((n) => ({
                     id: n.id,
                     label: n.label,
-                    type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
+                    type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : n.shape === "document" ? "misc" : "error",
                   }))}
                   edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
                   onHighlightNode={setHighlightedNodeId}
@@ -1707,7 +1722,7 @@ export async function POST(req: Request) {
         onClose={() => setCodePreviewOpen(false)}
         selectedNode={sel ? {
           id: sel.id,
-          type: sel.shape === "pill" ? "view" : sel.shape === "diamond" ? "validation" : sel.shape === "rectangle" ? "controller" : sel.shape === "cylinder" ? "database" : "view",
+          type: sel.shape === "pill" ? "view" : sel.shape === "diamond" ? "validation" : sel.shape === "rectangle" ? "controller" : sel.shape === "cylinder" ? "database" : sel.shape === "document" ? "misc" : "view",
           label: sel.label,
           sub: sel.sub,
           shape: sel.shape,
@@ -1792,6 +1807,9 @@ export async function POST(req: Request) {
           }}
         />
       )}
+
+      {/* Guide Modal */}
+      <GuideModal isOpen={guideOpen} onClose={() => setGuideOpen(false)} />
 
       {/* ── 30% Manual Override: Node Spawner Popover ── */}
       <NodeSpawnerPopover

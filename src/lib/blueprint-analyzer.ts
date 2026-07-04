@@ -31,7 +31,8 @@ export type BlueprintNodeType =
   | "validation" // form/validation check
   | "controller" // backend API route controller
   | "database" // database table / schema
-  | "error"; // error/return-to-page terminal
+  | "error" // error/return-to-page terminal
+  | "misc"; // unclassified file (fallback to ensure nothing is lost)
 
 export interface BlueprintNode {
   id: string;
@@ -829,6 +830,51 @@ export function analyzeBlueprint(modules: ParsedModule[]): Blueprint {
   // based on naming conventions: "user_id" → "users", "profile_id" → "profiles"
   if (allDbKeys.size > 1) {
     inferForeignKeyEdges(allDbKeys, nodeByKey, edges);
+  }
+
+  // ── Pass 5: MISC nodes for unclassified files ────────────────────────────────
+  // Ensure nothing is lost: files that don't fit other categories become MISC nodes
+  const classifiedPaths = new Set<string>();
+  for (const node of nodes) {
+    if (node.sourcePath) classifiedPaths.add(node.sourcePath);
+  }
+
+  for (const mod of modules) {
+    // Skip already-classified files
+    if (classifiedPaths.has(mod.path)) continue;
+
+    // Skip config files, types, and other non-essential files
+    const filename = mod.path.split("/").pop() || "";
+    const isConfig = [
+      "package.json",
+      "tsconfig.json",
+      "tailwind.config",
+      "vite.config",
+      "next.config",
+      "postcss.config",
+      ".env",
+      ".eslintrc",
+      ".prettierrc",
+      "README.md",
+    ].some((cfg) => filename.includes(cfg));
+    if (isConfig) continue;
+
+    // Skip type-only files
+    if (filename.endsWith(".d.ts") || filename.endsWith(".types.ts")) continue;
+
+    // Create MISC node for this unclassified file
+    const miscKey = `misc:${mod.path}`;
+    const label = filename.replace(/\.(tsx?|jsx?)$/, "");
+    ensureNode(
+      miscKey,
+      "misc",
+      label,
+      "Unclassified file",
+      "document",
+      "orange",
+      mod.path,
+      1
+    );
   }
 
   return {
