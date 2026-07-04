@@ -40,7 +40,12 @@ export type JourneyNodeType =
   | "action"
   | "database"
   | "logout"
-  | "end";
+  | "end"
+  | "middleware"
+  | "external_service"
+  | "service"
+  | "error_handler"
+  | "cache";
 
 /** Fine-grained CRUD classification for action nodes */
 export type ActionCrudType = "CREATE" | "READ" | "UPDATE" | "DELETE" | "API";
@@ -76,15 +81,20 @@ export interface JourneyGraph {
 // ─── Visual style per node type ───────────────────────────────────────────
 
 const BASE_STYLE: Record<JourneyNodeType, { shape: Shape; accent: JourneyNode["accent"]; sub: string }> = {
-  start:      { shape: "pill",      accent: "green",  sub: "Start" },
-  page:       { shape: "pill",      accent: "teal",   sub: "Page" },
-  auth:       { shape: "diamond",   accent: "orange", sub: "Auth" },
-  validation: { shape: "diamond",   accent: "purple", sub: "Validation" },
-  decision:   { shape: "diamond",   accent: "orange", sub: "Decision" },
-  action:     { shape: "rectangle", accent: "teal",   sub: "Action" },
-  database:   { shape: "cylinder",  accent: "blue",   sub: "Database" },
-  logout:     { shape: "pill",      accent: "red",    sub: "Logout" },
-  end:        { shape: "pill",      accent: "green",  sub: "Loop" },
+  start:            { shape: "pill",        accent: "green",  sub: "Start" },
+  page:             { shape: "pill",        accent: "teal",   sub: "Page" },
+  auth:             { shape: "diamond",     accent: "orange", sub: "Auth" },
+  validation:       { shape: "diamond",     accent: "purple", sub: "Validation" },
+  decision:         { shape: "diamond",     accent: "orange", sub: "Decision" },
+  action:           { shape: "rectangle",   accent: "teal",   sub: "Action" },
+  database:         { shape: "cylinder",    accent: "blue",   sub: "Database" },
+  logout:           { shape: "pill",        accent: "red",    sub: "Logout" },
+  end:              { shape: "pill",        accent: "green",  sub: "Loop" },
+  middleware:       { shape: "hexagon",     accent: "orange", sub: "Middleware" },
+  external_service: { shape: "parallelogram", accent: "teal", sub: "External Service" },
+  service:          { shape: "rectangle",   accent: "purple", sub: "Background Service" },
+  error_handler:    { shape: "diamond",     accent: "red",    sub: "Error Handler" },
+  cache:            { shape: "hexagon",     accent: "green",  sub: "Cache Layer" },
 };
 
 /** Per-CRUD styling overrides for action nodes */
@@ -105,12 +115,19 @@ interface DetectedSignals {
   isValidation: boolean;
   isApi: boolean;
   isDatabase: boolean;
+  isMiddleware: boolean;
+  isExternalService: boolean;
+  isBackgroundService: boolean;
+  isErrorHandler: boolean;
+  isCache: boolean;
   crudType: ActionCrudType;
   routePath: string | null;
   decisions: string[];
   storageActions: StorageAction[];
   /** DB model names inferred from import statements */
   importedModels: string[];
+  /** External service names detected (stripe, sendgrid, etc.) */
+  externalServices: string[];
 }
 
 interface StorageAction {
@@ -265,6 +282,81 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     src.includes("create table") ||
     src.includes("select * from");
 
+  // ── Middleware Detection ────────────────────────────────────────────────
+  // Files named middleware.ts or containing guard/auth middleware patterns
+  const isMiddleware =
+    filename === "middleware.ts" ||
+    filename === "middleware.js" ||
+    path.includes("/middleware") ||
+    /export\s+(async\s+)?function\s+middleware/.test(src) ||
+    /export\s+const\s+middleware/.test(src) ||
+    /nextauth\(\s*\)/.test(src) ||
+    /getServerSession/.test(src) ||
+    /withAuth/.test(src) ||
+    path.includes("guard") ||
+    path.includes("_middleware");
+
+  // ── External Service Detection ──────────────────────────────────────────
+  // Imports from known external service SDKs
+  const externalServicePatterns = [
+    { name: "stripe", pattern: /from\s+['"`]stripe['"`]|require\s*\(\s*['"`]stripe['"`]\]|stripe\s*\(|Stripe\s*\(/ },
+    { name: "sendgrid", pattern: /from\s+['"`]@sendgrid|require\s*\(\s*['"`]@sendgrid|sendgrid|@sendgrid\/mail/ },
+    { name: "aws", pattern: /from\s+['"`]aws-sdk|require\s*\(\s*['"`]aws-sdk|aws\.|s3\.|dynamo|lambda|sns|sqs/i },
+    { name: "firebase", pattern: /from\s+['"`]firebase|require\s*\(\s*['"`]firebase|firebase\.|firestore|firebaseapp/i },
+    { name: "twilio", pattern: /from\s+['"`]twilio|require\s*\(\s*['"`]twilio|twilio\s*\(/i },
+    { name: "sendgrid", pattern: /from\s+['"`]@sendgrid|sendgrid/i },
+    { name: "openai", pattern: /from\s+['"`]openai|require\s*\(\s*['"`]openai|openai\s*\(/i },
+    { name: "cloudinary", pattern: /from\s+['"`]cloudinary|cloudinary\.v2|cloudinary\.uploader/i },
+    { name: "redis", pattern: /from\s+['"`]ioredis|from\s+['"`]redis|redis\.|createredisclient/i },
+    { name: "github", pattern: /from\s+['"`]@octokit|octokit\.|github\.octokit/i },
+    { name: "slack", pattern: /from\s+['"`]@slack|slackapi|slack\.|slackbot/i },
+  ];
+
+  const detectedExternalServices: string[] = [];
+  for (const { name, pattern } of externalServicePatterns) {
+    if (pattern.test(src)) {
+      detectedExternalServices.push(name);
+    }
+  }
+
+  const isExternalService = detectedExternalServices.length > 0;
+
+  // ── Background Service Detection ────────────────────────────────────────
+  // Files in utils, services, workers, jobs folders or containing worker patterns
+  const isBackgroundService =
+    path.includes("/services/") ||
+    path.includes("/workers/") ||
+    path.includes("/jobs/") ||
+    path.includes("/utils/") ||
+    path.includes("/queues/") ||
+    /queue\.|bull\.|worker\.|cron|schedule|background|job/i.test(src) ||
+    /setInterval|settimeout|worker_threads|child_process/i.test(src) ||
+    /export\s+(const|function)\s+\w*worker/i.test(src) ||
+    /export\s+(const|function)\s+\w*job/i.test(src) ||
+    /export\s+(const|function)\s+\w*queue/i.test(src);
+
+  // ── Error Handler Detection ─────────────────────────────────────────────
+  // Files that handle errors, logging, or have error boundaries
+  const isErrorHandler =
+    path.includes("/errors/") ||
+    path.includes("/logger/") ||
+    path.includes("/logging/") ||
+    filename.includes("error") ||
+    filename.includes("logger") ||
+    filename.includes("logging") ||
+    /errorboundary|error\s*handler|catch\s*\(|try\s*\{|\.error\s*\(|logger\.|winston|bunyan|pino|sentry/i.test(src) ||
+    /captureException|captureMessage|errorHandler/i.test(src) ||
+    /next\.js\s*\|\|\s*error/i.test(src);
+
+  // ── Cache Layer Detection ───────────────────────────────────────────────
+  // Files that implement caching logic
+  const isCache =
+    path.includes("/cache/") ||
+    filename.includes("cache") ||
+    /\.cache\s*\(|cache\.|memcached|redis.*cache|react-query|tanstack\/query|usequery|usemutation/i.test(src) ||
+    /stale-while-revalidate|swr|cachestore|cachestrategy/i.test(src) ||
+    /next\s*\.\s*cache|unstable_cache/i.test(src);
+
   // Refined CRUD detection using ORM method calls
   const crudType = detectCrudType(src, filename, isApi);
 
@@ -326,6 +418,13 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
   // Extract referenced DB models from imports
   const importedModels = extractImportedModels(mod.source);
 
+  // Log detected process nodes
+  if (isMiddleware) console.log(`Detected MIDDLEWARE node: ${filename}`);
+  if (isExternalService) console.log(`Detected EXTERNAL_SERVICE node: ${filename} → [${detectedExternalServices.join(", ")}]`);
+  if (isBackgroundService) console.log(`Detected SERVICE node: ${filename}`);
+  if (isErrorHandler) console.log(`Detected ERROR_HANDLER node: ${filename}`);
+  if (isCache) console.log(`Detected CACHE node: ${filename}`);
+
   return {
     isLanding,
     isAuth,
@@ -333,11 +432,17 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     isValidation,
     isApi,
     isDatabase,
+    isMiddleware,
+    isExternalService,
+    isBackgroundService,
+    isErrorHandler,
+    isCache,
     crudType,
     routePath,
     decisions,
     storageActions,
     importedModels,
+    externalServices: detectedExternalServices,
   };
 }
 
@@ -417,6 +522,13 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   const pageNodes: JourneyNode[] = [];
   const storageEdges: { dbNode: JourneyNode; edgeLabel: string; trigger: string }[] = [];
 
+  // Process nodes (new architectural layers)
+  const middlewareNodes: JourneyNode[] = [];
+  const externalServiceNodes: JourneyNode[] = [];
+  const serviceNodes: JourneyNode[] = [];
+  const errorHandlerNodes: JourneyNode[] = [];
+  const cacheNodes: JourneyNode[] = [];
+
   // Track DB nodes by label for context-aware edge matching
   const dbNodeByLabel = new Map<string, JourneyNode>();
 
@@ -467,6 +579,53 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
             ...sig.importedModels,
           ];
         }
+      }
+    }
+
+    // ── Process Node Detection ───────────────────────────────────────────
+    // Middleware/Guard nodes
+    if (sig.isMiddleware) {
+      const filename = mod.path.split("/").pop()?.replace(/\.\w+$/, "") || "middleware";
+      const label = `Auth Guard: ${filename}`;
+      if (!middlewareNodes.some((m) => m.label === label)) {
+        middlewareNodes.push(addNode("middleware", label, 2, placeInCol(2), mod.path));
+      }
+    }
+
+    // External service nodes
+    if (sig.isExternalService && sig.externalServices.length > 0) {
+      for (const svcName of sig.externalServices) {
+        const label = `External: ${svcName.charAt(0).toUpperCase() + svcName.slice(1)}`;
+        if (!externalServiceNodes.some((e) => e.label === label)) {
+          externalServiceNodes.push(addNode("external_service", label, 5, placeInCol(5), mod.path));
+        }
+      }
+    }
+
+    // Background service nodes
+    if (sig.isBackgroundService) {
+      const filename = mod.path.split("/").pop()?.replace(/\.\w+$/, "") || "service";
+      const label = `Service: ${filename}`;
+      if (!serviceNodes.some((s) => s.label === label)) {
+        serviceNodes.push(addNode("service", label, 5, placeInCol(5), mod.path));
+      }
+    }
+
+    // Error handler nodes
+    if (sig.isErrorHandler) {
+      const filename = mod.path.split("/").pop()?.replace(/\.\w+$/, "") || "error";
+      const label = `Error Handler: ${filename}`;
+      if (!errorHandlerNodes.some((e) => e.label === label)) {
+        errorHandlerNodes.push(addNode("error_handler", label, 6, placeInCol(6), mod.path));
+      }
+    }
+
+    // Cache layer nodes
+    if (sig.isCache) {
+      const filename = mod.path.split("/").pop()?.replace(/\.\w+$/, "") || "cache";
+      const label = `Cache: ${filename}`;
+      if (!cacheNodes.some((c) => c.label === label)) {
+        cacheNodes.push(addNode("cache", label, 5, placeInCol(5), mod.path));
       }
     }
 
@@ -582,6 +741,77 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     lastNode = actionNodes[actionNodes.length - 1];
   }
 
+  // ── Process Node Edge Weaving ───────────────────────────────────────────
+  // Middleware guards sit between auth and actions/controllers
+  if (middlewareNodes.length > 0) {
+    for (let i = 0; i < middlewareNodes.length - 1; i++) {
+      addEdge(middlewareNodes[i].id, middlewareNodes[i + 1].id, "chain");
+    }
+    // Connect middleware to actions they protect
+    for (const middleware of middlewareNodes) {
+      if (actionNodes.length > 0) {
+        addEdge(middleware.id, actionNodes[0].id, "guard");
+      }
+    }
+    // Connect auth to first middleware if no direct auth->action edge
+    if (authNode && middlewareNodes.length > 0) {
+      addEdge(authNode.id, middlewareNodes[0].id, "protected by");
+    }
+  }
+
+  // External services connect to actions that call them
+  if (externalServiceNodes.length > 0) {
+    for (const extSvc of externalServiceNodes) {
+      // Connect to first action (they're specific API integrations)
+      if (actionNodes.length > 0) {
+        addEdge(actionNodes[0].id, extSvc.id, "call external");
+      } else if (decisionAndPages.length > 0) {
+        addEdge(decisionAndPages[0].id, extSvc.id, "integrate");
+      }
+    }
+  }
+
+  // Background services connect to actions that trigger them
+  if (serviceNodes.length > 0) {
+    for (const svc of serviceNodes) {
+      if (actionNodes.length > 0) {
+        addEdge(actionNodes[0].id, svc.id, "enqueue");
+      }
+      // Services may also write to DB
+      if (dbNodes.length > 0) {
+        addEdge(svc.id, dbNodes[0].id, "process");
+      }
+    }
+  }
+
+  // Error handlers catch errors from actions
+  if (errorHandlerNodes.length > 0) {
+    for (const errHandler of errorHandlerNodes) {
+      if (actionNodes.length > 0) {
+        addEdge(actionNodes[0].id, errHandler.id, "catch error");
+      }
+      // Error handlers may also log to DB or external services
+      if (dbNodes.length > 0) {
+        addEdge(errHandler.id, dbNodes[0].id, "log");
+      }
+    }
+  }
+
+  // Cache layer sits between actions and database
+  if (cacheNodes.length > 0) {
+    for (let i = 0; i < cacheNodes.length - 1; i++) {
+      addEdge(cacheNodes[i].id, cacheNodes[i + 1].id, "chain");
+    }
+    // Actions check cache before hitting DB
+    if (actionNodes.length > 0) {
+      addEdge(actionNodes[0].id, cacheNodes[0].id, "check cache");
+    }
+    // Cache nodes connect to DB on miss
+    if (dbNodes.length > 0) {
+      addEdge(cacheNodes[0].id, dbNodes[0].id, "cache miss");
+    }
+  }
+
   // Database chain
   if (dbNodes.length > 0) {
     for (let i = 0; i < dbNodes.length - 1; i++) {
@@ -599,6 +829,10 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
         addEdge(v.id, actionNodes[0].id, "valid");
       } else {
         addEdge(v.id, logoutNode?.id ?? lastNode.id, "valid");
+      }
+      // Validation failures go to error handler
+      if (errorHandlerNodes.length > 0) {
+        addEdge(v.id, errorHandlerNodes[0].id, "invalid → error");
       }
     }
   }
