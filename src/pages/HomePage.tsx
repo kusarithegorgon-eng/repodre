@@ -209,15 +209,17 @@ export function HomePage() {
       <PrivacyShield />
 
       {/* Main Content with Sidebar */}
-      <div className="flex min-h-0 flex-1">
-        {/* Recent Projects Sidebar */}
-        <RecentProjectsPanel
-          onSelectProject={handleSelectProject}
-          refreshKey={refreshKey}
-        />
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        {/* Recent Projects Sidebar — fixed width, scrollable internally */}
+        <div className="absolute inset-y-0 left-0 w-72 shrink-0 border-r border-border bg-surface">
+          <RecentProjectsPanel
+            onSelectProject={handleSelectProject}
+            refreshKey={refreshKey}
+          />
+        </div>
 
-        {/* Hero */}
-        <main className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12">
+        {/* Hero — centered regardless of sidebar content */}
+        <main className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12 ml-72">
         <div className="mx-auto max-w-2xl text-center">
           <div className="mb-6 flex items-center justify-center gap-2">
             <Sparkles className="h-5 w-5 text-teal" />
