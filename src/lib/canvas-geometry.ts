@@ -548,16 +548,24 @@ export function pickHandles(
 export function bezierPathBetween(
   start: Point,
   end: Point,
-  curvature = 80,
+  curvature = 140,
 ): string {
   const dx = end.x - start.x;
-  // Offset control points in the direction of travel; if the nodes overlap
-  // horizontally (dx ≈ 0), fall back to a vertical offset so the curve
-  // still exits perpendicular to the port.
+  const dy = end.y - start.y;
+  // Use a smoothstep-style bezier: control points extend in the direction
+  // of travel by `curvature`. For near-vertical edges (typical in tree
+  // layouts), bias the control points vertically so the curve exits
+  // perpendicular to the port and flows predictably between tiers.
+  const isVertical = Math.abs(dy) > Math.abs(dx);
+  if (isVertical) {
+    const sign = dy >= 0 ? 1 : -1;
+    const cp1y = start.y + sign * curvature;
+    const cp2y = end.y - sign * curvature;
+    return `M ${start.x} ${start.y} C ${start.x} ${cp1y}, ${end.x} ${cp2y}, ${end.x} ${end.y}`;
+  }
   const sign = dx >= 0 ? 1 : -1;
   const cp1x = start.x + sign * curvature;
   const cp2x = end.x - sign * curvature;
-
   return `M ${start.x} ${start.y} C ${cp1x} ${start.y}, ${cp2x} ${end.y}, ${end.x} ${end.y}`;
 }
 
@@ -674,9 +682,21 @@ export function routeEdge(
   let detoured = false;
 
   if (!blocked) {
-    // smooth horizontal-biased bezier
-    c1 = { x: mx, y: start.y };
-    c2 = { x: mx, y: end.y };
+    // Smoothstep-style bezier: bias control points in the dominant direction
+    // of travel so edges flow predictably between tree tiers rather than
+    // cutting corners. Higher offset = gentler curve.
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const isVertical = Math.abs(dy) > Math.abs(dx);
+    if (isVertical) {
+      const sign = dy >= 0 ? 1 : -1;
+      c1 = { x: start.x, y: start.y + sign * 140 };
+      c2 = { x: end.x, y: end.y - sign * 140 };
+    } else {
+      const sign = dx >= 0 ? 1 : -1;
+      c1 = { x: start.x + sign * 140, y: start.y };
+      c2 = { x: end.x - sign * 140, y: end.y };
+    }
   } else {
     detoured = true;
     const dx = end.x - start.x;

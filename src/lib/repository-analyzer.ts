@@ -290,8 +290,9 @@ export async function analyzeRepository(
   // horizontally (family-tree look) instead of stacking everything in a
   // single vertical column.
   const treePositions = layoutJourneyTree(journeyGraph, {
-    nodeSep: 240,
-    rankSep: 180,
+    nodeSep: 320,
+    rankSep: 220,
+    decisionNodeSep: 420,
     startX: 120,
     startY: 100,
   });

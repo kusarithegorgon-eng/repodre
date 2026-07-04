@@ -937,6 +937,8 @@ export interface TreeLayoutOptions {
   nodeSep: number;
   /** Vertical spacing between tree levels (depths) */
   rankSep: number;
+  /** Extra horizontal spacing applied to children of decision nodes */
+  decisionNodeSep: number;
   /** Starting x offset */
   startX: number;
   /** Starting y offset */
@@ -944,8 +946,9 @@ export interface TreeLayoutOptions {
 }
 
 const DEFAULT_TREE_OPTIONS: TreeLayoutOptions = {
-  nodeSep: 220,
-  rankSep: 160,
+  nodeSep: 320,
+  rankSep: 220,
+  decisionNodeSep: 420,
   startX: 120,
   startY: 100,
 };
@@ -1028,11 +1031,18 @@ export function layoutJourneyTree(
   const inStack = new Set<string>();
   let leafCounter = 0;
 
+  // Map node id → type for decision-aware spacing
+  const nodeType = new Map<string, JourneyNodeType>();
+  for (const n of graph.nodes) nodeType.set(n.id, n.type);
+
   /**
    * Post-order DFS: assign x to leaves sequentially, center internal
    * nodes over their children. Returns the depth of the subtree.
+   *
+   * Children of decision nodes get extra horizontal spacing
+   * (decisionNodeSep) so branches have room to breathe.
    */
-  function dfs(nodeId: string, depth: number): number {
+  function dfs(nodeId: string, depth: number, parentIsDecision: boolean): number {
     if (inStack.has(nodeId)) return depth; // cycle — stop
     if (visited.has(nodeId)) {
       // Already positioned; return its existing depth
@@ -1043,18 +1053,19 @@ export function layoutJourneyTree(
 
     const kids = children.get(nodeId) ?? [];
     let maxDepth = depth;
+    const isDecision = nodeType.get(nodeId) === "decision";
 
     if (kids.length === 0) {
-      // Leaf: assign next sequential x
-      const x = opts.startX + leafCounter * opts.nodeSep;
+      // Leaf: assign next sequential x. Use wider spacing if the parent
+      // is a decision node so branches spread out.
+      const sep = parentIsDecision ? opts.decisionNodeSep : opts.nodeSep;
+      const x = opts.startX + leafCounter * sep;
       positions.set(nodeId, { x, y: opts.startY + depth * opts.rankSep, depth });
       leafCounter++;
     } else {
       // Internal node: recurse children first, then center over them
-      const childDepths: number[] = [];
       for (const childId of kids) {
-        const childDepth = dfs(childId, depth + 1);
-        childDepths.push(childDepth);
+        const childDepth = dfs(childId, depth + 1, isDecision);
         maxDepth = Math.max(maxDepth, childDepth);
       }
 
@@ -1062,10 +1073,11 @@ export function layoutJourneyTree(
       const childXs = kids
         .map((cid) => positions.get(cid)?.x)
         .filter((x): x is number => x !== undefined);
+      const sep = parentIsDecision ? opts.decisionNodeSep : opts.nodeSep;
       const x =
         childXs.length > 0
           ? childXs.reduce((a, b) => a + b, 0) / childXs.length
-          : opts.startX + leafCounter * opts.nodeSep;
+          : opts.startX + leafCounter * sep;
       positions.set(nodeId, { x, y: opts.startY + depth * opts.rankSep, depth });
     }
 
@@ -1073,7 +1085,20 @@ export function layoutJourneyTree(
     return maxDepth;
   }
 
-  dfs(root, 0);
+  dfs(root, 0, false);
+
+  // ── Tier alignment pass ──────────────────────────────────────────────
+  // Ensure all nodes at the same depth share the same y coordinate, so
+  // the tree forms clean horizontal "tiers" of execution. Internal nodes
+  // whose children span multiple depths would otherwise sit at a y that
+  // doesn't match their logical tier.
+  const maxDepth = Math.max(...[...positions.values()].map((p) => p.depth), 0);
+  for (let d = 0; d <= maxDepth; d++) {
+    const tierY = opts.startY + d * opts.rankSep;
+    for (const pos of positions.values()) {
+      if (pos.depth === d) pos.y = tierY;
+    }
+  }
 
   // Place any unreachable nodes in a fallback column to the right
   const unreachable = graph.nodes.filter((n) => !positions.has(n.id));
