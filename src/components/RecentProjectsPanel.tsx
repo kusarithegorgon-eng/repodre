@@ -23,6 +23,18 @@ export function RecentProjectsPanel({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showRefreshHint, setShowRefreshHint] = useState(false);
+
+  // Show a "taking too long?" hint after 4 seconds of loading
+  useEffect(() => {
+    if (!isLoading) {
+      setShowRefreshHint(false);
+      return;
+    }
+    setShowRefreshHint(false);
+    const t = setTimeout(() => setShowRefreshHint(true), 4000);
+    return () => clearTimeout(t);
+  }, [isLoading]);
 
   const fetchProjects = useCallback(async () => {
     setIsLoading(true);
@@ -117,6 +129,20 @@ export function RecentProjectsPanel({
           <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin" />
             <p className="mt-2 text-xs">Loading projects...</p>
+            {showRefreshHint && (
+              <div className="mt-3 flex flex-col items-center gap-2 rounded-lg border border-border bg-background/60 px-3 py-2 text-center">
+                <p className="text-xs text-muted-foreground">
+                  Taking too long to load?
+                </p>
+                <button
+                  onClick={fetchProjects}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-teal/40 bg-teal/10 px-2.5 py-1 text-xs font-medium text-teal transition-colors hover:bg-teal/20"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Refresh
+                </button>
+              </div>
+            )}
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-8 text-red-500">

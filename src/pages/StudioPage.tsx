@@ -20,6 +20,7 @@ import { DragToConnectHandle, LiveEdgeDrawing, useDragToConnect } from "@/compon
 import { NodeSpawnerPopover, useNodeSpawner, createNewNodeConfig } from "@/components/NodeSpawnerPopover";
 import { IconSidebar } from "@/components/IconSidebar";
 import { FloatingControls } from "@/components/FloatingControls";
+import { CanvasExportButton } from "@/components/CanvasExportButton";
 import { ErdGuide } from "@/components/ErdGuide";
 import {
   SimulationMode,
@@ -1543,6 +1544,14 @@ export async function POST(req: Request) {
                     accentColor="var(--teal)"
                   />
                 </div>
+              </div>
+
+              {/* App Journey Export Button */}
+              <div className="absolute right-4 top-4 z-30">
+                <CanvasExportButton
+                  getCanvasContainer={() => canvasRef.current}
+                  disabled={nodes.length === 0}
+                />
               </div>
 
               {/* Legend */}

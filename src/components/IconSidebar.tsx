@@ -31,6 +31,11 @@ function Tooltip({ content, children }: TooltipProps) {
           style={{ animation: "fadeIn 150ms ease" }}
         >
           {content}
+          {/* Arrow pointing left toward the button */}
+          <span
+            className="absolute right-full top-1/2 -translate-y-1/2 border-y-4 border-y-transparent border-r-4 border-r-popover"
+            aria-hidden="true"
+          />
         </div>
       )}
     </div>
@@ -68,7 +73,7 @@ function SidebarButton({
         className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-all duration-200 relative ${
           active
             ? "border-teal/50 bg-teal/10 text-teal"
-            : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+            : "border-border bg-background text-muted-foreground hover:border-teal/60 hover:bg-accent hover:text-foreground hover:shadow-sm hover:-translate-y-px"
         } ${disabled ? "cursor-not-allowed opacity-40" : ""} ${className}`}
       >
         <span className={spinning ? "animate-spin" : ""}>{icon}</span>
@@ -102,7 +107,7 @@ function WorkspacePill({ workspace, onChangeWorkspace }: WorkspacePillProps) {
           className={`flex h-8 w-8 items-center justify-center rounded-md transition-all ${
             workspace === "app"
               ? "bg-teal/15 text-teal"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-foreground hover:scale-105"
           }`}
         >
           <Workflow className="h-3.5 w-3.5" />
@@ -114,7 +119,7 @@ function WorkspacePill({ workspace, onChangeWorkspace }: WorkspacePillProps) {
           className={`flex h-8 w-8 items-center justify-center rounded-md transition-all ${
             workspace === "erd"
               ? "bg-teal/15 text-teal"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-foreground hover:scale-105"
           }`}
         >
           <Database className="h-3.5 w-3.5" />
@@ -257,7 +262,7 @@ export function IconSidebar({
         <Tooltip content="Home">
           <a
             href="/"
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-foreground hover:text-teal transition-colors"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-foreground transition-all duration-200 hover:bg-accent hover:text-teal hover:shadow-sm"
           >
             <Zap className="h-5 w-5" />
           </a>
