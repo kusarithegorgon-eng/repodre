@@ -20,6 +20,7 @@ import { DragToConnectHandle, LiveEdgeDrawing, useDragToConnect } from "@/compon
 import { NodeSpawnerPopover, useNodeSpawner, createNewNodeConfig } from "@/components/NodeSpawnerPopover";
 import { IconSidebar } from "@/components/IconSidebar";
 import { FloatingControls } from "@/components/FloatingControls";
+import { ErdGuide } from "@/components/ErdGuide";
 import {
   SimulationMode,
   SimulationModeToggle,
@@ -385,6 +386,8 @@ export function StudioPage() {
   const [multiplayerOpen, setMultiplayerOpen] = useState(false);
   const [gitDiffOpen, setGitDiffOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [erdGuideOpen, setErdGuideOpen] = useState(false);
+  const [showSchemaInput, setShowSchemaInput] = useState(false);
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const [isResettingLayout, setIsResettingLayout] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1071,6 +1074,39 @@ export async function POST(req: Request) {
     []
   );
 
+  // ERD: Rename a column within an ERD table node
+  const handleRenameColumn = useCallback(
+    async (nodeId: string, oldName: string, newName: string) => {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node || !node.columns) return;
+      const updatedColumns = node.columns.map((c) =>
+        c.name === oldName ? { ...c, name: newName } : c
+      );
+      setNodes((prev) =>
+        prev.map((n) => (n.id === nodeId ? { ...n, columns: updatedColumns } : n))
+      );
+      if (project) {
+        await updateNode(nodeId, { columns: updatedColumns });
+      }
+    },
+    [nodes, project]
+  );
+
+  // ERD: Rename an ERD table (updates both label and tableName)
+  const handleRenameTable = useCallback(
+    async (nodeId: string, newName: string) => {
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === nodeId ? { ...n, label: newName, tableName: newName } : n
+        )
+      );
+      if (project) {
+        await updateNode(nodeId, { label: newName, tableName: newName });
+      }
+    },
+    [project]
+  );
+
   // Pre-compute routed paths (memoised)
   // ── Edge-Snapping Path Engine: dynamic port-based bezier recalculation ──
   // The useEdgeSnap hook resolves explicit left/right boundary ports for each
@@ -1167,6 +1203,7 @@ export async function POST(req: Request) {
         gitDiffCount={diffResult ? diffResult.addedCount + diffResult.deletedCount + diffResult.modifiedCount + diffResult.conflictCount : 0}
         bottleneckCount={bottleneckWarnings.length}
         codePreviewOpen={codePreviewOpen}
+        erdGuideOpen={erdGuideOpen}
         onZoomIn={() => handleZoomChange(Math.min(200, zoom + 10))}
         onZoomOut={() => handleZoomChange(Math.max(25, zoom - 10))}
         onRecenter={canvasPan.resetPan}
@@ -1174,6 +1211,7 @@ export async function POST(req: Request) {
         onResetLayout={handleResetToAutoLayout}
         onExportJSON={handleExportJSON}
         onImportJSON={() => fileInputRef.current?.click()}
+        onChangeWorkspace={handleWorkspaceChange}
         onToggleAutoLayout={() => { setAutoLayout(!autoLayout); if (project) updateProject(project.id, { autoLayout: !autoLayout }).catch(() => {}); }}
         onToggleSmartRoute={() => { setSmartRoute(!smartRoute); if (project) updateProject(project.id, { smartRoute: !smartRoute }).catch(() => {}); }}
         onSetWireStyle={setWireStyle}
@@ -1187,16 +1225,45 @@ export async function POST(req: Request) {
         onToggleCodePreview={() => setCodePreviewOpen(!codePreviewOpen)}
         onExportScaffold={() => { const scaffold = generateScaffold(project?.name || "repodre-architecture", nodes.map(n => ({id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, workspace: n.workspace, tableName: n.tableName, columns: n.columns})), edges.map(e => ({id: e.id, from: e.from, to: e.to, cardinality: e.cardinality, fromColumn: e.fromColumn, toColumn: e.toColumn}))); downloadScaffold(scaffold); }}
         onExportApiTests={() => { const blob = new Blob([JSON.stringify(mockControllers, null, 2)], {type: "application/json"}); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "api-tests.json"; a.click(); }}
+        onImportSchema={() => setShowSchemaInput(true)}
+        onExportSchema={() => {
+          const payload = schemaSource || nodes.filter(n => n.workspace === "erd" && n.tableName).map(n => `-- ${n.tableName}`).join("\n");
+          const blob = new Blob([payload], { type: "text/sql" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `${project?.name ?? "schema"}.sql`;
+          a.click();
+        }}
+        onToggleErdGuide={() => setErdGuideOpen(!erdGuideOpen)}
       />
 
-      {/* Floating Controls for shape/accent picker */}
-      <FloatingControls
-        selectedShape={sel?.shape ?? null}
-        selectedAccent={sel?.accent ?? null}
-        hasSelection={!!sel}
-        onShapeChange={(shape) => sel && setShape(sel.id, shape)}
-        onAccentChange={(accent) => sel && setAccent(sel.id, accent)}
-      />
+      {/* ERD Cardinality Guide panel */}
+      <ErdGuide isOpen={erdGuideOpen} onClose={() => setErdGuideOpen(false)} />
+
+      {/* Floating Schema Import for ERD workspace */}
+      {showSchemaInput && workspace === "erd" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowSchemaInput(false)}>
+          <div onClick={e => e.stopPropagation()} className="relative">
+            <SchemaInput
+              value={schemaSource}
+              onValueChange={setSchemaSource}
+              onSubmit={(tables, ddl) => { handleSchemaImport(tables, ddl); setShowSchemaInput(false); }}
+              isLoading={isLoading}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Floating Controls for shape/accent picker (App workspace only) */}
+      {workspace === "app" && (
+        <FloatingControls
+          selectedShape={sel?.shape ?? null}
+          selectedAccent={sel?.accent ?? null}
+          hasSelection={!!sel}
+          onShapeChange={(shape) => sel && setShape(sel.id, shape)}
+          onAccentChange={(accent) => sel && setAccent(sel.id, accent)}
+        />
+      )}
 
       {/* Main content area (accounting for fixed sidebar) */}
       <div className="relative flex flex-col flex-1 ml-14">
@@ -1540,6 +1607,8 @@ export async function POST(req: Request) {
               panY={canvasPan.panY}
               onCanvasMouseDown={canvasPan.handleMouseDown}
               cursor={canvasPan.cursor}
+              onRenameColumn={handleRenameColumn}
+              onRenameTable={handleRenameTable}
             />
           )}
           </main>
