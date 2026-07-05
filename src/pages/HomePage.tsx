@@ -1,14 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, useCallback } from "react";
-import {
-  GitBranch,
-  Sparkles,
-  Zap,
-  Shield,
-  Globe,
-  ArrowRight,
-  Database,
-} from "lucide-react";
+import { GitBranch, Sparkles, Zap, Shield, Globe, ArrowRight, Database, CircleAlert as AlertCircle, X } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { RepoInput } from "@/components/RepoInput";
@@ -23,6 +15,7 @@ import { signInWithGitHub } from "@/lib/github-auth";
 import { createProject, batchCreateNodes, batchCreateEdges, syncRepoToSupabase } from "@/lib/db-client";
 import type { HandleSegment } from "@/lib/canvas-geometry";
 import { parseRepository } from "@/utils/github-parser";
+import { parseGitHubUrl } from "@/lib/github-api";
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -34,6 +27,12 @@ export function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [toast, setToast] = useState<{ message: string; type: "error" | "info" } | null>(null);
+
+  const showToast = useCallback((message: string, type: "error" | "info" = "error") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 6000);
+  }, []);
 
   const handleSelectProject = useCallback((projectId: string) => {
     navigate({ to: "/studio", search: { project: projectId } });
@@ -106,12 +105,22 @@ export function HomePage() {
   const handleAnalyze = useCallback(async () => {
     if (!repoUrl.trim() || isAnalyzing) return;
 
+    // Input validation: check URL format before starting parse
+    const trimmedUrl = repoUrl.trim();
+    const parsed = parseGitHubUrl(trimmedUrl);
+    if (!parsed) {
+      const msg = "Invalid repository URL. Expected format: github.com/owner/repo or owner/repo";
+      setError(msg);
+      showToast(msg);
+      return;
+    }
+
     setIsAnalyzing(true);
     setError(null);
     setResult(null);
 
     try {
-      const analysisResult = await analyzeRepository(repoUrl, setProgress, {
+      const analysisResult = await analyzeRepository(trimmedUrl, setProgress, {
         maxFiles: 100,
       });
 
@@ -122,7 +131,7 @@ export function HomePage() {
           // Save the project to the database
           const project = await createProject({
             name: analysisResult.repo?.name || "Untitled Project",
-            description: `Dependency graph for ${analysisResult.repo?.full_name || repoUrl}`,
+            description: `Dependency graph for ${analysisResult.repo?.full_name || trimmedUrl}`,
             zoom: 100,
             autoLayout: true,
             smartRoute: true,
@@ -176,17 +185,22 @@ export function HomePage() {
       } else if (!analysisResult.success) {
         if (analysisResult.accessIssue) {
           setError(analysisResult.accessIssue.message);
+          showToast(analysisResult.accessIssue.message);
         } else {
-          setError(analysisResult.error || "Analysis failed");
+          const msg = analysisResult.error || "Analysis failed";
+          setError(msg);
+          showToast("Parsing failed. Please ensure the repository is public and accessible.");
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      const message = err instanceof Error ? err.message : "An unexpected error occurred";
+      setError(message);
+      showToast("Parsing failed. Please ensure the repository is public and accessible.");
     } finally {
       setIsAnalyzing(false);
       setProgress(null);
     }
-  }, [repoUrl, isAnalyzing, navigate]);
+  }, [repoUrl, isAnalyzing, navigate, showToast]);
 
   const isProgress = progress && progress.phase !== "complete" && progress.phase !== "error";
 
@@ -204,6 +218,20 @@ export function HomePage() {
           <AuthButton />
         </div>
       </header>
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed top-16 right-4 z-50 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 shadow-lg backdrop-blur-sm">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+          <p className="flex-1 text-sm font-medium text-red-500">{toast.message}</p>
+          <button
+            onClick={() => setToast(null)}
+            className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Privacy Shield banner */}
       <PrivacyShield />

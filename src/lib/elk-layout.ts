@@ -12,6 +12,7 @@
 
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { JourneyGraph, JourneyNode, JourneyEdge, JourneyNodeType } from "./journey-flow-builder";
+import { layoutJourneyTree } from "./journey-flow-builder";
 
 export interface ElkLayoutOptions {
   /** Layout direction: DOWN (top-to-bottom) or RIGHT (left-to-right) */
@@ -230,18 +231,21 @@ export async function layoutJourneyGraphWithElk(
 
     return positions;
   } catch (error) {
-    console.error("ELK layout failed, falling back to simple layout:", error);
+    console.error("ELK layout failed, falling back to sync tree layout:", error);
 
-    // Fallback: simple vertical layout
-    graph.nodes.forEach((node, i) => {
-      const isBridge = node.type === "bridge";
-      const extraSpacing = isBridge ? opts.bridgeSpacing : 0;
-      positions.set(node.id, {
-        x: opts.startX + (i % 4) * opts.nodeNodeSpacing,
-        y: opts.startY + Math.floor(i / 4) * (opts.layerSpacing + extraSpacing),
-        depth: Math.floor(i / 4),
-      });
+    // Fallback: use the synchronous tree layout (no web worker, no GWT)
+    const fallbackPositions = layoutJourneyTree(graph, {
+      nodeSep: opts.nodeNodeSpacing,
+      rankSep: opts.layerSpacing,
+      decisionNodeSep: opts.decisionSpacing,
+      bridgeRankSep: opts.bridgeSpacing,
+      startX: opts.startX,
+      startY: opts.startY,
     });
+
+    for (const [id, pos] of fallbackPositions.entries()) {
+      positions.set(id, pos);
+    }
 
     return positions;
   }

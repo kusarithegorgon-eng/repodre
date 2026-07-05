@@ -18,7 +18,7 @@ import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-ana
 import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
 import { buildArchGraph, type ArchGraph, type ArchCategory } from "./architecture-decision-engine";
-import { buildJourneyGraph, type JourneyGraph } from "./journey-flow-builder";
+import { buildJourneyGraph, layoutJourneyTree, type JourneyGraph } from "./journey-flow-builder";
 import { layoutJourneyGraphWithElk } from "./elk-layout";
 import type { AccessCheckResult } from "./github-api";
 import type { HandleSegment, Shape } from "./canvas-geometry";
@@ -237,214 +237,245 @@ export async function analyzeRepository(
     });
   }
 
-  // Phase: Building
-  onProgress?.({
-    phase: "building",
-    message: "Detecting routes, validation, and API hooks...",
-    percent: 80,
-  });
-
-  // ── Build file paths and contents for enhanced analysis ───────────────
-  const filePaths = Array.from(files.keys());
-  const fileContents = new Map<string, string>();
-  for (const [path, content] of files) {
-    fileContents.set(path, content);
-  }
-
-  // Run the enhanced blueprint analyzer:
-  // - Component recursive dependency resolver
-  // - Route parameter normalization (dynamic [id]/[slug] routes)
-  // - Fuzzy accelerated route matcher
-  const blueprint = analyzeBlueprintEnhanced(modules, fileContents, filePaths);
-
-  // ── Blueprint layout (computed once; used by the fallback path) ──────
-  const baseLayout = layoutEnhancedBlueprint(blueprint);
-  const sectionedLayout = layoutSectionedBlueprint({
-    nodes: blueprint.nodes,
-    edges: blueprint.edges,
-    sections: blueprint.sections,
-    roleGateways: blueprint.roleGateways,
-    portalLinks: blueprint.portalLinks,
-    edgesToPortals: blueprint.edgesToPortals,
-  }, baseLayout);
-
-  // ── Journey Flow Builder: primary layout ──────────────────────────────
-  // Constructs a continuous user-journey flowchart:
-  //   Start → Landing → Auth → Validation → Decisions → Actions → DB → Logout → loop
-  // Every node is connected — no dead-ends, no orphans.
-  const journeyGraph = buildJourneyGraph(modules);
-
-  // ── Architecture Decision Engine (enrichment / fallback) ──────────────
-  const archGraph = buildArchGraph(modules);
-
-  // ── Zero-knowledge local crawler (last-resort fallback) ──────────────
-  const crawlerGraph = crawlRepository(filePaths, fileContents);
-
-  onProgress?.({
-    phase: "building",
-    message: "Laying out user-journey flowchart...",
-    percent: 92,
-  });
-
-  // ── Layout: journey graph is primary; arch/blueprint/crawler fallback ──
-  // Use ELK's layered algorithm for professional "Family Tree" layout with
-  // decision nodes as branching points and generous spacing to prevent zigzag.
-  const treePositions = await layoutJourneyGraphWithElk(journeyGraph, {
-    direction: "DOWN",
-    nodeNodeSpacing: 80,
-    nodeEdgeSpacing: 40,
-    edgeEdgeSpacing: 20,
-    layerSpacing: 220,
-    decisionSpacing: 120,
-    startX: 120,
-    startY: 100,
-  });
-
-  let graphNodes: AnalysisGraph["nodes"];
-  let graphEdges: AnalysisGraph["edges"];
-
-  if (journeyGraph.nodes.length > 1) {
-    // Primary path: user-journey flowchart with tree layout
-    graphNodes = journeyGraph.nodes.map((n) => {
-      const pos = treePositions.get(n.id);
-      return {
-        id: n.id,
-        label: n.label,
-        sub: n.sub,
-        shape: n.shape,
-        accent: n.accent,
-        x: pos?.x ?? 120,
-        y: pos?.y ?? 100,
-      };
+  // Phase: Building — wrapped in try-catch to prevent UI crashes from
+  // layout engine errors (e.g., ELK web worker GWT ReferenceError)
+  try {
+    onProgress?.({
+      phase: "building",
+      message: "Detecting routes, validation, and API hooks...",
+      percent: 80,
     });
 
-    graphEdges = journeyGraph.edges.map((e) => ({
-      id: e.id,
-      from: e.from,
-      to: e.to,
-    }));
-  } else if (archGraph.nodes.length > 0) {
-    // Fallback 1: Architecture Decision Engine (UI/DB/LOGIC columns)
-    const archColWidth = 300;
-    const archRowHeight = 140;
-    const archStartX = 120;
-    const archStartY = 100;
+    // ── Build file paths and contents for enhanced analysis ───────────────
+    const filePaths = Array.from(files.keys());
+    const fileContents = new Map<string, string>();
+    for (const [path, content] of files) {
+      fileContents.set(path, content);
+    }
 
-    const categoryOrder: ArchCategory[] = ["UI_NODE", "LOGIC_NODE", "DB_NODE"];
-    const colByCategory = new Map<ArchCategory, number>();
-    categoryOrder.forEach((cat, i) => colByCategory.set(cat, i));
+    // Run the enhanced blueprint analyzer:
+    // - Component recursive dependency resolver
+    // - Route parameter normalization (dynamic [id]/[slug] routes)
+    // - Fuzzy accelerated route matcher
+    const blueprint = analyzeBlueprintEnhanced(modules, fileContents, filePaths);
 
-    const rowByCategory = new Map<ArchCategory, number>();
+    // ── Blueprint layout (computed once; used by the fallback path) ──────
+    const baseLayout = layoutEnhancedBlueprint(blueprint);
+    const sectionedLayout = layoutSectionedBlueprint({
+      nodes: blueprint.nodes,
+      edges: blueprint.edges,
+      sections: blueprint.sections,
+      roleGateways: blueprint.roleGateways,
+      portalLinks: blueprint.portalLinks,
+      edgesToPortals: blueprint.edgesToPortals,
+    }, baseLayout);
 
-    graphNodes = archGraph.nodes.map((n) => {
-      const col = colByCategory.get(n.category) ?? 0;
-      const row = rowByCategory.get(n.category) ?? 0;
-      rowByCategory.set(n.category, row + 1);
-      return {
-        id: n.id,
-        label: n.label,
-        sub: n.sub,
-        shape: n.shape,
-        accent: n.accent,
-        x: archStartX + col * archColWidth,
-        y: archStartY + row * archRowHeight,
-      };
+    // ── Journey Flow Builder: primary layout ──────────────────────────────
+    // Constructs a continuous user-journey flowchart:
+    //   Start → Landing → Auth → Validation → Decisions → Actions → DB → Logout → loop
+    // Every node is connected — no dead-ends, no orphans.
+    const journeyGraph = buildJourneyGraph(modules);
+
+    // ── Architecture Decision Engine (enrichment / fallback) ──────────────
+    const archGraph = buildArchGraph(modules);
+
+    // ── Zero-knowledge local crawler (last-resort fallback) ──────────────
+    const crawlerGraph = crawlRepository(filePaths, fileContents);
+
+    onProgress?.({
+      phase: "building",
+      message: "Laying out user-journey flowchart...",
+      percent: 92,
     });
 
-    graphEdges = archGraph.edges.map((e) => ({
-      id: e.id,
-      from: e.from,
-      to: e.to,
-    }));
-  } else {
-    // Fallback 2: blueprint layout or zero-knowledge crawler
-    const filteredEdges = filterPortalEdges(sectionedLayout.edges, sectionedLayout.edgesToReplace);
+    // ── Layout: journey graph is primary; arch/blueprint/crawler fallback ──
+    // Use ELK's layered algorithm for professional "Family Tree" layout with
+    // decision nodes as branching points and generous spacing to prevent zigzag.
+    // Wrapped in try-catch: ELK uses a GWT-compiled web worker that can throw
+    // ReferenceError in some environments. Falls back to sync tree layout.
+    let treePositions: Map<string, { x: number; y: number; depth: number }>;
+    try {
+      treePositions = await layoutJourneyGraphWithElk(journeyGraph, {
+        direction: "DOWN",
+        nodeNodeSpacing: 80,
+        nodeEdgeSpacing: 40,
+        edgeEdgeSpacing: 20,
+        layerSpacing: 220,
+        decisionSpacing: 120,
+        startX: 120,
+        startY: 100,
+      });
+    } catch (layoutError) {
+      console.error("ELK layout failed, using fallback:", layoutError);
+      // Fallback to sync tree layout (no web worker, no GWT)
+      treePositions = layoutJourneyTree(journeyGraph, {
+        nodeSep: 320,
+        rankSep: 220,
+        decisionNodeSep: 420,
+        bridgeRankSep: 160,
+        startX: 120,
+        startY: 100,
+      });
+    }
 
-    const useCrawlerFallback = sectionedLayout.nodes.length === 0 && crawlerGraph.nodes.length > 0;
+    let graphNodes: AnalysisGraph["nodes"];
+    let graphEdges: AnalysisGraph["edges"];
 
-    if (useCrawlerFallback) {
-      const COL_W = 320;
-      const ROW_H = 160;
-      const X0 = 80;
-      const Y0 = 80;
-      const colOf = (type: string) => type === "page" ? 0 : type === "validation" ? 1 : 2;
-      const rowCounts = [0, 0, 0];
-
-      graphNodes = crawlerGraph.nodes.map((n) => {
-        const col = colOf(n.type);
-        const row = rowCounts[col]++;
+    if (journeyGraph.nodes.length > 1) {
+      // Primary path: user-journey flowchart with tree layout
+      graphNodes = journeyGraph.nodes.map((n) => {
+        const pos = treePositions.get(n.id);
         return {
           id: n.id,
           label: n.label,
           sub: n.sub,
           shape: n.shape,
-          accent: n.accent as AnalysisGraph["nodes"][number]["accent"],
-          x: X0 + col * COL_W,
-          y: Y0 + row * ROW_H,
+          accent: n.accent,
+          x: pos?.x ?? 120,
+          y: pos?.y ?? 100,
         };
       });
 
-      graphEdges = crawlerGraph.edges.map((e) => ({
+      graphEdges = journeyGraph.edges.map((e) => ({
         id: e.id,
         from: e.from,
         to: e.to,
-        renderOpacity: e.inferred ? 0.4 : 1,
-        strokeDasharray: e.inferred ? "4 4" : undefined,
+      }));
+    } else if (archGraph.nodes.length > 0) {
+      // Fallback 1: Architecture Decision Engine (UI/DB/LOGIC columns)
+      const archColWidth = 300;
+      const archRowHeight = 140;
+      const archStartX = 120;
+      const archStartY = 100;
+
+      const categoryOrder: ArchCategory[] = ["UI_NODE", "LOGIC_NODE", "DB_NODE"];
+      const colByCategory = new Map<ArchCategory, number>();
+      categoryOrder.forEach((cat, i) => colByCategory.set(cat, i));
+
+      const rowByCategory = new Map<ArchCategory, number>();
+
+      graphNodes = archGraph.nodes.map((n) => {
+        const col = colByCategory.get(n.category) ?? 0;
+        const row = rowByCategory.get(n.category) ?? 0;
+        rowByCategory.set(n.category, row + 1);
+        return {
+          id: n.id,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          accent: n.accent,
+          x: archStartX + col * archColWidth,
+          y: archStartY + row * archRowHeight,
+        };
+      });
+
+      graphEdges = archGraph.edges.map((e) => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
       }));
     } else {
-      graphNodes = sectionedLayout.nodes.map((n) => ({
-        id: n.id,
-        label: n.label,
-        sub: n.sub,
-        shape: n.shape,
-        accent: n.accent,
-        x: n.x,
-        y: n.y,
-        styleHints: n.styleHints,
-        hasFuzzyReferences: n.hasFuzzyReferences,
-      }));
+      // Fallback 2: blueprint layout or zero-knowledge crawler
+      const filteredEdges = filterPortalEdges(sectionedLayout.edges, sectionedLayout.edgesToReplace);
 
-      graphEdges = filteredEdges.map((e) => ({
-        id: e.id,
-        from: e.from,
-        to: e.to,
-        fromHandle: e.fromHandle,
-        toHandle: e.toHandle,
-        label: e.label,
-        isRouteReference: e.isRouteReference,
-        referenceType: e.referenceType,
-        renderOpacity: e.renderOpacity,
-        strokeDasharray: e.strokeDasharray,
-      }));
+      const useCrawlerFallback = sectionedLayout.nodes.length === 0 && crawlerGraph.nodes.length > 0;
+
+      if (useCrawlerFallback) {
+        const COL_W = 320;
+        const ROW_H = 160;
+        const X0 = 80;
+        const Y0 = 80;
+        const colOf = (type: string) => type === "page" ? 0 : type === "validation" ? 1 : 2;
+        const rowCounts = [0, 0, 0];
+
+        graphNodes = crawlerGraph.nodes.map((n) => {
+          const col = colOf(n.type);
+          const row = rowCounts[col]++;
+          return {
+            id: n.id,
+            label: n.label,
+            sub: n.sub,
+            shape: n.shape,
+            accent: n.accent as AnalysisGraph["nodes"][number]["accent"],
+            x: X0 + col * COL_W,
+            y: Y0 + row * ROW_H,
+          };
+        });
+
+        graphEdges = crawlerGraph.edges.map((e) => ({
+          id: e.id,
+          from: e.from,
+          to: e.to,
+          renderOpacity: e.inferred ? 0.4 : 1,
+          strokeDasharray: e.inferred ? "4 4" : undefined,
+        }));
+      } else {
+        graphNodes = sectionedLayout.nodes.map((n) => ({
+          id: n.id,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          accent: n.accent,
+          x: n.x,
+          y: n.y,
+          styleHints: n.styleHints,
+          hasFuzzyReferences: n.hasFuzzyReferences,
+        }));
+
+        graphEdges = filteredEdges.map((e) => ({
+          id: e.id,
+          from: e.from,
+          to: e.to,
+          fromHandle: e.fromHandle,
+          toHandle: e.toHandle,
+          label: e.label,
+          isRouteReference: e.isRouteReference,
+          referenceType: e.referenceType,
+          renderOpacity: e.renderOpacity,
+          strokeDasharray: e.strokeDasharray,
+        }));
+      }
     }
+
+    const graph: AnalysisGraph = {
+      nodes: graphNodes,
+      edges: graphEdges,
+      blueprint,
+      layout: sectionedLayout,
+      sections: sectionedLayout.sections,
+      roleGateways: sectionedLayout.roleGateways,
+      portalLinks: sectionedLayout.portalLinks,
+      archGraph,
+      journeyGraph,
+    };
+
+    // Phase: Complete
+    onProgress?.({
+      phase: "complete",
+      message: `Mapped ${blueprint.stats.routes} routes, ${blueprint.stats.validations} validations, ${blueprint.stats.controllers} controllers, ${blueprint.stats.databases} tables`,
+      percent: 100,
+      filesProcessed: modules.length,
+      totalFiles: files.size,
+    });
+
+    return {
+      success: true,
+      repo: accessCheck.repo,
+      graph: { ...graph, crawlerGraph },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "An unexpected error occurred during analysis";
+    console.error("Analysis pipeline failed:", error);
+    onProgress?.({
+      phase: "error",
+      message,
+      percent: 100,
+    });
+    return {
+      success: false,
+      error: "Parsing failed. Please ensure the repository is public and accessible.",
+    };
   }
-
-  const graph: AnalysisGraph = {
-    nodes: graphNodes,
-    edges: graphEdges,
-    blueprint,
-    layout: sectionedLayout,
-    sections: sectionedLayout.sections,
-    roleGateways: sectionedLayout.roleGateways,
-    portalLinks: sectionedLayout.portalLinks,
-    archGraph,
-    journeyGraph,
-  };
-
-  // Phase: Complete
-  onProgress?.({
-    phase: "complete",
-    message: `Mapped ${blueprint.stats.routes} routes, ${blueprint.stats.validations} validations, ${blueprint.stats.controllers} controllers, ${blueprint.stats.databases} tables`,
-    percent: 100,
-    filesProcessed: modules.length,
-    totalFiles: files.size,
-  });
-
-  return {
-    success: true,
-    repo: accessCheck.repo,
-    graph: { ...graph, crawlerGraph },
-  };
 }
 
 /**
