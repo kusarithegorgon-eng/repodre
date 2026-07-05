@@ -90,7 +90,7 @@ import { supabase } from "@/lib/supabase";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red";
+type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red" | "slate";
 
 interface NodeData extends PositionedNode {
   id: string;
@@ -163,6 +163,7 @@ const ACCENT: Record<Accent, { color: string; glow: string; label: string; nodeT
   blue:   { color: "var(--node-database-stroke)", glow: "transparent", label: "Database", nodeType: "database" },
   orange: { color: "var(--node-gateway-stroke)", glow: "transparent", label: "Gateway", nodeType: "gateway" },
   red:    { color: "var(--node-error-stroke)", glow: "transparent", label: "Error", nodeType: "error" },
+  slate:  { color: "var(--node-bridge-stroke)", glow: "transparent", label: "Bridge", nodeType: "bridge" },
 };
 
 // Mapping from shape to NodeType for misc nodes
@@ -175,6 +176,7 @@ const SHAPE_TO_NODE_TYPE: Record<string, import("@/components/NodeShapeSVG").Nod
   triangle: "error",
   document: "misc",
   parallelogram: "view",
+  circle: "bridge",
 };
 
 const ALL_SHAPES: Shape[] = [
@@ -186,6 +188,7 @@ const ALL_SHAPES: Shape[] = [
   "parallelogram",
   "document",
   "hexagon",
+  "circle",
 ];
 
 // ─── Demo seed data: E-Commerce System ─────────────────────────────────────
@@ -1384,29 +1387,39 @@ export async function POST(req: Request) {
                         labelY = (fc.y + tc.y) / 2;
                       }
 
+                      // ── Bridge node edges: no arrows, dashed neutral style ──
+                      const involvesBridge = fromNode?.shape === "circle" || toNode?.shape === "circle";
+
+                      const bridgeStrokeColor = involvesBridge ? "var(--node-bridge-stroke)" : smartStrokeColor;
+                      const bridgeDashArray = involvesBridge ? "4 4" : smartDashArray;
+                      const bridgeMarkerEnd = involvesBridge ? undefined : (linkType === "controller-to-db" ? "url(#arrow-db)" : "url(#arrow)");
+
                       return r.path ? (
                         <g key={r.id}>
                           <path
                             data-testid={`edge-${r.id}`}
                             data-detoured={r.detoured}
                             data-link-type={linkType}
+                            data-bridge={involvesBridge ? "true" : undefined}
                             d={r.path}
                             fill="none"
-                            stroke={smartStrokeColor}
+                            stroke={bridgeStrokeColor}
                             strokeWidth={highlightedEdgeIds.includes(r.id) ? 3 : r.detoured ? 1.5 : 2}
-                            strokeOpacity={highlightedEdgeIds.includes(r.id) ? 1 : 1}
-                            strokeDasharray={smartDashArray}
-                            markerEnd={linkType === "controller-to-db" ? "url(#arrow-db)" : "url(#arrow)"}
+                            strokeOpacity={highlightedEdgeIds.includes(r.id) ? 1 : involvesBridge ? 0.6 : 1}
+                            strokeDasharray={bridgeDashArray}
+                            markerEnd={bridgeMarkerEnd}
                             className={
                               highlightedEdgeIds.includes(r.id)
                                 ? "animate-pulse-glow"
-                                : linkType === "ui-to-controller"
-                                  ? "repodre-controller-flow"
-                                  : linkType === "controller-to-db"
-                                    ? "repodre-db-flow"
-                                    : liveTrafficActive
-                                      ? "repodre-traffic-flow"
-                                      : ""
+                                : involvesBridge
+                                  ? ""
+                                  : linkType === "ui-to-controller"
+                                    ? "repodre-controller-flow"
+                                    : linkType === "controller-to-db"
+                                      ? "repodre-db-flow"
+                                      : liveTrafficActive
+                                        ? "repodre-traffic-flow"
+                                        : ""
                             }
                           />
                           {decisionLabel && (
@@ -1591,12 +1604,18 @@ export async function POST(req: Request) {
               {/* Time-Travel Tracer (App viewport only) */}
               {workspace === "app" && (
                 <TimeTravelTracer
-                  nodes={nodes.map((n) => ({
-                    id: n.id,
-                    label: n.label,
-                    type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : n.shape === "document" ? "misc" : "error",
-                  }))}
-                  edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+                  nodes={nodes
+                    .filter((n) => n.shape !== "circle")
+                    .map((n) => ({
+                      id: n.id,
+                      label: n.label,
+                      type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : n.shape === "document" ? "misc" : "error",
+                    }))}
+                  edges={edges.filter((e) => {
+                    const from = nodes.find((n) => n.id === e.from);
+                    const to = nodes.find((n) => n.id === e.to);
+                    return from?.shape !== "circle" && to?.shape !== "circle";
+                  }).map((e) => ({ id: e.id, from: e.from, to: e.to }))}
                   onHighlightNode={setHighlightedNodeId}
                   onHighlightEdges={setHighlightedEdgeIds}
                 />
@@ -1645,12 +1664,18 @@ export async function POST(req: Request) {
         <SimulationMode
           isOpen={simulationOpen}
           onClose={() => setSimulationOpen(false)}
-          nodes={nodes.map((n) => ({
-            id: n.id,
-            type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
-            label: n.label,
-          }))}
-          edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+          nodes={nodes
+            .filter((n) => n.shape !== "circle")
+            .map((n) => ({
+              id: n.id,
+              type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
+              label: n.label,
+            }))}
+          edges={edges.filter((e) => {
+            const from = nodes.find((n) => n.id === e.from);
+            const to = nodes.find((n) => n.id === e.to);
+            return from?.shape !== "circle" && to?.shape !== "circle";
+          }).map((e) => ({ id: e.id, from: e.from, to: e.to }))}
           onHighlightNode={setHighlightedNodeId}
           onHighlightEdges={setHighlightedEdgeIds}
         />
@@ -1661,12 +1686,18 @@ export async function POST(req: Request) {
         <SystemInsightsDashboard
           isOpen={insightsOpen}
           onClose={() => setInsightsOpen(false)}
-          nodes={nodes.map((n) => ({
-            id: n.id,
-            type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
-            label: n.label,
-          }))}
-          edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+          nodes={nodes
+            .filter((n) => n.shape !== "circle")
+            .map((n) => ({
+              id: n.id,
+              type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
+              label: n.label,
+            }))}
+          edges={edges.filter((e) => {
+            const from = nodes.find((n) => n.id === e.from);
+            const to = nodes.find((n) => n.id === e.to);
+            return from?.shape !== "circle" && to?.shape !== "circle";
+          }).map((e) => ({ id: e.id, from: e.from, to: e.to }))}
         />
       )}
 
@@ -1975,6 +2006,8 @@ function CanvasNode({
 
   // Cylinder SVG is offset upward, so the outer div needs extra top padding
   const isCylinder = node.shape === "cylinder";
+  // Bridge (circle) nodes are visual section breaks — not executable
+  const isBridge = node.shape === "circle";
 
   // Compute diff styles
   const diffStyles = diffStatus ? getDiffNodeStyles(diffStatus) : {};
@@ -1993,12 +2026,13 @@ function CanvasNode({
         width: NODE_W,
         height: NODE_H,
         zIndex: isDragging ? 1000 : selected ? 10 : highlighted ? 5 : 1,
-        cursor: isDragging ? "grabbing" : "grab",
+        cursor: isDragging ? "grabbing" : isBridge ? "help" : "grab",
         // Cylinder cap bleeds outside the bounding box — clip children but not SVG
         overflow: isCylinder ? "visible" : "visible",
         boxShadow: highlighted ? "0 0 20px 4px var(--teal)" : undefined,
         ...diffStyles,
       }}
+      title={isBridge ? "Go to Next Section" : undefined}
       onClick={onSelect}
       onMouseDown={handleMouseDown}
     >
@@ -2042,6 +2076,7 @@ function CanvasNode({
             node.accent === "purple" ? "text-amber-950 dark:text-amber-50" :
             node.accent === "blue" ? "text-slate-900 dark:text-slate-100" :
             node.accent === "orange" ? "text-orange-950 dark:text-orange-50" :
+            node.accent === "slate" ? "text-slate-800 dark:text-slate-200" :
             "text-red-950 dark:text-red-50"
           }`}
           maxWidth={textMaxWidth(node.shape)}
@@ -2051,6 +2086,8 @@ function CanvasNode({
       )}
 
       {/* ── 30% Manual Override: Drag-to-connect handles (always visible on hover) ── */}
+      {/* Bridge nodes are visual-only — no drag-to-connect */}
+      {!isBridge && (
       <DragToConnectHandle
         nodeId={node.id}
         shape={node.shape}
@@ -2064,9 +2101,11 @@ function CanvasNode({
         zoom={zoom}
         onStartDrag={(handleId, startPos) => onStartDragConnect?.(handleId, startPos)}
       />
+      )}
 
       {/* ── Perimeter anchor handles (shown when selected) ── */}
-      {showHandles &&
+      {/* Bridge nodes are visual-only — no anchor handles */}
+      {showHandles && !isBridge &&
         handles.map((h) => {
           const key = `${node.id}:${h.id}`;
           const hot = hoverHandle === key;
@@ -2093,7 +2132,8 @@ function CanvasNode({
           );
         })}
 
-      {/* ── Cycle-shape button ── */}
+      {/* ── Cycle-shape button (hidden for bridge nodes) ── */}
+      {!isBridge && (
       <button
         onClick={(e) => { e.stopPropagation(); onCycleShape(); }}
         title="Cycle shape"
@@ -2103,6 +2143,7 @@ function CanvasNode({
       >
         <Sparkles className="h-3 w-3" />
       </button>
+      )}
 
       {/* ── Controller Badge (for logic layer nodes) ── */}
       {isControllerNode(node) && (

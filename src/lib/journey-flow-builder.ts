@@ -45,7 +45,8 @@ export type JourneyNodeType =
   | "external_service"
   | "service"
   | "error_handler"
-  | "cache";
+  | "cache"
+  | "bridge";
 
 /** Fine-grained CRUD classification for action nodes */
 export type ActionCrudType = "CREATE" | "READ" | "UPDATE" | "DELETE" | "API";
@@ -56,7 +57,7 @@ export interface JourneyNode {
   label: string;
   sub: string;
   shape: Shape;
-  accent: "green" | "teal" | "blue" | "purple" | "orange" | "red";
+  accent: "green" | "teal" | "blue" | "purple" | "orange" | "red" | "slate";
   sourcePath?: string;
   col: number;
   row: number;
@@ -66,6 +67,8 @@ export interface JourneyNode {
   referencedModels?: string[];
   /** For decision nodes: the route targets this decision branches to */
   decisionTargets?: string[];
+  /** For bridge nodes: the section label (e.g., "Auth → Core") */
+  sectionLabel?: string;
 }
 
 export interface JourneyEdge {
@@ -97,6 +100,7 @@ const BASE_STYLE: Record<JourneyNodeType, { shape: Shape; accent: JourneyNode["a
   service:          { shape: "rectangle",   accent: "purple", sub: "Background Service" },
   error_handler:    { shape: "diamond",     accent: "red",    sub: "Error Handler" },
   cache:            { shape: "hexagon",     accent: "green",  sub: "Cache Layer" },
+  bridge:           { shape: "circle",      accent: "slate",  sub: "Section Break" },
 };
 
 /** Per-CRUD styling overrides for action nodes */
@@ -456,6 +460,40 @@ let edgeCounter = 0;
 function nextNodeId(): string { return `j_${++nodeCounter}`; }
 function nextEdgeId(): string { return `j_e${++edgeCounter}`; }
 function resetCounters(): void { nodeCounter = 0; edgeCounter = 0; }
+
+// ─── Module section classification (for Bridge nodes) ─────────────────────
+
+/**
+ * Classify a parsed module into a coarse "section" of the application.
+ * Bridge nodes are inserted between consecutive sections to visually split
+ * the journey into chapters (auth → core → data → logout).
+ */
+type ModuleSection = "auth" | "entry" | "core" | "data" | "services" | "errors" | "exit" | "misc";
+
+function classifySection(mod: ParsedModule, sig: DetectedSignals): ModuleSection {
+  if (sig.isLogout) return "exit";
+  if (sig.isAuth) return "auth";
+  if (sig.isLanding) return "entry";
+  if (sig.isDatabase) return "data";
+  if (sig.isErrorHandler) return "errors";
+  if (sig.isExternalService || sig.isBackgroundService || sig.isCache || sig.isMiddleware) return "services";
+  if (sig.isApi) return "core";
+  if (sig.routePath) return "entry";
+  return "misc";
+}
+
+const SECTION_ORDER: ModuleSection[] = ["entry", "auth", "core", "services", "data", "errors", "exit", "misc"];
+
+const SECTION_LABELS: Record<ModuleSection, string> = {
+  entry: "Entry",
+  auth: "Auth",
+  core: "Core API",
+  services: "Services",
+  data: "Data Layer",
+  errors: "Error Handling",
+  exit: "Session Exit",
+  misc: "Miscellaneous",
+};
 
 // ─── Main builder ─────────────────────────────────────────────────────────
 
@@ -891,6 +929,113 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   addEdge(lastNode.id, endNode.id, "complete");
   addEdge(endNode.id, landingNode.id, "restart");
 
+  // ── Spatial Connectors: Bridge nodes between module sections ────────────
+  // Detect transitions between coarse application sections (auth → core →
+  // data → …) and insert a Bridge node on the connecting edge. The bridge
+  // acts as a visual "chapter break" — it has no incoming/outgoing arrows
+  // of its own; the original edge is replaced by two edges that pass through
+  // the bridge. The layout engine treats bridges as soft barriers (extra
+  // ranksep) so the chart splits into distinct sections.
+  const sectionOfNode = new Map<string, ModuleSection>();
+  for (const mod of modules) {
+    const sig = detectSignals(mod);
+    const section = classifySection(mod, sig);
+    // Map sourcePath → section, then resolve to nodes by sourcePath
+    if (mod.path) sectionOfNode.set(mod.path, section);
+  }
+
+  // Classify each journey node by its source module's section
+  const nodeSection = new Map<string, ModuleSection>();
+  for (const node of nodes) {
+    if (node.type === "start" || node.type === "end") {
+      nodeSection.set(node.id, "entry");
+    } else if (node.type === "logout") {
+      nodeSection.set(node.id, "exit");
+    } else if (node.sourcePath && sectionOfNode.has(node.sourcePath)) {
+      nodeSection.set(node.id, sectionOfNode.get(node.sourcePath)!);
+    } else {
+      // Fall back to type-based classification
+      if (node.type === "auth") nodeSection.set(node.id, "auth");
+      else if (node.type === "database") nodeSection.set(node.id, "data");
+      else if (node.type === "error_handler") nodeSection.set(node.id, "errors");
+      else if (node.type === "middleware" || node.type === "external_service" || node.type === "service" || node.type === "cache") nodeSection.set(node.id, "services");
+      else if (node.type === "action") nodeSection.set(node.id, "core");
+      else if (node.type === "page" || node.type === "decision") nodeSection.set(node.id, "entry");
+      else nodeSection.set(node.id, "misc");
+    }
+  }
+
+  // Find tree edges (non-convergence) that cross a section boundary and
+  // insert a Bridge node on each. Only insert one bridge per unique
+  // (fromSection, toSection) pair to avoid clutter.
+  const CONVERGENCE_LABELS_BRIDGE = new Set([
+    "select", "call external", "enqueue", "catch error",
+    "check cache", "cache miss", "log",
+    "save project", "save post", "save comment", "save file", "save order",
+    "save data", "store profile", "update record",
+  ]);
+  const isTreeEdgeForBridge = (label: string | undefined): boolean => {
+    if (!label) return true;
+    if (CONVERGENCE_LABELS_BRIDGE.has(label)) return false;
+    if (/^(CREATE|READ|UPDATE|DELETE)\s*→/.test(label)) return false;
+    return true;
+  };
+
+  const insertedBridges = new Set<string>();
+  const edgesToRemove: number[] = [];
+  const newBridgeEdges: JourneyEdge[] = [];
+
+  for (let i = 0; i < edges.length; i++) {
+    const edge = edges[i];
+    if (!isTreeEdgeForBridge(edge.label)) continue;
+    if (edge.from === edge.to) continue;
+
+    const fromSection = nodeSection.get(edge.from);
+    const toSection = nodeSection.get(edge.to);
+    if (!fromSection || !toSection) continue;
+    if (fromSection === toSection) continue;
+
+    // Skip edges involving start/end/loop nodes
+    const fromNode = nodes.find((n) => n.id === edge.from);
+    const toNode = nodes.find((n) => n.id === edge.to);
+    if (!fromNode || !toNode) continue;
+    if (fromNode.type === "start" || fromNode.type === "end") continue;
+    if (toNode.type === "start" || toNode.type === "end") continue;
+    if (fromNode.type === "bridge" || toNode.type === "bridge") continue;
+
+    // Only insert bridges between non-entry sections. The entry section
+    // (landing/login pages) flows naturally into auth — bridges are for
+    // transitions between major app modules (auth → core, core → data, etc.)
+    if (fromSection === "entry" || toSection === "entry") continue;
+
+    const bridgeKey = `${fromSection}→${toSection}`;
+    if (insertedBridges.has(bridgeKey)) continue;
+    insertedBridges.add(bridgeKey);
+
+    // Insert a Bridge node between the two sections
+    const fromLabel = SECTION_LABELS[fromSection];
+    const toLabel = SECTION_LABELS[toSection];
+    const bridgeCol = Math.min(fromNode.col, toNode.col) + 1;
+    const bridge = addNode("bridge", `${fromLabel} → ${toLabel}`, bridgeCol, placeInCol(bridgeCol), undefined, {
+      sub: "Section Break",
+      sectionLabel: bridgeKey,
+    });
+
+    // Replace the original edge with two edges through the bridge
+    edgesToRemove.push(i);
+    newBridgeEdges.push({ id: nextEdgeId(), from: edge.from, to: bridge.id, label: "next section" });
+    newBridgeEdges.push({ id: nextEdgeId(), from: bridge.id, to: edge.to, label: "next section" });
+  }
+
+  // Remove original edges that were replaced by bridges (iterate in reverse)
+  edgesToRemove.sort((a, b) => b - a);
+  for (const idx of edgesToRemove) {
+    edges.splice(idx, 1);
+  }
+  for (const e of newBridgeEdges) {
+    edges.push(e);
+  }
+
   // ── Orphan insurance ─────────────────────────────────────────────────
   const hasIncoming = new Set<string>();
   const hasOutgoing = new Set<string>();
@@ -901,9 +1046,11 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
 
   for (const node of nodes) {
     if (node.type === "start") continue;
+    // Bridge nodes are always connected via their section-transition edges
+    if (node.type === "bridge") continue;
 
     if (!hasIncoming.has(node.id)) {
-      const prev = nodes.filter((n) => n.col < node.col).sort((a, b) => b.col - a.col)[0];
+      const prev = nodes.filter((n) => n.col < node.col && n.type !== "bridge").sort((a, b) => b.col - a.col)[0];
       if (prev) {
         addEdge(prev.id, node.id, "flow");
         hasOutgoing.add(prev.id);
@@ -915,7 +1062,7 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     }
 
     if (!hasOutgoing.has(node.id) && node.type !== "end") {
-      const next = nodes.filter((n) => n.col > node.col && n.type !== "end").sort((a, b) => a.col - b.col)[0];
+      const next = nodes.filter((n) => n.col > node.col && n.type !== "end" && n.type !== "bridge").sort((a, b) => a.col - b.col)[0];
       if (next) {
         addEdge(node.id, next.id, "flow");
         hasOutgoing.add(node.id);
@@ -939,6 +1086,8 @@ export interface TreeLayoutOptions {
   rankSep: number;
   /** Extra horizontal spacing applied to children of decision nodes */
   decisionNodeSep: number;
+  /** Extra vertical spacing applied around bridge nodes (soft barriers) */
+  bridgeRankSep: number;
   /** Starting x offset */
   startX: number;
   /** Starting y offset */
@@ -949,6 +1098,7 @@ const DEFAULT_TREE_OPTIONS: TreeLayoutOptions = {
   nodeSep: 320,
   rankSep: 220,
   decisionNodeSep: 420,
+  bridgeRankSep: 160,
   startX: 120,
   startY: 100,
 };
@@ -998,6 +1148,8 @@ export function layoutJourneyTree(
     if (CONVERGENCE_LABELS.has(label)) return false;
     // CRUD-labelled edges (e.g., "CREATE → user") are convergence edges
     if (/^(CREATE|READ|UPDATE|DELETE)\s*→/.test(label)) return false;
+    // "next section" edges (through Bridge nodes) ARE tree edges
+    if (label === "next section") return true;
     return true;
   };
 
@@ -1041,8 +1193,11 @@ export function layoutJourneyTree(
    *
    * Children of decision nodes get extra horizontal spacing
    * (decisionNodeSep) so branches have room to breathe.
+   *
+   * Bridge nodes get extra vertical spacing (bridgeRankSep) so they
+   * create a visible "chapter break" between sections.
    */
-  function dfs(nodeId: string, depth: number, parentIsDecision: boolean): number {
+  function dfs(nodeId: string, depth: number, parentIsDecision: boolean, parentIsBridge: boolean): number {
     if (inStack.has(nodeId)) return depth; // cycle — stop
     if (visited.has(nodeId)) {
       // Already positioned; return its existing depth
@@ -1054,18 +1209,22 @@ export function layoutJourneyTree(
     const kids = children.get(nodeId) ?? [];
     let maxDepth = depth;
     const isDecision = nodeType.get(nodeId) === "decision";
+    const isBridge = nodeType.get(nodeId) === "bridge";
+
+    // Extra vertical spacing for bridge nodes (soft barrier)
+    const extraRankSep = isBridge ? opts.bridgeRankSep : 0;
 
     if (kids.length === 0) {
       // Leaf: assign next sequential x. Use wider spacing if the parent
       // is a decision node so branches spread out.
       const sep = parentIsDecision ? opts.decisionNodeSep : opts.nodeSep;
       const x = opts.startX + leafCounter * sep;
-      positions.set(nodeId, { x, y: opts.startY + depth * opts.rankSep, depth });
+      positions.set(nodeId, { x, y: opts.startY + depth * (opts.rankSep + extraRankSep), depth });
       leafCounter++;
     } else {
       // Internal node: recurse children first, then center over them
       for (const childId of kids) {
-        const childDepth = dfs(childId, depth + 1, isDecision);
+        const childDepth = dfs(childId, depth + 1, isDecision, isBridge);
         maxDepth = Math.max(maxDepth, childDepth);
       }
 
@@ -1078,23 +1237,38 @@ export function layoutJourneyTree(
         childXs.length > 0
           ? childXs.reduce((a, b) => a + b, 0) / childXs.length
           : opts.startX + leafCounter * sep;
-      positions.set(nodeId, { x, y: opts.startY + depth * opts.rankSep, depth });
+      positions.set(nodeId, { x, y: opts.startY + depth * (opts.rankSep + extraRankSep), depth });
     }
 
     inStack.delete(nodeId);
     return maxDepth;
   }
 
-  dfs(root, 0, false);
+  dfs(root, 0, false, false);
 
   // ── Tier alignment pass ──────────────────────────────────────────────
   // Ensure all nodes at the same depth share the same y coordinate, so
   // the tree forms clean horizontal "tiers" of execution. Internal nodes
   // whose children span multiple depths would otherwise sit at a y that
   // doesn't match their logical tier.
+  // Bridge nodes push their tier down by bridgeRankSep to create a visible
+  // "chapter break" between sections.
   const maxDepth = Math.max(...[...positions.values()].map((p) => p.depth), 0);
+  // Compute cumulative offset per depth (bridge nodes add extra space)
+  const bridgeAtDepth = new Array(maxDepth + 1).fill(false);
+  for (const [nodeId, pos] of positions.entries()) {
+    if (nodeType.get(nodeId) === "bridge") {
+      bridgeAtDepth[pos.depth] = true;
+    }
+  }
+  const depthOffset = new Array(maxDepth + 1).fill(0);
+  let cumulative = 0;
   for (let d = 0; d <= maxDepth; d++) {
-    const tierY = opts.startY + d * opts.rankSep;
+    depthOffset[d] = cumulative;
+    if (bridgeAtDepth[d]) cumulative += opts.bridgeRankSep;
+  }
+  for (let d = 0; d <= maxDepth; d++) {
+    const tierY = opts.startY + d * opts.rankSep + depthOffset[d];
     for (const pos of positions.values()) {
       if (pos.depth === d) pos.y = tierY;
     }

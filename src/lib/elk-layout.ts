@@ -26,6 +26,8 @@ export interface ElkLayoutOptions {
   layerSpacing: number;
   /** Extra spacing for children of decision nodes */
   decisionSpacing: number;
+  /** Extra spacing around Bridge nodes (soft barriers between sections) */
+  bridgeSpacing: number;
   /** Starting x offset */
   startX: number;
   /** Starting y offset */
@@ -39,6 +41,7 @@ const DEFAULT_ELK_OPTIONS: ElkLayoutOptions = {
   edgeEdgeSpacing: 20,
   layerSpacing: 220,
   decisionSpacing: 120,
+  bridgeSpacing: 160,
   startX: 120,
   startY: 100,
 };
@@ -46,6 +49,8 @@ const DEFAULT_ELK_OPTIONS: ElkLayoutOptions = {
 // ELK node shape constants
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 80;
+// Bridge nodes are smaller circles
+const BRIDGE_NODE_SIZE = 72;
 
 const elk = new ELK();
 
@@ -102,22 +107,36 @@ export async function layoutJourneyGraphWithElk(
   // Node ID mapping: use journey node IDs directly
   const elkNodes = graph.nodes.map((node) => {
     const isDecision = node.type === "decision";
+    const isBridge = node.type === "bridge";
     const parentIsDecision = parentNode.has(node.id) &&
       nodeTypeMap.get(parentNode.get(node.id)!) === "decision";
+    const parentIsBridge = parentNode.has(node.id) &&
+      nodeTypeMap.get(parentNode.get(node.id)!) === "bridge";
 
     // Apply decision spacing for children of decision nodes
-    const nodeSpacing = parentIsDecision
-      ? opts.nodeNodeSpacing + opts.decisionSpacing
-      : opts.nodeNodeSpacing;
+    // Apply extra bridge spacing for children of bridge nodes (soft barrier)
+    let nodeSpacing = opts.nodeNodeSpacing;
+    if (parentIsDecision) nodeSpacing += opts.decisionSpacing;
+    if (parentIsBridge || isBridge) nodeSpacing += opts.bridgeSpacing;
+
+    // Bridge nodes are smaller circles
+    const width = isBridge ? BRIDGE_NODE_SIZE : NODE_WIDTH;
+    const height = isBridge ? BRIDGE_NODE_SIZE : NODE_HEIGHT;
+
+    const layoutOptions: Record<string, string> = {};
+    if (parentIsDecision || parentIsBridge || isBridge) {
+      layoutOptions["elk.spacing.nodeNode"] = `${nodeSpacing}`;
+    }
+    if (isBridge) {
+      // Extra layer spacing so the bridge creates a visible "chapter break"
+      layoutOptions["elk.layered.spacing.nodeNodeBetweenLayers"] = `${opts.layerSpacing + opts.bridgeSpacing}`;
+    }
 
     return {
       id: node.id,
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
-      // Per-node layout options for decision node children
-      layoutOptions: parentIsDecision
-        ? { "elk.spacing.nodeNode": `${nodeSpacing}` }
-        : undefined,
+      width,
+      height,
+      layoutOptions: Object.keys(layoutOptions).length > 0 ? layoutOptions : undefined,
     };
   });
 
@@ -215,9 +234,11 @@ export async function layoutJourneyGraphWithElk(
 
     // Fallback: simple vertical layout
     graph.nodes.forEach((node, i) => {
+      const isBridge = node.type === "bridge";
+      const extraSpacing = isBridge ? opts.bridgeSpacing : 0;
       positions.set(node.id, {
         x: opts.startX + (i % 4) * opts.nodeNodeSpacing,
-        y: opts.startY + Math.floor(i / 4) * opts.layerSpacing,
+        y: opts.startY + Math.floor(i / 4) * (opts.layerSpacing + extraSpacing),
         depth: Math.floor(i / 4),
       });
     });

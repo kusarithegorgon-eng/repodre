@@ -62,6 +62,11 @@
   --node-misc-stroke: #78716c;   /* stone-500 */
   --node-misc-text: #44403c;     /* stone-700 */
 
+  /* Bridge / Spatial Connector: neutral slate with dashed border feel */
+  --node-bridge-fill: #e2e8f0;     /* slate-200 */
+  --node-bridge-stroke: #475569;   /* slate-600 */
+  --node-bridge-text: #1e293b;     /* slate-800 */
+
   /* Primary accent color - solid teal */
   --teal: #0d9488;                 /* teal-600: solid, no glow */
   --orange: #ea580c;               /* orange-600 */
@@ -145,6 +150,11 @@
   --node-misc-fill: #292524;     /* stone-800 */
   --node-misc-stroke: #a8a29e;   /* stone-400 */
   --node-misc-text: #d6d3d1;     /* stone-300 */
+
+  /* Bridge / Spatial Connector: dark slate with light border */
+  --node-bridge-fill: #1e293b;     /* slate-800 */
+  --node-bridge-stroke: #94a3b8;   /* slate-400 */
+  --node-bridge-text: #e2e8f0;     /* slate-200 */
 
   /* Primary accent color - solid teal */
   --teal: #2dd4bf;                 /* teal-400: brighter for dark mode */
@@ -254,6 +264,13 @@ body {
   --node-fill: var(--node-gateway-fill);
   --node-stroke: var(--node-gateway-stroke);
   --node-text: var(--node-gateway-text);
+}
+
+/* Bridge / Spatial Connector nodes - neutral slate */
+.node-bridge {
+  --node-fill: var(--node-bridge-fill);
+  --node-stroke: var(--node-bridge-stroke);
+  --node-text: var(--node-bridge-text);
 }
 
 /* ─── Section Container Styles ─────────────────────────────────────────── */

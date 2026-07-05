@@ -20,7 +20,8 @@ export type Shape =
   | "triangle"
   | "parallelogram"
   | "document"
-  | "hexagon";
+  | "hexagon"
+  | "circle";
 
 /** Base node footprint (unscaled, pre-zoom). */
 export const NODE_W = 240;
@@ -55,6 +56,11 @@ export interface PositionedNode {
 
 /** Half-width / half-height of the *collision/anchor* hull for a shape. */
 export function halfExtents(shape: Shape, w = NODE_W, h = NODE_H) {
+  // Circle (Bridge) nodes are smaller — half the diameter of a standard node
+  if (shape === "circle") {
+    const r = Math.min(w, h) / 2;
+    return { hw: r, hh: r };
+  }
   const hw = w / 2;
   const hh = (shape === "cylinder" ? h + CYLINDER_CAP : h) / 2;
   return { hw, hh };
@@ -125,6 +131,18 @@ export function shapePolygon(shape: Shape, w = NODE_W, h = NODE_H): Point[] {
         { x: hw - skew, y: hh },    // bottom-right
         { x: -hw, y: hh },          // bottom-left
       ];
+    }
+
+    case "circle": {
+      // Bridge node — approximated as a 16-sided polygon for ray intersection
+      const r = Math.min(w, h) / 2;
+      const verts: Point[] = [];
+      const sides = 16;
+      for (let i = 0; i < sides; i++) {
+        const angle = (i / sides) * Math.PI * 2;
+        verts.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+      }
+      return verts;
     }
 
     // document, rectangle, cylinder, pill all use a rectangular AABB hull for routing
@@ -203,6 +221,14 @@ export function perimeterPoint(n: PositionedNode, tx: number, ty: number): Point
     case "pill":
       s = stadiumRayScale(dx, dy, hw, hh);
       break;
+
+    case "circle": {
+      // True circle perimeter: scale ray to radius
+      const r = Math.min(w, h) / 2;
+      const len = Math.hypot(dx, dy);
+      s = r / len;
+      break;
+    }
 
     case "diamond":
     case "hexagon":
@@ -329,6 +355,16 @@ export function anchorHandles(n: PositionedNode): AnchorHandle[] {
       ];
     }
 
+    case "circle": {
+      const r = Math.min(w, h) / 2;
+      return [
+        at("n", 0, -r, "Top"),
+        at("e", r, 0, "Right"),
+        at("s", 0, r, "Bottom"),
+        at("w", -r, 0, "Left"),
+      ];
+    }
+
     default:
       // rectangle / pill / cylinder / document: edge midpoints
       return [
@@ -368,6 +404,9 @@ export function paddingFor(shape: Shape): { x: number; y: number } {
     case "document":
       // leave room for folded corner decoration (bottom-right)
       return { x: 16, y: 14 };
+    case "circle":
+      // Bridge nodes are small; tight padding so the label fits
+      return { x: 10, y: 8 };
     default:
       return { x: 16, y: 12 };
   }
@@ -417,6 +456,10 @@ export function textMaxWidth(shape: Shape, _zoom = 1, w = NODE_W, _h = NODE_H): 
 
     case "document":
       return Math.max(24, w - 40);
+
+    case "circle":
+      // Inscribed square in a circle: width = r * √2
+      return Math.max(20, Math.min(w, h) * 0.707 - 16);
 
     default:
       return Math.max(24, w - 32);
@@ -485,6 +528,14 @@ export function boundaryPorts(n: PositionedNode): { left: ConnectionPort; right:
       return {
         left:  { side: "left",  x: c.x - w / 2 + skew / 2, y: c.y },
         right: { side: "right", x: c.x + w / 2 - skew / 2, y: c.y },
+      };
+    }
+
+    case "circle": {
+      const r = Math.min(w, h) / 2;
+      return {
+        left:  { side: "left",  x: c.x - r, y: c.y },
+        right: { side: "right", x: c.x + r, y: c.y },
       };
     }
 

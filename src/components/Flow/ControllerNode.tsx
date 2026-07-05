@@ -204,6 +204,11 @@ export function classifyNodeLayer(node: {
   const label = node.label.toLowerCase();
   const sub = node.sub.toLowerCase();
 
+  // Bridge (circle) nodes are visual section breaks — not an architectural layer
+  if (node.shape === "circle" || node.accent === "slate") {
+    return "other";
+  }
+
   // Database layer (cylinder shapes, blue accent)
   if (node.shape === "cylinder" || node.accent === "blue") {
     return "database";

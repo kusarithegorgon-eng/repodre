@@ -19,7 +19,7 @@ import { CYLINDER_CAP } from "@/lib/canvas-geometry";
 /**
  * Node type for determining fill/stroke colors from CSS variables.
  */
-export type NodeType = "view" | "controller" | "validation" | "database" | "error" | "gateway" | "misc";
+export type NodeType = "view" | "controller" | "validation" | "database" | "error" | "gateway" | "misc" | "bridge";
 
 interface NodeShapeSVGProps {
   shape: Shape;
@@ -53,6 +53,8 @@ function getFillForType(type: NodeType | undefined): string {
       return "var(--node-gateway-fill)";
     case "misc":
       return "var(--node-misc-fill, #f5f5f5)";
+    case "bridge":
+      return "var(--node-bridge-fill, #e2e8f0)";
     default:
       return "#ffffff";
   }
@@ -77,6 +79,8 @@ function getStrokeForType(type: NodeType | undefined, fallbackColor: string): st
       return "var(--node-gateway-stroke)";
     case "misc":
       return "var(--node-misc-stroke, #78716c)";
+    case "bridge":
+      return "var(--node-bridge-stroke, #475569)";
     default:
       return fallbackColor;
   }
@@ -333,6 +337,33 @@ export function NodeShapeSVG({
       );
     }
 
+    // ── Circle (Bridge / Spatial Connector) ─────────────────────────────────
+    case "circle": {
+      const r = Math.min(width, height) / 2 - effectiveStrokeW / 2;
+      const cx = width / 2;
+      const cy = height / 2;
+      return (
+        <svg
+          className={`absolute inset-0 ${className}`}
+          width={width}
+          height={height}
+          viewBox={`0 0 ${width} ${height}`}
+          fill="none"
+          style={{ overflow: "visible", outline: selectedRing, outlineOffset: "2px" }}
+        >
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill={flatFill}
+            stroke={flatStroke}
+            strokeWidth={effectiveStrokeW}
+            strokeDasharray="6 4"
+          />
+        </svg>
+      );
+    }
+
     // ── Rectangle (default) ─────────────────────────────────────────────────
     default:
       return (
@@ -409,6 +440,12 @@ export function ShapeIcon({ shape }: { shape: Shape }) {
       return (
         <svg viewBox="0 0 16 10" fill="none" className="h-4 w-4">
           <polygon points="4,1 12,1 15,5 12,9 4,9 1,5" stroke={iconStroke} strokeWidth="1.2" strokeLinejoin="round" />
+        </svg>
+      );
+    case "circle":
+      return (
+        <svg viewBox="0 0 12 12" fill="none" className="h-4 w-4">
+          <circle cx="6" cy="6" r="5" stroke={iconStroke} strokeWidth="1.2" strokeDasharray="2 1.5" fill="none" />
         </svg>
       );
     default: // rectangle
