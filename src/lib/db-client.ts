@@ -332,6 +332,27 @@ export async function batchCreateNodes(
 }
 
 /**
+ * Batch update node positions for the Reset to Auto-Layout feature.
+ * Updates x and y coordinates for multiple nodes in a single batch.
+ */
+export async function batchUpdateNodePositions(
+  updates: Array<{ id: string; x: number; y: number }>
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  // Update each node individually (Supabase doesn't support bulk update with different values)
+  // Using Promise.all for parallel execution
+  await Promise.all(
+    updates.map(({ id, x, y }) =>
+      supabase
+        .from("nodes")
+        .update({ x, y, updated_at: new Date().toISOString() })
+        .eq("id", id)
+    )
+  );
+}
+
+/**
  * Sync repository files to Supabase as nodes.
  * Uses upsert to prevent duplicates based on (project_id, label).
  * Files are mapped to nodes with inferred shapes and positions.

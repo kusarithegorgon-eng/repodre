@@ -18,7 +18,8 @@ import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-ana
 import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
 import { buildArchGraph, type ArchGraph, type ArchCategory } from "./architecture-decision-engine";
-import { buildJourneyGraph, layoutJourneyTree, type JourneyGraph } from "./journey-flow-builder";
+import { buildJourneyGraph, type JourneyGraph } from "./journey-flow-builder";
+import { layoutJourneyGraphWithElk } from "./elk-layout";
 import type { AccessCheckResult } from "./github-api";
 import type { HandleSegment, Shape } from "./canvas-geometry";
 import type { RoleGateway, PortalLink, CanvasSection } from "./domain-sectioning";
@@ -286,13 +287,15 @@ export async function analyzeRepository(
   });
 
   // ── Layout: journey graph is primary; arch/blueprint/crawler fallback ──
-  // Use a hierarchical tree layout so decision nodes branch their children
-  // horizontally (family-tree look) instead of stacking everything in a
-  // single vertical column.
-  const treePositions = layoutJourneyTree(journeyGraph, {
-    nodeSep: 320,
-    rankSep: 220,
-    decisionNodeSep: 420,
+  // Use ELK's layered algorithm for professional "Family Tree" layout with
+  // decision nodes as branching points and generous spacing to prevent zigzag.
+  const treePositions = await layoutJourneyGraphWithElk(journeyGraph, {
+    direction: "DOWN",
+    nodeNodeSpacing: 80,
+    nodeEdgeSpacing: 40,
+    edgeEdgeSpacing: 20,
+    layerSpacing: 220,
+    decisionSpacing: 120,
     startX: 120,
     startY: 100,
   });

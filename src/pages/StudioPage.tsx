@@ -1,6 +1,6 @@
 import { Link, useSearch } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw, GitBranch } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
@@ -61,6 +61,8 @@ import {
   textMaxWidth,
 } from "@/lib/canvas-geometry";
 import { layoutHierarchicalGraph } from "@/lib/system-blueprint";
+import { layoutJourneyGraphWithElk } from "@/lib/elk-layout";
+import type { JourneyGraph } from "@/lib/journey-flow-builder";
 import {
   loadFullProject,
   loadGraphFromDatabase,
@@ -73,6 +75,7 @@ import {
   deleteEdge,
   batchCreateNodes,
   batchCreateEdges,
+  batchUpdateNodePositions,
   type Project,
   type Workspace,
   type Edge,
@@ -381,6 +384,7 @@ export function StudioPage() {
   const [gitDiffOpen, setGitDiffOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
+  const [isResettingLayout, setIsResettingLayout] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
@@ -740,6 +744,69 @@ export async function POST(req: Request) {
     setEdges((prev) => prev.filter((e) => e.id !== id));
     try { await deleteEdge(id); } catch { /* ignore */ }
   }, []);
+
+  // ─── Reset to Auto-Layout (ELK) ─────────────────────────────────────────────
+  // Re-runs the ELK layered algorithm on the current nodes/edges and persists
+  // the computed positions back to Supabase. Useful after users have manually
+  // moved nodes and want to restore the clean family-tree layout.
+  const handleResetToAutoLayout = useCallback(async () => {
+    if (nodes.length === 0 || isDemoMode || isDraftMode) return;
+
+    setIsResettingLayout(true);
+    try {
+      // Reconstruct a JourneyGraph from current canvas state
+      const journeyGraph: JourneyGraph = {
+        nodes: nodes.map((n) => ({
+          id: n.id,
+          type: n.shape === "diamond" ? "decision" : n.shape === "pill" ? "page" : n.shape === "cylinder" ? "database" : n.shape === "rectangle" ? "action" : "page",
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          accent: n.accent,
+          col: 0,
+          row: 0,
+        })),
+        edges: edges.map((e) => ({
+          id: e.id,
+          from: e.from,
+          to: e.to,
+          label: undefined,
+        })),
+      };
+
+      // Run ELK layout
+      const positions = await layoutJourneyGraphWithElk(journeyGraph, {
+        direction: "DOWN",
+        nodeNodeSpacing: 80,
+        nodeEdgeSpacing: 40,
+        edgeEdgeSpacing: 20,
+        layerSpacing: 220,
+        decisionSpacing: 120,
+        startX: 120,
+        startY: 100,
+      });
+
+      // Apply positions to local state
+      const updates: Array<{ id: string; x: number; y: number }> = [];
+      setNodes((prev) =>
+        prev.map((n) => {
+          const pos = positions.get(n.id);
+          if (pos) {
+            updates.push({ id: n.id, x: pos.x, y: pos.y });
+            return { ...n, x: pos.x, y: pos.y, isManuallyPositioned: false };
+          }
+          return n;
+        })
+      );
+
+      // Persist to database
+      await batchUpdateNodePositions(updates);
+    } catch (error) {
+      console.error("Failed to reset layout:", error);
+    } finally {
+      setIsResettingLayout(false);
+    }
+  }, [nodes, edges, isDemoMode, isDraftMode]);
 
   // ─── localStorage auto-save ───────────────────────────────────────────────
   useEffect(() => {
@@ -1301,6 +1368,17 @@ export async function POST(req: Request) {
             className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-all hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          </button>
+
+          {/* Reset to Auto-Layout — re-run ELK layout algorithm */}
+          <button
+            onClick={handleResetToAutoLayout}
+            disabled={isResettingLayout || isDemoMode || isDraftMode || nodes.length === 0}
+            title="Reset to Auto-Layout — re-apply ELK family-tree layout"
+            className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs font-medium text-muted-foreground transition-all hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <GitBranch className={`h-3.5 w-3.5 ${isResettingLayout ? "animate-pulse" : ""}`} />
+            <span className="hidden sm:inline">Auto Layout</span>
           </button>
 
           {/* API Test Export (App viewport only) */}
