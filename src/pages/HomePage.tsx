@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, useCallback } from "react";
-import { GitBranch, Sparkles, Zap, Shield, Globe, ArrowRight, Database, CircleAlert as AlertCircle, X } from "lucide-react";
+import { GitBranch, Sparkles, Zap, Shield, Globe, ArrowRight, Database, CircleAlert as AlertCircle, X, Menu, FolderOpen } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { RepoInput } from "@/components/RepoInput";
@@ -28,6 +28,7 @@ export function HomePage() {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [toast, setToast] = useState<{ message: string; type: "error" | "info" } | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const showToast = useCallback((message: string, type: "error" | "info" = "error") => {
     setToast({ message, type });
@@ -207,17 +208,63 @@ export function HomePage() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* Header */}
-      <header className="flex h-14 items-center justify-between border-b border-border px-6">
-        <Link to="/" className="flex items-center gap-2.5">
-          <RepodreLogo className="h-8 w-8" />
-          <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
-        </Link>
+      <header className="flex h-14 items-center justify-between border-b border-border px-4 md:px-6">
+        <div className="flex items-center gap-2">
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-border md:hidden hover:bg-surface"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <Link to="/" className="flex items-center gap-2.5">
+            <RepodreLogo className="h-8 w-8" />
+            <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
+          </Link>
+        </div>
         <div className="flex items-center gap-2">
           <AiDisclosureBadge />
           <ThemeToggle />
           <AuthButton />
         </div>
       </header>
+
+      {/* Mobile Projects Drawer */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          {/* Drawer */}
+          <div className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface border-r border-border shadow-xl">
+            <div className="flex h-14 items-center justify-between border-b border-border px-4">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="h-5 w-5 text-teal" />
+                <span className="text-sm font-medium">Recent Projects</span>
+              </div>
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-background"
+                aria-label="Close menu"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="h-[calc(100%-3.5rem)] overflow-y-auto">
+              <RecentProjectsPanel
+                onSelectProject={(id) => {
+                  handleSelectProject(id);
+                  setMobileMenuOpen(false);
+                }}
+                refreshKey={refreshKey}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast notification */}
       {toast && (
@@ -238,16 +285,16 @@ export function HomePage() {
 
       {/* Main Content with Sidebar */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {/* Recent Projects Sidebar — fixed width, scrollable internally */}
-        <div className="absolute inset-y-0 left-0 w-72 shrink-0 border-r border-border bg-surface">
+        {/* Recent Projects Sidebar — fixed width on desktop, hidden on mobile */}
+        <aside className="hidden md:block absolute inset-y-0 left-0 w-72 shrink-0 border-r border-border bg-surface">
           <RecentProjectsPanel
             onSelectProject={handleSelectProject}
             refreshKey={refreshKey}
           />
-        </div>
+        </aside>
 
         {/* Hero — centered regardless of sidebar content */}
-        <main className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12 ml-72">
+        <main className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12 md:ml-72">
         <div className="mx-auto max-w-2xl text-center">
           <div className="mb-6 flex items-center justify-center gap-2">
             <Sparkles className="h-5 w-5 text-teal" />
