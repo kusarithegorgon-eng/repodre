@@ -422,7 +422,7 @@ export function paddingFor(shape: Shape): { x: number; y: number } {
  *   parallelogram → full width minus both skew offsets
  *   others       → full width minus side padding
  */
-export function textMaxWidth(shape: Shape, _zoom = 1, w = NODE_W, _h = NODE_H): number {
+export function textMaxWidth(shape: Shape, _zoom = 1, w = NODE_W, h = NODE_H): number {
   switch (shape) {
     case "diamond": {
       // Safe text width = horizontal half-diagonal minus padding.
