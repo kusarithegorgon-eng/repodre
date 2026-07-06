@@ -67,6 +67,8 @@ import {
 import { layoutHierarchicalGraph } from "@/lib/system-blueprint";
 import { layoutJourneyGraphWithElk } from "@/lib/elk-layout";
 import type { JourneyGraph } from "@/lib/journey-flow-builder";
+import type { SwimlaneLayout } from "@/lib/swimlane-layout";
+import { LANE_WIDTH } from "@/lib/swimlane-layout";
 import {
   loadFullProject,
   loadGraphFromDatabase,
@@ -391,6 +393,7 @@ export function StudioPage() {
   const [gitDiffOpen, setGitDiffOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [erdGuideOpen, setErdGuideOpen] = useState(false);
+  const [swimlaneLanes, setSwimlaweLanes] = useState<SwimlaneLayout["lanes"] | null>(null);
   const [showSchemaInput, setShowSchemaInput] = useState(false);
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const [isResettingLayout, setIsResettingLayout] = useState(false);
@@ -677,6 +680,16 @@ export async function POST(req: Request) {
 
     refreshCanvas();
   }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID, isDemoMode, isDraftMode, search.project, refreshCanvas]);
+
+  // Load swimlane lane metadata from sessionStorage (set by analysis pipeline)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("repodre-swimlanes");
+      if (raw) {
+        setSwimlaweLanes(JSON.parse(raw) as SwimlaneLayout["lanes"]);
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   // Auto-refresh canvas when the nodes or edges table updates in Supabase (realtime)
   useEffect(() => {
@@ -1293,6 +1306,55 @@ export async function POST(req: Request) {
                   className="relative h-full w-full origin-top-left"
                   style={{ transform: `${canvasPan.transform} scale(${zoom / 100})` }}
                 >
+                  {/* ── Swimlane background bands ── */}
+                  {swimlaneLanes && swimlaneLanes.filter((l) => l.populated).length > 1 && (() => {
+                    const populated = swimlaneLanes.filter((l) => l.populated);
+                    const totalWidth = populated.length > 0
+                      ? Math.max(...populated.map((l) => l.x + LANE_WIDTH))
+                      : 0;
+                    return (
+                      <div
+                        className="pointer-events-none absolute top-0 left-0"
+                        style={{ width: totalWidth, height: 4000, zIndex: 0 }}
+                      >
+                        {populated.map((lane) => (
+                          <div
+                            key={lane.id}
+                            className="absolute top-0"
+                            style={{
+                              left: lane.x,
+                              width: LANE_WIDTH,
+                              height: 4000,
+                              background: lane.headerBg,
+                              borderRight: `1px solid ${lane.color}20`,
+                            }}
+                          >
+                            {/* Lane header */}
+                            <div
+                              className="absolute top-0 left-0 right-0 flex items-center justify-center gap-2"
+                              style={{
+                                height: 60,
+                                background: `${lane.color}18`,
+                                borderBottom: `2px solid ${lane.color}38`,
+                              }}
+                            >
+                              <div
+                                className="h-2 w-2 rounded-full"
+                                style={{ background: lane.color }}
+                              />
+                              <span
+                                className="text-xs font-semibold uppercase tracking-widest"
+                                style={{ color: lane.color }}
+                              >
+                                {lane.label}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                   {/* Edge SVG layer */}
                   <svg
                     data-testid="edge-layer"

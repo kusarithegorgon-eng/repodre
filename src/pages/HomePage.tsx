@@ -128,6 +128,13 @@ export function HomePage() {
       setResult(analysisResult);
 
       if (analysisResult.success && analysisResult.graph) {
+        // Always persist swimlane lanes for StudioPage rendering
+        if (analysisResult.graph.swimlaneLayout) {
+          sessionStorage.setItem(
+            "repodre-swimlanes",
+            JSON.stringify(analysisResult.graph.swimlaneLayout.lanes)
+          );
+        }
         try {
           // Save the project to the database
           const project = await createProject({

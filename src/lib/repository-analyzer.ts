@@ -20,6 +20,7 @@ import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdg
 import { buildArchGraph, type ArchGraph, type ArchCategory } from "./architecture-decision-engine";
 import { buildJourneyGraph, layoutJourneyTree, type JourneyGraph } from "./journey-flow-builder";
 import { layoutJourneyGraphWithElk } from "./elk-layout";
+import { layoutJourneySwimlanes, type SwimlaneLayout } from "./swimlane-layout";
 import type { AccessCheckResult } from "./github-api";
 import type { HandleSegment, Shape } from "./canvas-geometry";
 import type { RoleGateway, PortalLink, CanvasSection } from "./domain-sectioning";
@@ -58,6 +59,8 @@ export interface AnalysisGraph {
   archGraph?: ArchGraph;
   /** User-journey flowchart (Start → Landing → Auth → ... → Logout → loop) */
   journeyGraph?: JourneyGraph;
+  /** Swimlane layout metadata (lanes, positions) for the journey flowchart */
+  swimlaneLayout?: SwimlaneLayout;
 }
 
 export interface AnalysisGraphNode {
@@ -288,59 +291,41 @@ export async function analyzeRepository(
       percent: 92,
     });
 
-    // ── Layout: journey graph is primary; arch/blueprint/crawler fallback ──
-    // Use ELK's layered algorithm for professional "Family Tree" layout with
-    // decision nodes as branching points and generous spacing to prevent zigzag.
-    // Wrapped in try-catch: ELK uses a GWT-compiled web worker that can throw
-    // ReferenceError in some environments. Falls back to sync tree layout.
-    let treePositions: Map<string, { x: number; y: number; depth: number }>;
-    try {
-      treePositions = await layoutJourneyGraphWithElk(journeyGraph, {
-        direction: "DOWN",
-        nodeNodeSpacing: 80,
-        nodeEdgeSpacing: 40,
-        edgeEdgeSpacing: 20,
-        layerSpacing: 220,
-        decisionSpacing: 120,
-        startX: 120,
-        startY: 100,
-      });
-    } catch (layoutError) {
-      console.error("ELK layout failed, using fallback:", layoutError);
-      // Fallback to sync tree layout (no web worker, no GWT)
-      treePositions = layoutJourneyTree(journeyGraph, {
-        nodeSep: 320,
-        rankSep: 220,
-        decisionNodeSep: 420,
-        bridgeRankSep: 160,
-        startX: 120,
-        startY: 100,
-      });
-    }
+    // ── Layout: swimlane (functional columns) is primary layout ──────────
+    // Places nodes into fixed columns by functional category (Entry, Auth,
+    // Core Logic, Services, Data Layer, Error Handling) — like a cross-
+    // functional flowchart. ELK/tree layout is kept as fallback only.
+    const swimlaneLayout = layoutJourneySwimlanes(journeyGraph);
 
     let graphNodes: AnalysisGraph["nodes"];
     let graphEdges: AnalysisGraph["edges"];
 
     if (journeyGraph.nodes.length > 1) {
-      // Primary path: user-journey flowchart with tree layout
-      graphNodes = journeyGraph.nodes.map((n) => {
-        const pos = treePositions.get(n.id);
-        return {
-          id: n.id,
-          label: n.label,
-          sub: n.sub,
-          shape: n.shape,
-          accent: n.accent,
-          x: pos?.x ?? 120,
-          y: pos?.y ?? 100,
-        };
-      });
+      // Primary path: swimlane columnar layout — skip bridge nodes
+      graphNodes = journeyGraph.nodes
+        .filter((n) => n.type !== "bridge")
+        .map((n) => {
+          const pos = swimlaneLayout.positions.get(n.id);
+          return {
+            id: n.id,
+            label: n.label,
+            sub: n.sub,
+            shape: n.shape,
+            accent: n.accent,
+            x: pos?.x ?? 120,
+            y: pos?.y ?? 100,
+          };
+        });
 
-      graphEdges = journeyGraph.edges.map((e) => ({
-        id: e.id,
-        from: e.from,
-        to: e.to,
-      }));
+      // Filter out edges involving bridge nodes (removed in swimlane layout)
+      const visibleNodeIds = new Set(graphNodes.map((n) => n.id));
+      graphEdges = journeyGraph.edges
+        .filter((e) => visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to))
+        .map((e) => ({
+          id: e.id,
+          from: e.from,
+          to: e.to,
+        }));
     } else if (archGraph.nodes.length > 0) {
       // Fallback 1: Architecture Decision Engine (UI/DB/LOGIC columns)
       const archColWidth = 300;
@@ -447,6 +432,7 @@ export async function analyzeRepository(
       portalLinks: sectionedLayout.portalLinks,
       archGraph,
       journeyGraph,
+      swimlaneLayout,
     };
 
     // Phase: Complete

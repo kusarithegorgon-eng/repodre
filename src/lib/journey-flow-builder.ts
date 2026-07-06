@@ -51,6 +51,15 @@ export type JourneyNodeType =
 /** Fine-grained CRUD classification for action nodes */
 export type ActionCrudType = "CREATE" | "READ" | "UPDATE" | "DELETE" | "API";
 
+/** Swimlane column categories for the functional group layout */
+export type SwimlaneLane =
+  | "entry"
+  | "auth"
+  | "logic"
+  | "services"
+  | "data"
+  | "errors";
+
 export interface JourneyNode {
   id: string;
   type: JourneyNodeType;
@@ -61,6 +70,8 @@ export interface JourneyNode {
   sourcePath?: string;
   col: number;
   row: number;
+  /** Functional swimlane column this node belongs to */
+  swimlane: SwimlaneLane;
   /** For action nodes: the refined CRUD type */
   crudType?: ActionCrudType;
   /** DB model names this action imports/references */
@@ -461,6 +472,26 @@ function nextNodeId(): string { return `j_${++nodeCounter}`; }
 function nextEdgeId(): string { return `j_e${++edgeCounter}`; }
 function resetCounters(): void { nodeCounter = 0; edgeCounter = 0; }
 
+// ─── Swimlane mapping ─────────────────────────────────────────────────────
+
+const NODE_TYPE_TO_SWIMLANE: Record<JourneyNodeType, SwimlaneLane> = {
+  start:            "entry",
+  page:             "entry",
+  end:              "entry",
+  logout:           "entry",
+  auth:             "auth",
+  validation:       "auth",
+  middleware:       "auth",
+  decision:         "logic",
+  action:           "logic",
+  external_service: "services",
+  service:          "services",
+  cache:            "services",
+  database:         "data",
+  error_handler:    "errors",
+  bridge:           "logic",
+};
+
 // ─── Module section classification (for Bridge nodes) ─────────────────────
 
 /**
@@ -525,6 +556,7 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
       accent: overrides?.accent ?? style.accent,
       col,
       row,
+      swimlane: NODE_TYPE_TO_SWIMLANE[type],
       sourcePath,
       crudType: overrides?.crudType,
       referencedModels: overrides?.referencedModels,
