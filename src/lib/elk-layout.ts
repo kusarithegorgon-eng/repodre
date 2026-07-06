@@ -37,12 +37,12 @@ export interface ElkLayoutOptions {
 
 const DEFAULT_ELK_OPTIONS: ElkLayoutOptions = {
   direction: "DOWN",
-  nodeNodeSpacing: 80,
-  nodeEdgeSpacing: 40,
-  edgeEdgeSpacing: 20,
-  layerSpacing: 220,
-  decisionSpacing: 120,
-  bridgeSpacing: 160,
+  nodeNodeSpacing: 100,
+  nodeEdgeSpacing: 50,
+  edgeEdgeSpacing: 25,
+  layerSpacing: 340,
+  decisionSpacing: 140,
+  bridgeSpacing: 240,
   startX: 120,
   startY: 100,
 };
@@ -178,12 +178,20 @@ export async function layoutJourneyGraphWithElk(
       "elk.layered.layering.strategy": "NETWORK_SIMPLEX",
       // Content-based node size
       "elk.layered.nodePlacement.favorStraightEdges": "true",
-      // Edge routing
+      // Edge routing: orthogonal for clean right-angle paths
       "elk.edgeRouting": "ORTHOGONAL",
+      // Edge bundling: merge parallel edges that follow the same path
+      "elk.layered.mergeEdges": "true",
+      // Thoroughness for crossing minimization (higher = better but slower)
+      "elk.layered.thoroughness": "8",
       // Additional spacing for decision nodes
       "elk.layered.spacing.edgeNodeBetweenLayers": `${opts.nodeEdgeSpacing}`,
       // Port constraints to ensure clean edge anchors
       "elk.portConstraints": "FIXED_ORDER",
+      // Edge label placement to avoid overlaps
+      "elk.layered.edgeLabels.insideSwitch": "true",
+      // Straight edge routing preference
+      "elk.layered.edgeStraightening": "IMPROVE_STRAIGHTNESS",
     } as Record<string, string>,
   };
 
