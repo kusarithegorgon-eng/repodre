@@ -778,3 +778,254 @@ export function routeEdge(
   const path = `M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`;
   return { start, end, c1, c2, path, detoured };
 }
+
+// ---------------------------------------------------------------------------
+// Smoothstep orthogonal routing (swimlane layout)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a clean orthogonal "smoothstep" path between two nodes.
+ *
+ * Rules:
+ *   - Cross-lane (|dx| > 60): exit RIGHT of source → midX turn → enter LEFT of target
+ *   - Left-ward (backward):   exit LEFT → midX turn → enter RIGHT
+ *   - Same-lane downward:     exit BOTTOM → midY turn → enter TOP
+ *   - Same-lane upward:       exit TOP → midY turn → enter BOTTOM
+ *
+ * Turns are rounded with small quadratic bezier arcs (`radius` px).
+ * `bundleOffset` shifts the path perpendicular to avoid pile-ups on
+ * heavily-connected targets.
+ */
+export function smoothstepEdgePath(
+  from: PositionedNode,
+  to: PositionedNode,
+  bundleOffset = 0,
+  radius = 12,
+): string {
+  const fw = from.w ?? NODE_W;
+  const fh = from.h ?? NODE_H;
+  const tw = to.w ?? NODE_W;
+  const th = to.h ?? NODE_H;
+
+  const fcx = from.x + fw / 2;
+  const fcy = from.y + fh / 2;
+  const tcx = to.x + tw / 2;
+  const tcy = to.y + th / 2;
+
+  const dx = tcx - fcx;
+  const dy = tcy - fcy;
+
+  const isCrossLane = Math.abs(dx) > 60;
+
+  let sx: number, sy: number;
+  let ex: number, ey: number;
+
+  if (isCrossLane && dx > 0) {
+    sx = from.x + fw;    sy = fcy + bundleOffset;
+    ex = to.x;           ey = tcy + bundleOffset;
+  } else if (isCrossLane && dx < 0) {
+    sx = from.x;         sy = fcy + bundleOffset;
+    ex = to.x + tw;      ey = tcy + bundleOffset;
+  } else if (dy >= 0) {
+    sx = fcx + bundleOffset; sy = from.y + fh;
+    ex = tcx + bundleOffset; ey = to.y;
+  } else {
+    sx = fcx + bundleOffset; sy = from.y;
+    ex = tcx + bundleOffset; ey = to.y + th;
+  }
+
+  // Straight-line shortcuts
+  if (Math.abs(sx - ex) < 1) return `M ${sx} ${sy} V ${ey}`;
+  if (Math.abs(sy - ey) < 1) return `M ${sx} ${sy} H ${ex}`;
+
+  const r = Math.max(0, Math.min(radius, Math.abs(ex - sx) / 2 - 1, Math.abs(ey - sy) / 2 - 1));
+
+  if (isCrossLane) {
+    // H → (turn) → V → (turn) → H
+    const midX = (sx + ex) / 2;
+    const sv = ey > sy ? 1 : -1;
+
+    if (r < 1) return `M ${sx} ${sy} H ${midX} V ${ey} H ${ex}`;
+
+    return [
+      `M ${sx} ${sy}`,
+      `H ${midX - r}`,
+      `Q ${midX} ${sy} ${midX} ${sy + sv * r}`,
+      `V ${ey - sv * r}`,
+      `Q ${midX} ${ey} ${midX + r} ${ey}`,
+      `H ${ex}`,
+    ].join(" ");
+  } else {
+    // V → (turn) → H → (turn) → V
+    const midY = (sy + ey) / 2;
+    const sh = ex > sx ? 1 : -1;
+
+    if (r < 1) return `M ${sx} ${sy} V ${midY} H ${ex} V ${ey}`;
+
+    return [
+      `M ${sx} ${sy}`,
+      `V ${midY - r}`,
+      `Q ${sx} ${midY} ${sx + sh * r} ${midY}`,
+      `H ${ex - sh * r}`,
+      `Q ${ex} ${midY} ${ex} ${midY + r}`,
+      `V ${ey}`,
+    ].join(" ");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Crossing detection and hop-arc insertion
+// ---------------------------------------------------------------------------
+
+export interface OrthoSegment {
+  x1: number; y1: number;
+  x2: number; y2: number;
+  /** true = horizontal segment */
+  isH: boolean;
+}
+
+/**
+ * Parse an orthogonal SVG path string (produced by `smoothstepEdgePath`) into
+ * a list of H/V line segments. Q commands are skipped — they represent
+ * rounded corners whose arcs don't participate in straight-line crossings.
+ */
+export function extractOrthoSegments(path: string): OrthoSegment[] {
+  const segs: OrthoSegment[] = [];
+  let cx = 0, cy = 0;
+
+  const re = /([MHVQ])\s*([-\d. ,]+)/g;
+  let m: RegExpExecArray | null;
+
+  while ((m = re.exec(path)) !== null) {
+    const cmd = m[1];
+    const ns = m[2].trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+    if (cmd === "M") {
+      cx = ns[0]; cy = ns[1];
+    } else if (cmd === "H") {
+      const nx = ns[0];
+      segs.push({ x1: cx, y1: cy, x2: nx, y2: cy, isH: true });
+      cx = nx;
+    } else if (cmd === "V") {
+      const ny = ns[0];
+      segs.push({ x1: cx, y1: cy, x2: cx, y2: ny, isH: false });
+      cy = ny;
+    } else if (cmd === "Q") {
+      // Quadratic bezier: update current position to end point (ns[2], ns[3])
+      cx = ns[2]; cy = ns[3];
+    }
+  }
+  return segs;
+}
+
+/**
+ * Find all X positions where a horizontal segment of `path` is crossed by
+ * a vertical segment of any other path in `allPaths`.
+ *
+ * Returns a map from path ID → sorted array of crossing X positions.
+ */
+export function findPathCrossings(
+  allPaths: Array<{ id: string; path: string }>,
+): Map<string, number[]> {
+  const result = new Map<string, number[]>();
+
+  // Build segment index
+  const byId = new Map<string, OrthoSegment[]>();
+  for (const { id, path } of allPaths) {
+    byId.set(id, extractOrthoSegments(path));
+  }
+
+  const ids = allPaths.map(p => p.id);
+
+  for (let i = 0; i < ids.length; i++) {
+    const idA = ids[i];
+    const hSegs = (byId.get(idA) ?? []).filter(s => s.isH);
+    if (hSegs.length === 0) continue;
+
+    for (let j = 0; j < ids.length; j++) {
+      if (i === j) continue;
+      const idB = ids[j];
+      const vSegs = (byId.get(idB) ?? []).filter(s => !s.isH);
+
+      for (const h of hSegs) {
+        const hMinX = Math.min(h.x1, h.x2);
+        const hMaxX = Math.max(h.x1, h.x2);
+
+        for (const v of vSegs) {
+          const vMinY = Math.min(v.y1, v.y2);
+          const vMaxY = Math.max(v.y1, v.y2);
+
+          // Skip T-intersections: only count genuine crossings (not endpoints)
+          if (
+            v.x1 > hMinX + 1 && v.x1 < hMaxX - 1 &&
+            h.y1 > vMinY + 1 && h.y1 < vMaxY - 1
+          ) {
+            const arr = result.get(idA) ?? [];
+            arr.push(v.x1);
+            result.set(idA, arr);
+          }
+        }
+      }
+    }
+  }
+
+  // Sort each list
+  for (const [id, xs] of result) result.set(id, [...new Set(xs)].sort((a, b) => a - b));
+
+  return result;
+}
+
+/**
+ * Insert small upward hop arcs at the given X crossing positions within a
+ * horizontal segment of the path string.
+ *
+ * The arc is a counterclockwise semicircle: `a R R 0 0 0 2R 0`
+ * which creates a visible bump "over" the crossing vertical line.
+ */
+export function insertHopArcs(path: string, crossingXs: number[], R = 5): string {
+  if (crossingXs.length === 0) return path;
+
+  let cx = 0;
+  const parts: string[] = [];
+
+  const re = /([MHVQ])\s*([-\d. ,]+)/g;
+  let m: RegExpExecArray | null;
+
+  while ((m = re.exec(path)) !== null) {
+    const cmd = m[1];
+    const raw = m[2].trim();
+    const ns = raw.split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+
+    if (cmd === "M") {
+      cx = ns[0];
+      parts.push(`M ${ns[0]} ${ns[1]}`);
+    } else if (cmd === "H") {
+      const tx = ns[0];
+      const dir = tx >= cx ? 1 : -1;
+      const inRange = crossingXs.filter(
+        kx => dir === 1 ? (kx > cx + R + 1 && kx < tx - R - 1)
+                        : (kx < cx - R - 1 && kx > tx + R + 1)
+      ).sort((a, b) => dir * (a - b));
+
+      if (inRange.length === 0) {
+        parts.push(`H ${tx}`);
+      } else {
+        let px = cx;
+        for (const kx of inRange) {
+          parts.push(`H ${kx - dir * R}`);
+          // Counterclockwise arc (sweep 0) bumps upward on a rightward line
+          parts.push(`a ${R} ${R} 0 0 ${dir === 1 ? 0 : 1} ${dir * 2 * R} 0`);
+          px = kx + dir * R;
+        }
+        parts.push(`H ${tx}`);
+      }
+      cx = tx;
+    } else if (cmd === "V") {
+      parts.push(`V ${ns[0]}`);
+    } else if (cmd === "Q") {
+      parts.push(`Q ${raw}`);
+      cx = ns[2];
+    }
+  }
+
+  return parts.join(" ");
+}

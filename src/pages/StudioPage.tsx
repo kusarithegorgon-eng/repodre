@@ -62,6 +62,9 @@ import {
   perimeterPoint,
   routeEdge,
   snappedEdgePath,
+  smoothstepEdgePath,
+  findPathCrossings,
+  insertHopArcs,
   textMaxWidth,
 } from "@/lib/canvas-geometry";
 import { layoutHierarchicalGraph } from "@/lib/system-blueprint";
@@ -134,14 +137,6 @@ function straightEdgePath(a: NodeData, b: NodeData): string {
   return `M ${ap.x} ${ap.y} L ${bp.x} ${bp.y}`;
 }
 
-function orthogonalEdgePath(a: NodeData, b: NodeData): string {
-  const ac = centerOf(a);
-  const bc = centerOf(b);
-  const ap = perimeterPoint(a, bc.x, bc.y);
-  const bp = perimeterPoint(b, ac.x, ac.y);
-  const midX = (ap.x + bp.x) / 2;
-  return `M ${ap.x} ${ap.y} H ${midX} V ${bp.y} H ${bp.x}`;
-}
 
 interface EdgeData {
   id: string;
@@ -379,7 +374,7 @@ export function StudioPage() {
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [highlightedEdgeIds, setHighlightedEdgeIds] = useState<string[]>([]);
-  const [wireStyle, setWireStyle] = useState<WireStyle>("curvy");
+  const [wireStyle, setWireStyle] = useState<WireStyle>("orthogonal");
   const [layoutDirectives, setLayoutDirectives] = useState("direction: LR, gap-x: 280, gap-y: 160");
   const [showLayoutPopover, setShowLayoutPopover] = useState(false);
   const [astInspectorOpen, setAstInspectorOpen] = useState(false);
@@ -1154,33 +1149,72 @@ export async function POST(req: Request) {
     [nodes, edges]
   );
 
-  // For edges without explicit handles, fall back to the collision-aware
-  // routeEdge (which may detour around obstacles). Edges with handles use
-  // the snapped port path from useEdgeSnap.
-  const routed = useMemo(
-    () =>
-      edges.map((e) => {
-        const a = nodes.find((n) => n.id === e.from);
-        const b = nodes.find((n) => n.id === e.to);
-        if (!a || !b) return { id: e.id, path: "", detoured: false };
+  // ── Bundle offsets: stagger entry points for fan-in edges ──────────────
+  // When multiple edges arrive at the same target node, offset each path
+  // by ±N px so they don't pile up on exactly the same pixel.
+  const bundleOffsets = useMemo(() => {
+    const byTarget = new Map<string, string[]>();
+    for (const e of edges) {
+      const arr = byTarget.get(e.to) ?? [];
+      arr.push(e.id);
+      byTarget.set(e.to, arr);
+    }
+    const offsets = new Map<string, number>();
+    for (const edgeIds of byTarget.values()) {
+      if (edgeIds.length < 2) continue;
+      const n = edgeIds.length;
+      const spread = Math.min((n - 1) * 10, 36);
+      const step = n > 1 ? spread / (n - 1) : 0;
+      edgeIds.forEach((id, i) => {
+        offsets.set(id, -spread / 2 + i * step);
+      });
+    }
+    return offsets;
+  }, [edges]);
 
-        if (wireStyle === "straight") {
-          return { id: e.id, path: straightEdgePath(a, b), detoured: false };
-        }
-        if (wireStyle === "orthogonal") {
-          return { id: e.id, path: orthogonalEdgePath(a, b), detoured: false };
-        }
+  // ── Primary path computation: smoothstep orthogonal with bundle offsets ──
+  const routed = useMemo(() => {
+    const rawPaths = edges.map((e) => {
+      const a = nodes.find((n) => n.id === e.from);
+      const b = nodes.find((n) => n.id === e.to);
+      if (!a || !b) return { id: e.id, path: "", detoured: false };
 
-        // Curvy (default): snap-based bezier with smart collision routing
-        const snap = snapResult.edges.get(e.id);
-        if (snap && snap.path) {
-          return { id: e.id, path: snap.path, detoured: false };
-        }
-        const r = routeEdge(a, b, smartRoute ? nodes : [a, b]);
-        return { id: e.id, path: r.path, detoured: r.detoured };
-      }),
-    [edges, nodes, smartRoute, snapResult, wireStyle],
-  );
+      if (wireStyle === "straight") {
+        return { id: e.id, path: straightEdgePath(a, b), detoured: false };
+      }
+
+      if (wireStyle === "orthogonal") {
+        const offset = bundleOffsets.get(e.id) ?? 0;
+        return {
+          id: e.id,
+          path: smoothstepEdgePath(
+            { ...a, w: a.w ?? NODE_W, h: a.h ?? NODE_H },
+            { ...b, w: b.w ?? NODE_W, h: b.h ?? NODE_H },
+            offset,
+          ),
+          detoured: false,
+        };
+      }
+
+      // Curvy: snap-based bezier with collision routing
+      const snap = snapResult.edges.get(e.id);
+      if (snap && snap.path) return { id: e.id, path: snap.path, detoured: false };
+      const r = routeEdge(a, b, smartRoute ? nodes : [a, b]);
+      return { id: e.id, path: r.path, detoured: r.detoured };
+    });
+
+    // ── Hop-arc injection: add visual "bridge" bumps where lines cross ──
+    if (wireStyle === "orthogonal") {
+      const crossings = findPathCrossings(rawPaths.filter(p => p.path));
+      return rawPaths.map((p) => {
+        const xs = crossings.get(p.id);
+        if (!xs || xs.length === 0) return p;
+        return { ...p, path: insertHopArcs(p.path, xs) };
+      });
+    }
+
+    return rawPaths;
+  }, [edges, nodes, smartRoute, snapResult, wireStyle, bundleOffsets]);
 
   if (isLoading) {
     return (
