@@ -10,7 +10,7 @@
  * - Async API compatible with the existing repository analyzer
  */
 
-import ELK from "elkjs/lib/elk.bundled.js";
+import ELK from "elkjs";
 import type { JourneyGraph, JourneyNode, JourneyEdge, JourneyNodeType } from "./journey-flow-builder";
 import { layoutJourneyTree } from "./journey-flow-builder";
 
