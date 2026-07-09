@@ -44,6 +44,7 @@ import { scanForEnvVariables, type EnvScanResult, getEnvVarsForNode } from "@/li
 import { EnvironmentToggle, useProductionOverlay, type Environment } from "@/components/EnvironmentToggle";
 import { WebhookSyncPanel, WebhookSyncToggle, useWebhookSync } from "@/components/WebhookSyncPanel";
 import { MultiplayerPresence, MultiplayerToggle, GhostCursors, useMultiplayerPresence } from "@/components/MultiplayerPresence";
+import { AnnotationPanel, AnnotationOverlay } from "@/components/AnnotationPanel";
 import { GitDiffOverlay, GitDiffToggle, useGitDiff, getDiffNodeStyles } from "@/components/GitDiffOverlay";
 import { ControllerBadge, isControllerNode, classifyNodeLayer, useSmartLinks, getSmartLinkClasses } from "@/components/Flow";
 import type { WebhookEvent, NodeMutation } from "@/lib/webhook-sync";
@@ -82,16 +83,22 @@ import {
   createEdge,
   deleteNode,
   deleteEdge,
+  listAnnotations,
+  createAnnotation,
+  deleteAnnotation,
   batchCreateNodes,
   batchCreateEdges,
   batchUpdateNodePositions,
   type Project,
   type Workspace,
   type Edge,
+  type Annotation,
 } from "@/lib/db-client";
 import { detectCardinality, type ParsedTable } from "@/lib/sql-tokenizer";
 import { useEdgeSnap } from "@/hooks/useEdgeSnap";
 import { supabase } from "@/lib/supabase";
+import { can, getRoleFromUser, type Role } from "@/lib/rbac";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -385,14 +392,110 @@ export function StudioPage() {
   const [antiPatternWarnings, setAntiPatternWarnings] = useState<AntiPatternWarning[]>([]);
   const [webhookSyncOpen, setWebhookSyncOpen] = useState(false);
   const [multiplayerOpen, setMultiplayerOpen] = useState(false);
+  const [annotationOpen, setAnnotationOpen] = useState(false);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [gitDiffOpen, setGitDiffOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [erdGuideOpen, setErdGuideOpen] = useState(false);
+  const [authUser, setAuthUser] = useState<SupabaseUser | null>(null);
+  const [userRole, setUserRole] = useState<Role>("viewer");
   const [swimlaneLanes, setSwimlaweLanes] = useState<SwimlaneLayout["lanes"] | null>(null);
   const [showSchemaInput, setShowSchemaInput] = useState(false);
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const [isResettingLayout, setIsResettingLayout] = useState(false);
+  const [selectedAnnotationNode, setSelectedAnnotationNode] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const canComment = can(userRole, "create", "annotation");
+  const activeAnnotationNodeId = selectedAnnotationNode ?? selected;
+  const selectedAnnotationTarget = activeAnnotationNodeId
+    ? nodes.find((node) => node.id === activeAnnotationNodeId)
+    : null;
+  const selectedAnnotationNodeData = selectedAnnotationTarget
+    ? { nodeId: selectedAnnotationTarget.id, label: selectedAnnotationTarget.label, sub: selectedAnnotationTarget.sub }
+    : null;
+
+  const handleAnnotationNodeSelect = useCallback((nodeId: string) => {
+    setSelectedAnnotationNode(nodeId);
+    setSelected(nodeId);
+    setAnnotationOpen(true);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!mounted) return;
+      setAuthUser(user);
+      setUserRole(getRoleFromUser(user));
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user ?? null;
+      if (!mounted) return;
+      setAuthUser(user);
+      setUserRole(getRoleFromUser(user));
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Load annotations for the active project when it changes.
+  useEffect(() => {
+    if (isDemoMode || isDraftMode) {
+      setAnnotations([]);
+      return;
+    }
+
+    const loadAnnotations = async () => {
+      try {
+        const list = await listAnnotations(activeProjectId);
+        setAnnotations(list);
+      } catch {
+        setAnnotations([]);
+      }
+    };
+
+    loadAnnotations();
+  }, [activeProjectId, isDemoMode, isDraftMode]);
+
+  const handleCreateAnnotation = useCallback(async (nodeId: string, body: string) => {
+    if (!project) return;
+
+    const annotation = await createAnnotation(project.id, {
+      nodeId,
+      authorId: authUser?.id ?? null,
+      authorName: authUser?.user_metadata?.login || authUser?.email || "Guest",
+      body: {
+        type: "TextualBody",
+        value: body,
+        format: "text/plain",
+      },
+      target: {
+        type: "CanvasNode",
+        id: nodeId,
+        selector: {
+          type: "NodeIdSelector",
+          value: nodeId,
+        },
+      },
+    });
+
+    setAnnotations((prev) => [...prev, annotation]);
+    setAnnotationOpen(true);
+  }, [project, authUser]);
+
+  const handleDeleteAnnotation = useCallback(async (annotationId: string) => {
+    try {
+      await deleteAnnotation(annotationId);
+      setAnnotations((prev) => prev.filter((annotation) => annotation.id !== annotationId));
+    } catch {
+      // ignore failure, keep local state coherent
+    }
+  }, []);
 
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
   const canvasPan = useCanvasPan({
@@ -1272,6 +1375,9 @@ export async function POST(req: Request) {
         onToggleLiveTraffic={() => setLiveTrafficActive(!liveTrafficActive)}
         onToggleWebhookSync={() => setWebhookSyncOpen(!webhookSyncOpen)}
         onToggleMultiplayer={() => setMultiplayerOpen(!multiplayerOpen)}
+        onToggleAnnotations={() => setAnnotationOpen(!annotationOpen)}
+        annotationCount={annotations.length}
+        annotationOpen={annotationOpen}
         onToggleGitDiff={() => { if (!gitDiffOpen) generateDiff(); setGitDiffOpen(!gitDiffOpen); }}
         onToggleCodePreview={() => setCodePreviewOpen(!codePreviewOpen)}
         onExportScaffold={() => { const scaffold = generateScaffold(project?.name || "repodre-architecture", nodes.map(n => ({id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, workspace: n.workspace, tableName: n.tableName, columns: n.columns})), edges.map(e => ({id: e.id, from: e.from, to: e.to, cardinality: e.cardinality, fromColumn: e.fromColumn, toColumn: e.toColumn}))); downloadScaffold(scaffold); }}
@@ -1332,7 +1438,7 @@ export async function POST(req: Request) {
               <div
                 ref={canvasRef}
                 className="grid-canvas absolute inset-0 overflow-hidden"
-                onClick={() => { setSelected(null); setShowLayoutPopover(false); }}
+                onClick={() => { setSelected(null); setSelectedAnnotationNode(null); setShowLayoutPopover(false); }}
                 onMouseDown={canvasPan.handleMouseDown}
                 style={{ cursor: canvasPan.cursor }}
               >
@@ -1589,7 +1695,7 @@ export async function POST(req: Request) {
                       hoverHandle={hoverHandle}
                       onHoverHandle={setHoverHandle}
                       onReattach={(seg) => reattach(n.id, seg)}
-                      onSelect={(e) => { e.stopPropagation(); setSelected(n.id); }}
+                      onSelect={(e) => { e.stopPropagation(); setSelectedAnnotationNode(null); setSelected(n.id); }}
                       onCycleShape={() => {
                         const idx = ALL_SHAPES.indexOf(n.shape);
                         setShape(n.id, ALL_SHAPES[(idx + 1) % ALL_SHAPES.length]);
@@ -1654,6 +1760,12 @@ export async function POST(req: Request) {
                   />
                 </div>
               </div>
+
+              <AnnotationOverlay
+                nodes={nodes}
+                annotations={annotations}
+                onSelectNode={handleAnnotationNodeSelect}
+              />
 
               {/* App Journey Export Button */}
               <div className="absolute right-4 top-4 z-30">
@@ -1738,6 +1850,16 @@ export async function POST(req: Request) {
           </main>
         </div>
       </div>
+
+      <AnnotationPanel
+        isOpen={annotationOpen}
+        selectedNode={selectedAnnotationNodeData}
+        annotations={annotations}
+        onClose={() => { setAnnotationOpen(false); setSelectedAnnotationNode(null); }}
+        onCreateAnnotation={handleCreateAnnotation}
+        onDeleteAnnotation={handleDeleteAnnotation}
+        canComment={canComment}
+      />
 
       {/* Code Preview Panel (slide-out drawer) */}
       <CodePreviewPanel

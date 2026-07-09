@@ -175,6 +175,9 @@ export interface IconSidebarProps {
   onToggleLiveTraffic: () => void;
   onToggleWebhookSync: () => void;
   onToggleMultiplayer: () => void;
+  onToggleAnnotations: () => void;
+  annotationCount: number;
+  annotationOpen: boolean;
   onToggleGitDiff: () => void;
   onToggleCodePreview: () => void;
   onExportScaffold: () => void;
@@ -229,6 +232,9 @@ export function IconSidebar({
   onToggleLiveTraffic,
   onToggleWebhookSync,
   onToggleMultiplayer,
+  onToggleAnnotations,
+  annotationCount,
+  annotationOpen,
   onToggleGitDiff,
   onToggleCodePreview,
   onExportScaffold,
@@ -417,6 +423,14 @@ export function IconSidebar({
               onClick={onToggleMultiplayer}
               active={multiplayerOpen}
               badge={multiplayerOpen && collaboratorCount > 0}
+            />
+
+            <SidebarButton
+              icon={<MessageCircle className="h-4 w-4" />}
+              tooltip={`Annotations — ${annotationCount} active`}
+              onClick={onToggleAnnotations}
+              active={annotationOpen}
+              badge={annotationCount > 0}
             />
 
             <SidebarButton
