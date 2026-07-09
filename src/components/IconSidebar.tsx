@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from "react";
-import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Chrome as Home } from "lucide-react";
+import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Chrome as Home, ShieldCheck } from "lucide-react";
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
 
@@ -186,6 +186,8 @@ export interface IconSidebarProps {
   onImportSchema: () => void;
   onExportSchema: () => void;
   onToggleErdGuide: () => void;
+  aiGuideOpen: boolean;
+  onToggleAiGuide: () => void;
 }
 
 export function IconSidebar({
@@ -354,6 +356,13 @@ export function IconSidebar({
               tooltip="Cardinality Guide"
               onClick={onToggleErdGuide}
               active={erdGuideOpen}
+            />
+
+            <SidebarButton
+              icon={<ShieldCheck className="h-4 w-4" />}
+              tooltip="AI Interaction Protocols"
+              onClick={onToggleAiGuide}
+              active={aiGuideOpen}
             />
 
             <IconDivider />

@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
 import { ApiTestExportButton } from "@/components/ApiTestExportButton";
 import { GuideModal, GuideToggle } from "@/components/GuideModal";
+import { AiGuideModal, AiGuideToggle } from "@/components/AiGuideModal";
 import { GettingStartedOverlay } from "@/components/RecentProjectsPanel";
 import { CodePreviewPanel, CodePreviewToggle } from "@/components/CodePreviewPanel";
 import { BottleneckBadge } from "@/components/BottleneckBadge";
@@ -397,6 +398,7 @@ export function StudioPage() {
   const [gitDiffOpen, setGitDiffOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [erdGuideOpen, setErdGuideOpen] = useState(false);
+  const [aiGuideOpen, setAiGuideOpen] = useState(false);
   const [authUser, setAuthUser] = useState<SupabaseUser | null>(null);
   const [userRole, setUserRole] = useState<Role>("viewer");
   const [swimlaneLanes, setSwimlaweLanes] = useState<SwimlaneLayout["lanes"] | null>(null);
@@ -675,7 +677,7 @@ export async function POST(req: Request) {
     if (webhookSync.isConnected) {
       webhookSync.triggerMockEvent();
     }
-  }, [webhookSync.isConnected]);
+  }, [webhookSync.isConnected, webhookSync.triggerMockEvent]);
 
   // Project IDs for the two demo workspaces
   const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
@@ -1388,11 +1390,16 @@ export async function POST(req: Request) {
           const blob = new Blob([payload], { type: "text/sql" });
           const a = document.createElement("a");
           a.href = URL.createObjectURL(blob);
+        aiGuideOpen={aiGuideOpen}
+        onToggleAiGuide={() => setAiGuideOpen(!aiGuideOpen)}
           a.download = `${project?.name ?? "schema"}.sql`;
           a.click();
         }}
         onToggleErdGuide={() => setErdGuideOpen(!erdGuideOpen)}
       />
+      {/* AI Interaction Protocols modal */}
+      <AiGuideModal isOpen={aiGuideOpen} onClose={() => setAiGuideOpen(false)} />
+
 
       {/* ERD Cardinality Guide panel */}
       <ErdGuide isOpen={erdGuideOpen} onClose={() => setErdGuideOpen(false)} />
