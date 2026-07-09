@@ -346,5 +346,3 @@ export function getSmartLinkClasses(linkType: SmartLinkEdge["linkType"]): {
       };
   }
 }
-
-export default SmartLinkEdge;
