@@ -10,7 +10,8 @@
  * - Async API compatible with the existing repository analyzer
  */
 
-import ELK from "elkjs";
+import ELK from "elkjs/lib/elk-api.js";
+import workerUrl from "elkjs/lib/elk-worker.min.js?url";
 import type { JourneyGraph, JourneyNode, JourneyEdge, JourneyNodeType } from "./journey-flow-builder";
 import { layoutJourneyTree } from "./journey-flow-builder";
 
@@ -53,7 +54,7 @@ const NODE_HEIGHT = 80;
 // Bridge nodes are smaller circles
 const BRIDGE_NODE_SIZE = 72;
 
-const elk = new ELK();
+const elk = new ELK({ workerUrl, workerFactory: (url: string) => new Worker(url) });
 
 /**
  * Layout a JourneyGraph using ELK's layered algorithm.
