@@ -1385,16 +1385,16 @@ export async function POST(req: Request) {
         onExportScaffold={() => { const scaffold = generateScaffold(project?.name || "repodre-architecture", nodes.map(n => ({id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, workspace: n.workspace, tableName: n.tableName, columns: n.columns})), edges.map(e => ({id: e.id, from: e.from, to: e.to, cardinality: e.cardinality, fromColumn: e.fromColumn, toColumn: e.toColumn}))); downloadScaffold(scaffold); }}
         onExportApiTests={() => { const blob = new Blob([JSON.stringify(mockControllers, null, 2)], {type: "application/json"}); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "api-tests.json"; a.click(); }}
         onImportSchema={() => setShowSchemaInput(true)}
-         onExportSchema={() => {
+        onExportSchema={() => {
           const payload = schemaSource || nodes.filter(n => n.workspace === "erd" && n.tableName).map(n => `-- ${n.tableName}`).join("\n");
           const blob = new Blob([payload], { type: "text/sql" });
           const a = document.createElement("a");
           a.href = URL.createObjectURL(blob);
+        aiGuideOpen={aiGuideOpen}
+        onToggleAiGuide={() => setAiGuideOpen(!aiGuideOpen)}
           a.download = `${project?.name ?? "schema"}.sql`;
           a.click();
         }}
-        aiGuideOpen={aiGuideOpen}
-        onToggleAiGuide={() => setAiGuideOpen(!aiGuideOpen)}
         onToggleErdGuide={() => setErdGuideOpen(!erdGuideOpen)}
       />
       {/* AI Interaction Protocols modal */}

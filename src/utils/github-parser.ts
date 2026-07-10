@@ -170,7 +170,7 @@ async function fetchFileTree(
  * @param token - Optional GitHub Personal Access Token for authentication
  * @returns Array of files with id (path) and name (filename)
  */
-export async function parseGitHubRepoFiles(repoUrl: string, token?: string): Promise<ParseResult> {
+export async function parseRepository(repoUrl: string, token?: string): Promise<ParseResult> {
   // Step 1: Extract owner and repository name (strict URL parsing)
   const parsed = extractOwnerAndRepo(repoUrl);
   if (!parsed) {
@@ -252,9 +252,3 @@ export async function parseGitHubRepoFiles(repoUrl: string, token?: string): Pro
     };
   }
 }
-
-/**
- * Legacy export name for backward compatibility
- * @deprecated Use parseGitHubRepoFiles instead
- */
-export const parseRepository = parseGitHubRepoFiles;
