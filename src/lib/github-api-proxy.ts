@@ -6,7 +6,7 @@
  * 
  * Uses lazy imports to avoid circular dependency issues.
  */
-
+import { supabase } from "./supabase";
 export interface ProxyRequest {
   method: "GET" | "POST";
   endpoint: string;
