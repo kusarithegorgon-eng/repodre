@@ -1390,8 +1390,6 @@ export async function POST(req: Request) {
           const blob = new Blob([payload], { type: "text/sql" });
           const a = document.createElement("a");
           a.href = URL.createObjectURL(blob);
-        aiGuideOpen={aiGuideOpen}
-        onToggleAiGuide={() => setAiGuideOpen(!aiGuideOpen)}
           a.download = `${project?.name ?? "schema"}.sql`;
           a.click();
         }}

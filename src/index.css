@@ -452,5 +452,75 @@ body {
 
 /* Theme transition */
 .theme-transition * {
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease ease;
 }
+
+/* ─── Spatial Connector Animations ───────────────────────────────────────── */
+@keyframes connector-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.9;
+  }
+}
+
+@keyframes connector-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(13, 148, 136, 0.2);
+  }
+}
+
+.spatial-connector-active {
+  animation: connector-pulse 2s ease-in-out infinite,
+             connector-glow 2s ease-in-out infinite;
+}
+
+/* ─── Edge Jump Arc Animation ────────────────────────────────────────────── */
+@keyframes jump-arc-highlight {
+  0%, 100% {
+    stroke-opacity: 0.5;
+  }
+  50% {
+    stroke-opacity: 1;
+  }
+}
+
+.edge-jump-arc {
+  animation: jump-arc-highlight 1.5s ease-in-out infinite;
+}
+
+/* ─── Dashboard Animation Utilities ─────────────────────────────────────────── */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+}
+
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.animate-dash {
+  animation: dash-flow 1s linear infinite;
+}
+
+/* ─── Module Breadcrumb Transitions ─────────────────────────────────────────── */
+.module-breadcrumb {
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+.module-breadcrumb-item {
+  transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+

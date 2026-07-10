@@ -24,6 +24,11 @@
  *
  *   Context-aware edges: an Action is only connected to the Database node
  *   whose model name appears in the Action file's import statements.
+ *
+ * Spatial Connectors (Modular Link-Layer):
+ *   Bridge nodes and Spatial Connector nodes mark transitions between modules.
+ *   These are treated as "Sync Points" in the layout engine, forcing visual
+ *   breaks between connected modules for clean, modular structure.
  */
 
 import type { ParsedModule } from "./ast-parser";
@@ -80,6 +85,18 @@ export interface JourneyNode {
   decisionTargets?: string[];
   /** For bridge nodes: the section label (e.g., "Auth → Core") */
   sectionLabel?: string;
+  /** For bridge/connector nodes: marks this as a sync point for layout */
+  isSyncPoint?: boolean;
+  /** For spatial connectors: transition ID linking to paired connector */
+  transitionId?: string;
+  /** For spatial connectors: exitID for connectors leaving a module */
+  exitId?: string;
+  /** For spatial connectors: entryID for connectors entering a module */
+  entryId?: string;
+  /** For spatial connectors: whether this is an exit or entry connector */
+  isExit?: boolean;
+  /** For spatial connectors: ID of the paired connector */
+  pairedConnectorId?: string;
 }
 
 export interface JourneyEdge {
@@ -1068,9 +1085,17 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     const fromLabel = SECTION_LABELS[fromSection];
     const toLabel = SECTION_LABELS[toSection];
     const bridgeCol = Math.min(fromNode.col, toNode.col) + 1;
+    const transitionId = `trans_${bridgeKey}_${Date.now()}`;
     const bridge = addNode("bridge", `${fromLabel} → ${toLabel}`, bridgeCol, placeInCol(bridgeCol), undefined, {
       sub: "Section Break",
       sectionLabel: bridgeKey,
+      // Mark bridge nodes as sync points for layout engine
+      isSyncPoint: true,
+      // Add transition metadata for modular link-layer integration
+      transitionId,
+      exitId: `exit_${transitionId}`,
+      entryId: `entry_${transitionId}`,
+      isExit: true,
     });
 
     // Replace the original edge with two edges through the bridge
@@ -1171,6 +1196,10 @@ const DEFAULT_TREE_OPTIONS: TreeLayoutOptions = {
  *
  * Nodes unreachable from the root are placed in a fallback column
  * to the right, ordered by depth.
+ *
+ * Sync Points (Bridge/Connector nodes):
+ *   Nodes marked with isSyncPoint=true force additional vertical spacing
+ *   to create visible "chapter breaks" between modules.
  */
 export function layoutJourneyTree(
   graph: JourneyGraph,
@@ -1237,7 +1266,12 @@ export function layoutJourneyTree(
 
   // Map node id → type for decision-aware spacing
   const nodeType = new Map<string, JourneyNodeType>();
-  for (const n of graph.nodes) nodeType.set(n.id, n.type);
+  // Map node id → isSyncPoint for sync-point-aware spacing
+  const nodeIsSyncPoint = new Map<string, boolean>();
+  for (const n of graph.nodes) {
+    nodeType.set(n.id, n.type);
+    nodeIsSyncPoint.set(n.id, n.isSyncPoint ?? false);
+  }
 
   /**
    * Post-order DFS: assign x to leaves sequentially, center internal
@@ -1246,10 +1280,10 @@ export function layoutJourneyTree(
    * Children of decision nodes get extra horizontal spacing
    * (decisionNodeSep) so branches have room to breathe.
    *
-   * Bridge nodes get extra vertical spacing (bridgeRankSep) so they
-   * create a visible "chapter break" between sections.
+   * Bridge nodes / Sync Points get extra vertical spacing (bridgeRankSep)
+   * so they create a visible "chapter break" between sections.
    */
-  function dfs(nodeId: string, depth: number, parentIsDecision: boolean, parentIsBridge: boolean): number {
+  function dfs(nodeId: string, depth: number, parentIsDecision: boolean, parentIsSyncPoint: boolean): number {
     if (inStack.has(nodeId)) return depth; // cycle — stop
     if (visited.has(nodeId)) {
       // Already positioned; return its existing depth
@@ -1262,9 +1296,10 @@ export function layoutJourneyTree(
     let maxDepth = depth;
     const isDecision = nodeType.get(nodeId) === "decision";
     const isBridge = nodeType.get(nodeId) === "bridge";
+    const isSyncPoint = nodeIsSyncPoint.get(nodeId) === true;
 
-    // Extra vertical spacing for bridge nodes (soft barrier)
-    const extraRankSep = isBridge ? opts.bridgeRankSep : 0;
+    // Extra vertical spacing for bridge/sync-point nodes (soft barrier)
+    const extraRankSep = (isBridge || isSyncPoint) ? opts.bridgeRankSep : 0;
 
     if (kids.length === 0) {
       // Leaf: assign next sequential x. Use wider spacing if the parent
@@ -1276,7 +1311,7 @@ export function layoutJourneyTree(
     } else {
       // Internal node: recurse children first, then center over them
       for (const childId of kids) {
-        const childDepth = dfs(childId, depth + 1, isDecision, isBridge);
+        const childDepth = dfs(childId, depth + 1, isDecision, isBridge || isSyncPoint);
         maxDepth = Math.max(maxDepth, childDepth);
       }
 
@@ -1303,21 +1338,23 @@ export function layoutJourneyTree(
   // the tree forms clean horizontal "tiers" of execution. Internal nodes
   // whose children span multiple depths would otherwise sit at a y that
   // doesn't match their logical tier.
-  // Bridge nodes push their tier down by bridgeRankSep to create a visible
-  // "chapter break" between sections.
+  // Bridge/sync-point nodes push their tier down by bridgeRankSep to create
+  // a visible "chapter break" between sections.
   const maxDepth = Math.max(...[...positions.values()].map((p) => p.depth), 0);
-  // Compute cumulative offset per depth (bridge nodes add extra space)
-  const bridgeAtDepth = new Array(maxDepth + 1).fill(false);
+  // Compute cumulative offset per depth (sync points add extra space)
+  const syncPointAtDepth = new Array(maxDepth + 1).fill(false);
   for (const [nodeId, pos] of positions.entries()) {
-    if (nodeType.get(nodeId) === "bridge") {
-      bridgeAtDepth[pos.depth] = true;
+    const isSyncPoint = nodeIsSyncPoint.get(nodeId) === true;
+    const isBridge = nodeType.get(nodeId) === "bridge";
+    if (isBridge || isSyncPoint) {
+      syncPointAtDepth[pos.depth] = true;
     }
   }
   const depthOffset = new Array(maxDepth + 1).fill(0);
   let cumulative = 0;
   for (let d = 0; d <= maxDepth; d++) {
     depthOffset[d] = cumulative;
-    if (bridgeAtDepth[d]) cumulative += opts.bridgeRankSep;
+    if (syncPointAtDepth[d]) cumulative += opts.bridgeRankSep;
   }
   for (let d = 0; d <= maxDepth; d++) {
     const tierY = opts.startY + d * opts.rankSep + depthOffset[d];

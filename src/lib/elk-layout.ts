@@ -36,14 +36,14 @@ export interface ElkLayoutOptions {
   startY: number;
 }
 
-const DEFAULT_ELK_OPTIONS: ElkLayoutOptions = {
+export const DEFAULT_ELK_OPTIONS: ElkLayoutOptions = {
   direction: "DOWN",
-  nodeNodeSpacing: 100,
-  nodeEdgeSpacing: 50,
-  edgeEdgeSpacing: 25,
-  layerSpacing: 340,
-  decisionSpacing: 140,
-  bridgeSpacing: 240,
+  nodeNodeSpacing: 120,
+  nodeEdgeSpacing: 60,
+  edgeEdgeSpacing: 30,
+  layerSpacing: 380,
+  decisionSpacing: 160,
+  bridgeSpacing: 260,
   startX: 120,
   startY: 100,
 };
@@ -151,6 +151,28 @@ export async function layoutJourneyGraphWithElk(
       targets: [edge.to],
     }));
 
+  // Compute connectivity for each node (incoming + outgoing edges)
+  const nodeConnectivity = new Map<string, number>();
+  for (const node of graph.nodes) nodeConnectivity.set(node.id, 0);
+  for (const edge of graph.edges) {
+    if (edge.from !== edge.to) {
+      nodeConnectivity.set(edge.from, (nodeConnectivity.get(edge.from) ?? 0) + 1);
+      nodeConnectivity.set(edge.to, (nodeConnectivity.get(edge.to) ?? 0) + 1);
+    }
+  }
+
+  // Adjust spacing for high-connectivity nodes
+  for (const elkNode of elkNodes) {
+    const connectivity = nodeConnectivity.get(elkNode.id) ?? 0;
+    if (connectivity > 4) {
+      // High-connectivity nodes get extra spacing
+      elkNode.layoutOptions = elkNode.layoutOptions ?? {};
+      if (!elkNode.layoutOptions["elk.spacing.nodeNode"]) {
+        elkNode.layoutOptions["elk.spacing.nodeNode"] = `${opts.nodeNodeSpacing + (connectivity - 4) * 20}`;
+      }
+    }
+  }
+
   // Construct the root graph for ELK
   const elkGraph = {
     id: "root",
@@ -170,9 +192,10 @@ export async function layoutJourneyGraphWithElk(
       "elk.spacing.nodeEdge": `${opts.nodeEdgeSpacing}`,
       // Node placement strategy for clean branching
       "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      // Cross-minimization to reduce zigzag
+      // Cross-minimization with highest effort to avoid edge crossings
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
       "elk.layered.crossingMinimization.semiInteractive": "true",
+      "elk.layered.crossingMinimization.noCrossing": "true", // Prioritize no crossings
       // Cycle breaking for DAGs with back-edges
       "elk.layered.cycleBreaking.strategy": "GREEDY",
       // Layering strategy for consistent tree depth
@@ -183,16 +206,18 @@ export async function layoutJourneyGraphWithElk(
       "elk.edgeRouting": "ORTHOGONAL",
       // Edge bundling: merge parallel edges that follow the same path
       "elk.layered.mergeEdges": "true",
-      // Thoroughness for crossing minimization (higher = better but slower)
-      "elk.layered.thoroughness": "8",
-      // Additional spacing for decision nodes
-      "elk.layered.spacing.edgeNodeBetweenLayers": `${opts.nodeEdgeSpacing}`,
+      // High thoroughness for crossing minimization
+      "elk.layered.thoroughness": "16", // Increased from 8
+      // Additional spacing for high-connectivity nodes
+      "elk.layered.spacing.edgeNodeBetweenLayers": `${opts.nodeEdgeSpacing + 20}`,
       // Port constraints to ensure clean edge anchors
       "elk.portConstraints": "FIXED_ORDER",
       // Edge label placement to avoid overlaps
       "elk.layered.edgeLabels.insideSwitch": "true",
       // Straight edge routing preference
       "elk.layered.edgeStraightening": "IMPROVE_STRAIGHTNESS",
+      // Spacing between parallel edges
+      "elk.layered.spacing.edgeEdgeBetweenLayers": `${opts.edgeEdgeSpacing + 10}`,
     } as Record<string, string>,
   };
 
