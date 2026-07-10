@@ -3,11 +3,9 @@
  *
  * Routes all GitHub API calls through Supabase Edge Functions to bypass CORS.
  * The token is passed securely in the Authorization header.
+ * 
+ * Uses lazy imports to avoid circular dependency issues.
  */
-
-import { supabase } from "./supabase";
-
-const PROXY_FUNCTION = "github-api-proxy";
 
 export interface ProxyRequest {
   method: "GET" | "POST";
@@ -25,6 +23,8 @@ export interface ProxyResponse<T> {
 /**
  * Make a GitHub API call through the proxy function.
  * Automatically includes the auth token in the Authorization header.
+ * 
+ * Uses dynamic imports to avoid circular dependencies.
  */
 export async function callGitHubAPI<T>(
   method: "GET" | "POST",
@@ -32,6 +32,9 @@ export async function callGitHubAPI<T>(
   body?: Record<string, unknown>
 ): Promise<ProxyResponse<T>> {
   try {
+    // Lazy import to avoid circular dependency
+    const { supabase } = await import("./supabase");
+
     // Get the session to extract the GitHub token
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.provider_token;
@@ -45,7 +48,7 @@ export async function callGitHubAPI<T>(
     }
 
     // Call the edge function
-    const { data, error } = await supabase.functions.invoke(PROXY_FUNCTION, {
+    const { data, error } = await supabase.functions.invoke("github-api-proxy", {
       body: {
         method,
         endpoint,
