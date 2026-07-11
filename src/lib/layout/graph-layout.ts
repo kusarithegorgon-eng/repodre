@@ -72,7 +72,7 @@ export function forceDirectedLayout(
   }));
 
   // Build edge adjacency
-  const adjacency = new Map<string, string[]>();
+  const adjacency = new Map<string, string[]>>();
   for (const edge of edges) {
     if (!adjacency.has(edge.from)) adjacency.set(edge.from, []);
     if (!adjacency.has(edge.to)) adjacency.set(edge.to, []);

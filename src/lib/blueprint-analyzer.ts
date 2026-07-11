@@ -24,7 +24,7 @@
 import type { ParsedModule } from "./ast-parser";
 import type { Shape } from "./canvas-geometry";
 
-export type BlueprintAccent = "green" | "purple" | "teal" | "blue" | "orange" | "red" | "slate";
+export type BlueprintAccent = "green" | "purple" | "teal" | "blue" | "orange" | "red";
 
 export type BlueprintNodeType =
   | "view" // user-facing route

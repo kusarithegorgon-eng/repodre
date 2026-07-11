@@ -170,7 +170,7 @@ async function fetchFileTree(
  * @param token - Optional GitHub Personal Access Token for authentication
  * @returns Array of files with id (path) and name (filename)
  */
-export async function parseGitHubRepoFiles(repoUrl: string, token?: string): Promise<ParseResult> {
+export async function parseRepository(repoUrl: string, token?: string): Promise<ParseResult> {
   // Step 1: Extract owner and repository name (strict URL parsing)
   const parsed = extractOwnerAndRepo(repoUrl);
   if (!parsed) {
@@ -198,7 +198,7 @@ export async function parseGitHubRepoFiles(repoUrl: string, token?: string): Pro
   console.log(`[Repodre Safety Check] Scope: single repository only — no account-wide listing`);
 
   // Step 3: Get access token - use provided token or fall back to localStorage
-  let accessToken: string | null = token ?? null;
+  let accessToken = token;
   if (!accessToken) {
     accessToken = await getAccessToken();
   }
@@ -252,9 +252,3 @@ export async function parseGitHubRepoFiles(repoUrl: string, token?: string): Pro
     };
   }
 }
-
-/**
- * Legacy export name for backward compatibility
- * @deprecated Use parseGitHubRepoFiles instead
- */
-export const parseRepository = parseGitHubRepoFiles;

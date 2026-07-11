@@ -3,13 +3,9 @@
  *
  * Securely fetches repository data using the user's OAuth token.
  * Implements graceful handling for private/inaccessible repositories.
- * 
- * All requests are routed through the github-api-proxy Edge Function
- * to bypass browser CORS restrictions.
  */
 
 import { getGitHubAccessToken } from "./github-auth";
-import { callGitHubAPI } from "./github-api-proxy";
 
 export interface GitHubRepo {
   id: number;
@@ -106,21 +102,25 @@ export async function checkRepositoryAccess(
   }
 
   try {
-    const result = await callGitHubAPI<GitHubRepo>(
-      "GET",
-      `/repos/${owner}/${repo}`
-    );
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
 
-    if (result.ok && result.data) {
+    if (response.ok) {
+      const repoData: GitHubRepo = await response.json();
       return {
         accessible: true,
         reason: "ok",
         message: "Repository accessible",
-        repo: result.data,
+        repo: repoData,
       };
     }
 
-    if (result.status === 404) {
+    if (response.status === 404) {
       return {
         accessible: false,
         reason: "not_found",
@@ -128,7 +128,7 @@ export async function checkRepositoryAccess(
       };
     }
 
-    if (result.status === 403) {
+    if (response.status === 403) {
       return {
         accessible: false,
         reason: "forbidden",
@@ -136,7 +136,7 @@ export async function checkRepositoryAccess(
       };
     }
 
-    if (result.status === 401) {
+    if (response.status === 401) {
       return {
         accessible: false,
         reason: "no_token",
@@ -147,7 +147,7 @@ export async function checkRepositoryAccess(
     return {
       accessible: false,
       reason: "error",
-      message: `Error: ${result.error || `HTTP ${result.status}`}`,
+      message: `Unexpected error: ${response.status}`,
     };
   } catch (error) {
     return {
@@ -171,13 +171,20 @@ export async function fetchRepositoryTree(
   if (!token) return null;
 
   try {
-    const result = await callGitHubAPI<GitHubTree>(
-      "GET",
-      `/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }
     );
 
-    if (!result.ok) return null;
-    return result.data || null;
+    if (!response.ok) return null;
+
+    return await response.json();
   } catch {
     return null;
   }
@@ -196,19 +203,20 @@ export async function fetchFileContent(
   if (!token) return null;
 
   try {
-    const result = await callGitHubAPI<GitHubFileContent>(
-      "GET",
-      `/repos/${owner}/${repo}/contents/${path}?ref=${branch}`
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github.raw+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }
     );
 
-    if (!result.ok || !result.data) return null;
+    if (!response.ok) return null;
 
-    // Decode base64 content
-    if (result.data.encoding === "base64" && result.data.content) {
-      return atob(result.data.content);
-    }
-
-    return result.data.content || null;
+    return await response.text();
   } catch {
     return null;
   }
@@ -253,7 +261,7 @@ export function filterSourceFiles(tree: GitHubTree): string[] {
   const parseableExtensions = new Set([
     ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
     ".py", ".rb", ".go", ".rs", ".java", ".kt",
-    ".vue", ".svelte", ".astro",
+    ".vue", ".svelte", ". astro",
     ".json", ".yaml", ".yml",
     ".md", ".mdx",
   ]);
@@ -275,13 +283,18 @@ export async function getDefaultBranch(owner: string, repo: string): Promise<str
   if (!token) return "main";
 
   try {
-    const result = await callGitHubAPI<GitHubRepo>(
-      "GET",
-      `/repos/${owner}/${repo}`
-    );
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
 
-    if (!result.ok || !result.data) return "main";
-    return result.data.default_branch || "main";
+    if (!response.ok) return "main";
+
+    const data = await response.json();
+    return data.default_branch || "main";
   } catch {
     return "main";
   }

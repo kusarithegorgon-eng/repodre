@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from "react";
-import { Download, Upload, Activity, Play, FileCode as FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Hop as Home, ShieldCheck, MessageCircle, UserPlus, Sparkles } from "lucide-react";
+import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Chrome as Home } from "lucide-react";
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
 
@@ -175,12 +175,6 @@ export interface IconSidebarProps {
   onToggleLiveTraffic: () => void;
   onToggleWebhookSync: () => void;
   onToggleMultiplayer: () => void;
-  onToggleAnnotations: () => void;
-  annotationCount: number;
-  annotationOpen: boolean;
-  onToggleInvite: () => void;
-  canManageMembers: boolean;
-  onToggleAiChat: () => void;
   onToggleGitDiff: () => void;
   onToggleCodePreview: () => void;
   onExportScaffold: () => void;
@@ -189,8 +183,6 @@ export interface IconSidebarProps {
   onImportSchema: () => void;
   onExportSchema: () => void;
   onToggleErdGuide: () => void;
-  aiGuideOpen: boolean;
-  onToggleAiGuide: () => void;
 }
 
 export function IconSidebar({
@@ -237,12 +229,6 @@ export function IconSidebar({
   onToggleLiveTraffic,
   onToggleWebhookSync,
   onToggleMultiplayer,
-  onToggleAnnotations,
-  annotationCount,
-  annotationOpen,
-  onToggleInvite,
-  canManageMembers,
-  onToggleAiChat,
   onToggleGitDiff,
   onToggleCodePreview,
   onExportScaffold,
@@ -250,8 +236,6 @@ export function IconSidebar({
   onImportSchema,
   onExportSchema,
   onToggleErdGuide,
-  aiGuideOpen,
-  onToggleAiGuide,
 }: IconSidebarProps) {
   const wireStyleIcon = {
     curvy: <Spline className="h-4 w-4" />,
@@ -366,13 +350,6 @@ export function IconSidebar({
               active={erdGuideOpen}
             />
 
-            <SidebarButton
-              icon={<ShieldCheck className="h-4 w-4" />}
-              tooltip="AI Interaction Protocols"
-              onClick={onToggleAiGuide}
-              active={aiGuideOpen}
-            />
-
             <IconDivider />
           </>
         )}
@@ -440,30 +417,6 @@ export function IconSidebar({
               onClick={onToggleMultiplayer}
               active={multiplayerOpen}
               badge={multiplayerOpen && collaboratorCount > 0}
-            />
-
-            <SidebarButton
-              icon={<MessageCircle className="h-4 w-4" />}
-              tooltip={`Annotations — ${annotationCount} active`}
-              onClick={onToggleAnnotations}
-              active={annotationOpen}
-              badge={annotationCount > 0}
-            />
-
-            {canManageMembers && (
-              <SidebarButton
-                icon={<UserPlus className="h-4 w-4" />}
-                tooltip="Invite Members"
-                onClick={onToggleInvite}
-                active={false}
-              />
-            )}
-
-            <SidebarButton
-              icon={<Sparkles className="h-4 w-4" />}
-              tooltip="AI Architecture Assistant"
-              onClick={onToggleAiChat}
-              active={false}
             />
 
             <SidebarButton

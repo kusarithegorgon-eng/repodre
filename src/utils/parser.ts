@@ -15,6 +15,7 @@ import {
   filterSourceFiles,
   getDefaultBranch,
   type GitHubRepo,
+  type GitHubTreeItem,
 } from "../lib/github-api";
 
 // ─── Output Types (matching Supabase schema) ───────────────────────────────────

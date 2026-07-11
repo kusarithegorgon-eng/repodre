@@ -2,18 +2,12 @@
  * ErdCanvas — Database ERD viewport
  *
  * Renders the relational grid: dense entity cards (tables with column rows)
- * connected by obstacle-aware Manhattan SVG paths with Crow's Foot cardinality
- * markers.
+ * connected by orthogonal SVG paths with Crow's Foot cardinality markers.
  *
  * Features:
- * - Obstacle-aware Manhattan routing (90-degree orthogonal paths around tables)
- * - Hop-arc "bridge" bumps where edges cross
  * - Crow's Foot notation for 1:1, 1:N, M:N relationships
- * - Selective highlighting: click a node or edge to dim all non-connected
- *   edges to 20% opacity and highlight the active path in high-contrast teal
- * - Segmented edge labels ("parent_col → child_col") at edge midpoints
- * - Visual grouping: FK-connected tables are enclosed in labeled subgraph
- *   containers to reduce visual clutter
+ * - Click on an edge to highlight related tables + show constraint tooltip
+ * - Non-related nodes dim when an edge is selected
  * - Edit-in-place for table/column names via EntityCard
  */
 
@@ -24,22 +18,18 @@ import {
   layoutErd,
   type ErdTableNode,
   type ErdEdge,
-  type ErdSubgraph,
   type LaidOutErd,
 } from "@/lib/erd-layout";
-import type { Node, Edge, ErdColumnRow, Accent } from "@/lib/db-client";
-import type { Shape } from "@/lib/canvas-geometry";
+import type { Node, Edge } from "@/lib/db-client";
 import { X } from "lucide-react";
 
 interface ErdCanvasProps {
-  nodes: Array<{ id: string; label: string; sub: string; shape: Shape; accent: Accent; x: number; y: number; w?: number; h?: number; tableName?: string | null; columns?: ErdColumnRow[] | null; workspace?: string }>;
-  edges: Array<{ id: string; from: string; to: string; fromHandle?: string | null; toHandle?: string | null; cardinality?: string | null; fromColumn?: string | null; toColumn?: string | null }>;
+  nodes: Node[];
+  edges: Edge[];
   selected: string | null;
   onSelect: (id: string | null) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onDeleteNode?: (id: string) => void;
-  canEdit?: boolean;
-  canDelete?: boolean;
   zoom: number;
   panX?: number;
   panY?: number;
@@ -58,8 +48,6 @@ export function ErdCanvas({
   onSelect,
   onDragEnd,
   onDeleteNode,
-  canEdit = true,
-  canDelete = true,
   zoom,
   panX = 0,
   panY = 0,
@@ -73,8 +61,6 @@ export function ErdCanvas({
 
   // Selected edge for relationship highlight
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  // Hovered node id for hover-based highlighting
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   // Constraint tooltip state
   const [constraintTooltip, setConstraintTooltip] = useState<{
     edgeId: string;
@@ -190,40 +176,13 @@ export function ErdCanvas({
     [selectedEdgeId, tableById]
   );
 
-  // Compute the active highlight set from either a selected node, selected
-  // edge, or hovered node. When active, all edges NOT connected to the
-  // active node(s) are dimmed to 20% opacity.
-  const { activeNodeIds, activeEdgeIds } = useMemo(() => {
-    const nodeIds = new Set<string>();
-    const edgeIds = new Set<string>();
-
-    // Edge selection takes priority
-    if (selectedEdgeId) {
-      const srcEdge = edges.find((e) => e.id === selectedEdgeId);
-      if (srcEdge) {
-        nodeIds.add(srcEdge.from);
-        nodeIds.add(srcEdge.to);
-        edgeIds.add(srcEdge.id);
-      }
-    } else {
-      // Node selection or hover
-      const activeId = selected ?? hoveredNodeId;
-      if (activeId) {
-        nodeIds.add(activeId);
-        for (const e of edges) {
-          if (e.from === activeId || e.to === activeId) {
-            edgeIds.add(e.id);
-            nodeIds.add(e.from);
-            nodeIds.add(e.to);
-          }
-        }
-      }
-    }
-
-    return { activeNodeIds: nodeIds, activeEdgeIds: edgeIds };
-  }, [selectedEdgeId, selected, hoveredNodeId, edges]);
-
-  const hasActiveHighlight = activeNodeIds.size > 0 || activeEdgeIds.size > 0;
+  // Tables involved in the selected edge (for dimming)
+  const highlightedTableIds = useMemo(() => {
+    if (!selectedEdgeId) return new Set<string>();
+    const srcEdge = edges.find((e) => e.id === selectedEdgeId);
+    if (!srcEdge) return new Set<string>();
+    return new Set([srcEdge.from, srcEdge.to]);
+  }, [selectedEdgeId, edges]);
 
   const cardinalityLabel = (c: string) =>
     c === "one-to-one" ? "1:1" : c === "many-to-many" ? "M:N" : "1:N";
@@ -268,15 +227,6 @@ export function ErdCanvas({
           className="relative h-full w-full origin-top-left"
           style={{ transform: `translate3d(${panX}px, ${panY}px, 0) scale(${zoom / 100})` }}
         >
-          {/* ── Subgraph containers (rendered behind edges and tables) ── */}
-          {laidOut.subgraphs.map((sg) => (
-            <SubgraphContainer
-              key={sg.id}
-              subgraph={sg}
-              dimmed={hasActiveHighlight && !sg.tableIds.some((id) => activeNodeIds.has(id))}
-            />
-          ))}
-
           {/* Edge SVG layer with Crow's Foot markers */}
           <svg
             data-testid="erd-edge-layer"
@@ -286,9 +236,11 @@ export function ErdCanvas({
             <CrowsFootMarker idPrefix="erd" />
             {laidOut.edges.map((edge: ErdEdge) => {
               const srcEdge = edgeLookup.get(edge.id);
-              const isActive = activeEdgeIds.has(edge.id);
-              const isDimmed = hasActiveHighlight && !isActive;
-
+              const isSelectedEdge = edge.id === selectedEdgeId;
+              const isRelated = highlightedTableIds.size > 0 && (
+                highlightedTableIds.has(srcEdge?.from ?? "") || highlightedTableIds.has(srcEdge?.to ?? "")
+              );
+              const isDimmed = selectedEdgeId !== null && !isSelectedEdge && !isRelated;
               const { markerStart, markerEnd } = markerForCardinality(edge.cardinality, "erd");
 
               return (
@@ -316,21 +268,15 @@ export function ErdCanvas({
                     data-testid={`erd-edge-${edge.id}`}
                     d={edge.path}
                     fill="none"
-                    stroke={isActive ? "var(--teal)" : "var(--teal)"}
-                    strokeWidth={isActive ? 3 : 1.8}
-                    strokeOpacity={isDimmed ? 0.2 : isActive ? 1 : 0.65}
+                    stroke={isSelectedEdge ? "var(--teal)" : "var(--teal)"}
+                    strokeWidth={isSelectedEdge ? 2.5 : 1.8}
+                    strokeOpacity={isDimmed ? 0.15 : isSelectedEdge ? 1 : 0.65}
                     markerStart={markerStart}
                     markerEnd={markerEnd}
-                    style={{ transition: "stroke-opacity 200ms, stroke-width 200ms" }}
+                    style={{ transition: "stroke-opacity 200ms" }}
                   />
-                  {/* Segmented edge label: "from_col → to_col" */}
-                  <SegmentedEdgeLabel
-                    edge={edge}
-                    fromTableName={tableById.get(edge.fromTableId)?.name ?? edge.fromTableId}
-                    toTableName={tableById.get(edge.toTableId)?.name ?? edge.toTableId}
-                    dimmed={isDimmed}
-                    active={isActive}
-                  />
+                  {/* Cardinality label at midpoint */}
+                  <EdgeLabel edge={edge} dimmed={isDimmed} selected={isSelectedEdge} />
                 </g>
               );
             })}
@@ -338,15 +284,13 @@ export function ErdCanvas({
 
           {/* Table entity cards */}
           {laidOut.tables.map((table) => {
-            const isDimmed = hasActiveHighlight && !activeNodeIds.has(table.id);
+            const isDimmed = selectedEdgeId !== null && !highlightedTableIds.has(table.id);
             return (
               <div
                 key={table.id}
                 onMouseDown={(e) => handleMouseDown(e, table)}
-                onMouseEnter={() => setHoveredNodeId(table.id)}
-                onMouseLeave={() => setHoveredNodeId(null)}
                 style={{
-                  opacity: isDimmed ? 0.2 : 1,
+                  opacity: isDimmed ? 0.35 : 1,
                   transition: "opacity 200ms",
                 }}
               >
@@ -417,125 +361,37 @@ export function ErdCanvas({
   );
 }
 
-// ─── Subgraph Container ─────────────────────────────────────────────────────
-
-function SubgraphContainer({
-  subgraph,
-  dimmed,
-}: {
-  subgraph: ErdSubgraph;
-  dimmed: boolean;
-}) {
-  return (
-    <div
-      className="pointer-events-none absolute rounded-2xl border-2 border-dashed transition-opacity duration-200"
-      style={{
-        left: subgraph.x,
-        top: subgraph.y,
-        width: subgraph.width,
-        height: subgraph.height,
-        borderColor: dimmed ? "color-mix(in oklab, var(--neon-blue) 15%, transparent)" : "color-mix(in oklab, var(--neon-blue) 35%, transparent)",
-        backgroundColor: "color-mix(in oklab, var(--neon-blue) 4%, transparent)",
-        opacity: dimmed ? 0.3 : 1,
-        zIndex: 0,
-      }}
-    >
-      {/* Label badge in top-left corner */}
-      <div
-        className="absolute -top-3 left-4 flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-        style={{
-          backgroundColor: dimmed ? "color-mix(in oklab, var(--neon-blue) 8%, var(--surface))" : "color-mix(in oklab, var(--neon-blue) 15%, var(--surface))",
-          color: dimmed ? "color-mix(in oklab, var(--neon-blue) 40%, var(--muted-foreground))" : "var(--neon-blue)",
-          border: `1px solid color-mix(in oklab, var(--neon-blue) ${dimmed ? 15 : 30}%, transparent)`,
-        }}
-      >
-        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--neon-blue)" }} />
-        {subgraph.label}
-        <span className="ml-1 text-muted-foreground/60 normal-case tracking-normal">
-          ({subgraph.tableIds.length})
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ─── Segmented Edge Label ───────────────────────────────────────────────────
-
-/**
- * Renders a two-part label at the edge midpoint:
- *   Line 1: cardinality badge (1:1, 1:N, M:N)
- *   Line 2: "from_col → to_col" segmented path label
- *
- * When the edge is dimmed (not part of the active highlight), the label
- * fades to match. When active, it uses high-contrast teal.
- */
-function SegmentedEdgeLabel({
-  edge,
-  fromTableName,
-  toTableName,
-  dimmed,
-  active,
-}: {
-  edge: ErdEdge;
-  fromTableName: string;
-  toTableName: string;
-  dimmed: boolean;
-  active: boolean;
-}) {
-  const { labelPoint } = edge;
-  const cardLabel =
+/** Cardinality label rendered at the midpoint of an ERD edge. */
+function EdgeLabel({ edge, dimmed, selected }: { edge: ErdEdge; dimmed: boolean; selected: boolean }) {
+  const midX = (edge.fromMarker.x + edge.toMarker.x) / 2;
+  const midY = (edge.fromMarker.y + edge.toMarker.y) / 2;
+  const label =
     edge.cardinality === "one-to-one" ? "1:1"
     : edge.cardinality === "many-to-many" ? "M:N"
     : "1:N";
 
-  const segmentLabel = `${edge.fromColumn} → ${edge.toColumn}`;
-
-  // Estimate text widths for the background rect
-  const cardWidth = cardLabel.length * 7 + 12;
-  const segWidth = segmentLabel.length * 5.5 + 12;
-  const bgWidth = Math.max(cardWidth, segWidth);
-
   return (
-    <g
-      pointerEvents="none"
-      opacity={dimmed ? 0.2 : 1}
-      style={{ transition: "opacity 200ms" }}
-      transform={`translate(${labelPoint.x}, ${labelPoint.y})`}
-    >
+    <g pointerEvents="none" opacity={dimmed ? 0.15 : 1} style={{ transition: "opacity 200ms" }}>
       <rect
-        x={-bgWidth / 2}
-        y={-16}
-        width={bgWidth}
-        height={32}
-        rx={6}
+        x={midX - 14}
+        y={midY - 9}
+        width={28}
+        height={18}
+        rx={5}
         fill="var(--surface)"
-        stroke={active ? "var(--teal)" : "var(--border)"}
-        strokeWidth={active ? 1.5 : 1}
-        opacity={0.95}
+        stroke={selected ? "var(--teal)" : "var(--border)"}
+        strokeWidth={selected ? 1.5 : 1}
       />
-      {/* Cardinality badge */}
       <text
-        x={0}
-        y={-4}
+        x={midX}
+        y={midY + 4}
         textAnchor="middle"
         fontFamily="ui-monospace, monospace"
-        fontSize={9}
-        fontWeight={700}
-        fill={active ? "var(--teal)" : "var(--teal)"}
+        fontSize={10}
+        fontWeight={selected ? "700" : "600"}
+        fill={selected ? "var(--teal)" : "var(--teal)"}
       >
-        {cardLabel}
-      </text>
-      {/* Segmented column label */}
-      <text
-        x={0}
-        y={8}
-        textAnchor="middle"
-        fontFamily="ui-monospace, monospace"
-        fontSize={8}
-        fontWeight={500}
-        fill="var(--muted-foreground)"
-      >
-        {segmentLabel}
+        {label}
       </text>
     </g>
   );

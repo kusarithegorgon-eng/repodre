@@ -14,7 +14,6 @@ import type { Point, HandleSegment, Shape } from "@/lib/canvas-geometry";
 import { anchorHandles, NODE_W, NODE_H } from "@/lib/canvas-geometry";
 
 export interface DragToConnectHandleProps {
-  nodeId?: string;
   shape: Shape;
   x: number;
   y: number;
@@ -23,7 +22,6 @@ export interface DragToConnectHandleProps {
   accentColor: string;
   accentGlow: string;
   visible: boolean;
-  zoom?: number;
   onStartDrag: (handleId: HandleSegment, startPos: Point) => void;
 }
 
@@ -31,7 +29,6 @@ const HANDLE_SIZE = 8;
 const HANDLE_SIZE_HOVER = 12;
 
 export function DragToConnectHandle({
-  nodeId: _nodeId,
   shape,
   x,
   y,
@@ -40,7 +37,6 @@ export function DragToConnectHandle({
   accentColor,
   accentGlow,
   visible,
-  zoom: _zoom,
   onStartDrag,
 }: DragToConnectHandleProps) {
   const [isHovered, setIsHovered] = useState(false);

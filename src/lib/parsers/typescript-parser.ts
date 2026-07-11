@@ -6,7 +6,7 @@
  */
 
 import * as acorn from "acorn";
-import type { Parser, SourceLanguage, ParsedModule, UniversalNode, SymbolTable, Symbol, Import, ParseError } from "./types";
+import type { Parser, SourceLanguage, ParsedModule, UniversalNode, SymbolTable, Symbol, Import } from "./types";
 
 const TYPESCRIPT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 
@@ -15,7 +15,7 @@ export class TypeScriptParser implements Parser {
 
   parse(source: string, path: string): ParsedModule {
     const language = this.getLanguage(path) ?? "typescript";
-    const errors: ParseError[] = [];
+    const errors: this["parse"][""]["errors"] = [];
 
     let ast: UniversalNode;
     const symbols: SymbolTable = {
@@ -38,7 +38,7 @@ export class TypeScriptParser implements Parser {
       ast = this.convertNode(program as acorn.Node, source, "root");
       this.extractSymbols(ast, symbols, language);
     } catch (err) {
-      (errors as ParseError[]).push({
+      errors.push({
         message: err instanceof Error ? err.message : "Parse error",
         start: { row: 0, column: 0 },
         end: { row: 0, column: 0 },

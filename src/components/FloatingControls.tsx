@@ -10,7 +10,7 @@ import { ShapeIcon } from "@/components/NodeShapeSVG";
 import type { Shape } from "@/lib/canvas-geometry";
 import type { Accent } from "@/lib/db-client";
 
-type NodeAccent = "green" | "purple" | "teal" | "blue" | "orange" | "red" | "slate";
+type NodeAccent = "green" | "purple" | "teal" | "blue" | "orange" | "red";
 
 interface FloatingControlsProps {
   selectedShape: Shape | null;

@@ -25,7 +25,7 @@ export interface ProjectRow {
   updated_at: string;
 }
 
-export type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red" | "slate";
+export type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red";
 
 export type Workspace = "app" | "erd";
 
@@ -70,18 +70,6 @@ export interface EdgeRow {
   updated_at: string;
 }
 
-export interface AnnotationRow {
-  id: string;
-  project_id: string;
-  node_id: string;
-  author_id: string | null;
-  author_name: string;
-  body: { type: string; value: string; format: string };
-  target: { type: string; id: string; selector: { type: string; value: string } };
-  created_at: string;
-  updated_at: string;
-}
-
 // Application types
 export interface Project {
   id: string;
@@ -118,29 +106,6 @@ export interface Edge {
   cardinality?: Cardinality;
   fromColumn?: string;
   toColumn?: string;
-}
-
-export interface Annotation {
-  id: string;
-  projectId: string;
-  nodeId: string;
-  authorId: string | null;
-  authorName: string;
-  body: {
-    type: "TextualBody";
-    value: string;
-    format: "text/plain";
-  };
-  target: {
-    type: "CanvasNode";
-    id: string;
-    selector: {
-      type: "NodeIdSelector";
-      value: string;
-    };
-  };
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 // Converters
@@ -188,31 +153,6 @@ function rowToEdge(row: EdgeRow): Edge {
     cardinality: row.cardinality ?? undefined,
     fromColumn: row.from_column ?? undefined,
     toColumn: row.to_column ?? undefined,
-  };
-}
-
-function rowToAnnotation(row: AnnotationRow): Annotation {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    nodeId: row.node_id,
-    authorId: row.author_id,
-    authorName: row.author_name,
-    body: {
-      type: row.body.type as "TextualBody",
-      value: row.body.value,
-      format: row.body.format as "text/plain",
-    },
-    target: {
-      type: row.target.type as "CanvasNode",
-      id: row.target.id,
-      selector: {
-        type: row.target.selector.type as "NodeIdSelector",
-        value: row.target.selector.value,
-      },
-    },
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
   };
 }
 
@@ -304,7 +244,7 @@ export async function listNodes(projectId: string): Promise<Node[]> {
 
 export async function createNode(
   projectId: string,
-  node: Omit<Node, "id" | "projectId"> & { columns?: ErdColumnRow[] | null; tableName?: string | null }
+  node: Omit<Node, "id" | "projectId">
 ): Promise<Node> {
   const { data, error } = await supabase
     .from("nodes")
@@ -512,7 +452,7 @@ export async function listEdges(projectId: string): Promise<Edge[]> {
 
 export async function createEdge(
   projectId: string,
-  edge: Omit<Edge, "id" | "projectId"> & { fromHandle?: string | null; toHandle?: string | null; cardinality?: string | null; fromColumn?: string | null; toColumn?: string | null }
+  edge: Omit<Edge, "id" | "projectId">
 ): Promise<Edge> {
   const { data, error } = await supabase
     .from("edges")
@@ -557,42 +497,6 @@ export async function updateEdge(
 
 export async function deleteEdge(id: string): Promise<void> {
   const { error } = await supabase.from("edges").delete().eq("id", id);
-  if (error) throw error;
-}
-
-export async function listAnnotations(projectId: string): Promise<Annotation[]> {
-  const { data, error } = await supabase
-    .from("annotations")
-    .select("*")
-    .eq("project_id", projectId);
-
-  if (error) throw error;
-  return (data ?? []).map(rowToAnnotation);
-}
-
-export async function createAnnotation(
-  projectId: string,
-  annotation: Omit<Annotation, "id" | "projectId" | "createdAt" | "updatedAt">
-): Promise<Annotation> {
-  const { data, error } = await supabase
-    .from("annotations")
-    .insert({
-      project_id: projectId,
-      node_id: annotation.nodeId,
-      author_id: annotation.authorId,
-      author_name: annotation.authorName,
-      body: annotation.body,
-      target: annotation.target,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return rowToAnnotation(data);
-}
-
-export async function deleteAnnotation(id: string): Promise<void> {
-  const { error } = await supabase.from("annotations").delete().eq("id", id);
   if (error) throw error;
 }
 

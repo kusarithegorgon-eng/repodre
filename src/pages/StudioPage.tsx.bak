@@ -20,8 +20,6 @@ import { DragToConnectHandle, LiveEdgeDrawing, useDragToConnect } from "@/compon
 import { NodeSpawnerPopover, useNodeSpawner, createNewNodeConfig } from "@/components/NodeSpawnerPopover";
 import { IconSidebar } from "@/components/IconSidebar";
 import { FloatingControls } from "@/components/FloatingControls";
-import { CanvasExportButton } from "@/components/CanvasExportButton";
-import { ErdGuide } from "@/components/ErdGuide";
 import {
   SimulationMode,
   SimulationModeToggle,
@@ -90,7 +88,7 @@ import { supabase } from "@/lib/supabase";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red" | "slate";
+type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red";
 
 interface NodeData extends PositionedNode {
   id: string;
@@ -163,7 +161,6 @@ const ACCENT: Record<Accent, { color: string; glow: string; label: string; nodeT
   blue:   { color: "var(--node-database-stroke)", glow: "transparent", label: "Database", nodeType: "database" },
   orange: { color: "var(--node-gateway-stroke)", glow: "transparent", label: "Gateway", nodeType: "gateway" },
   red:    { color: "var(--node-error-stroke)", glow: "transparent", label: "Error", nodeType: "error" },
-  slate:  { color: "var(--node-bridge-stroke)", glow: "transparent", label: "Bridge", nodeType: "bridge" },
 };
 
 // Mapping from shape to NodeType for misc nodes
@@ -176,7 +173,6 @@ const SHAPE_TO_NODE_TYPE: Record<string, import("@/components/NodeShapeSVG").Nod
   triangle: "error",
   document: "misc",
   parallelogram: "view",
-  circle: "bridge",
 };
 
 const ALL_SHAPES: Shape[] = [
@@ -188,7 +184,6 @@ const ALL_SHAPES: Shape[] = [
   "parallelogram",
   "document",
   "hexagon",
-  "circle",
 ];
 
 // ─── Demo seed data: E-Commerce System ─────────────────────────────────────
@@ -390,8 +385,6 @@ export function StudioPage() {
   const [multiplayerOpen, setMultiplayerOpen] = useState(false);
   const [gitDiffOpen, setGitDiffOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
-  const [erdGuideOpen, setErdGuideOpen] = useState(false);
-  const [showSchemaInput, setShowSchemaInput] = useState(false);
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const [isResettingLayout, setIsResettingLayout] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1078,39 +1071,6 @@ export async function POST(req: Request) {
     []
   );
 
-  // ERD: Rename a column within an ERD table node
-  const handleRenameColumn = useCallback(
-    async (nodeId: string, oldName: string, newName: string) => {
-      const node = nodes.find((n) => n.id === nodeId);
-      if (!node || !node.columns) return;
-      const updatedColumns = node.columns.map((c) =>
-        c.name === oldName ? { ...c, name: newName } : c
-      );
-      setNodes((prev) =>
-        prev.map((n) => (n.id === nodeId ? { ...n, columns: updatedColumns } : n))
-      );
-      if (project) {
-        await updateNode(nodeId, { columns: updatedColumns });
-      }
-    },
-    [nodes, project]
-  );
-
-  // ERD: Rename an ERD table (updates both label and tableName)
-  const handleRenameTable = useCallback(
-    async (nodeId: string, newName: string) => {
-      setNodes((prev) =>
-        prev.map((n) =>
-          n.id === nodeId ? { ...n, label: newName, tableName: newName } : n
-        )
-      );
-      if (project) {
-        await updateNode(nodeId, { label: newName, tableName: newName });
-      }
-    },
-    [project]
-  );
-
   // Pre-compute routed paths (memoised)
   // ── Edge-Snapping Path Engine: dynamic port-based bezier recalculation ──
   // The useEdgeSnap hook resolves explicit left/right boundary ports for each
@@ -1178,107 +1138,414 @@ export async function POST(req: Request) {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
 
-      {/* Icon Sidebar */}
-      <IconSidebar
-        workspace={workspace}
-        zoom={zoom}
-        isDemoMode={isDemoMode}
-        isDraftMode={isDraftMode}
-        isLoading={isLoading}
-        isResettingLayout={isResettingLayout}
-        nodes={nodes}
-        hasSelection={!!sel}
-        autoLayout={autoLayout}
-        smartRoute={smartRoute}
-        wireStyle={wireStyle}
-        simulationOpen={simulationOpen}
-        insightsOpen={insightsOpen}
-        astInspectorOpen={astInspectorOpen}
-        liveTrafficActive={liveTrafficActive}
-        webhookSyncOpen={webhookSyncOpen}
-        webhookSyncConnected={webhookSync.isConnected}
-        hasPendingWebhookSync={!!lastWebhookEvent}
-        multiplayerOpen={multiplayerOpen}
-        multiplayerConnected={presenceState.isConnected}
-        collaboratorCount={presenceState.collaborators.length}
-        gitDiffOpen={gitDiffOpen}
-        gitDiffCount={diffResult ? diffResult.addedCount + diffResult.deletedCount + diffResult.modifiedCount + diffResult.conflictCount : 0}
-        bottleneckCount={bottleneckWarnings.length}
-        codePreviewOpen={codePreviewOpen}
-        erdGuideOpen={erdGuideOpen}
-        onZoomIn={() => handleZoomChange(Math.min(200, zoom + 10))}
-        onZoomOut={() => handleZoomChange(Math.max(25, zoom - 10))}
-        onRecenter={canvasPan.resetPan}
-        onRefresh={refreshCanvas}
-        onResetLayout={handleResetToAutoLayout}
-        onExportJSON={handleExportJSON}
-        onImportJSON={() => fileInputRef.current?.click()}
-        onChangeWorkspace={handleWorkspaceChange}
-        onToggleAutoLayout={() => { setAutoLayout(!autoLayout); if (project) updateProject(project.id, { autoLayout: !autoLayout }).catch(() => {}); }}
-        onToggleSmartRoute={() => { setSmartRoute(!smartRoute); if (project) updateProject(project.id, { smartRoute: !smartRoute }).catch(() => {}); }}
-        onSetWireStyle={setWireStyle}
-        onToggleSimulation={() => setSimulationOpen(!simulationOpen)}
-        onToggleInsights={() => setInsightsOpen(!insightsOpen)}
-        onToggleAstInspector={() => setAstInspectorOpen(!astInspectorOpen)}
-        onToggleLiveTraffic={() => setLiveTrafficActive(!liveTrafficActive)}
-        onToggleWebhookSync={() => setWebhookSyncOpen(!webhookSyncOpen)}
-        onToggleMultiplayer={() => setMultiplayerOpen(!multiplayerOpen)}
-        onToggleGitDiff={() => { if (!gitDiffOpen) generateDiff(); setGitDiffOpen(!gitDiffOpen); }}
-        onToggleCodePreview={() => setCodePreviewOpen(!codePreviewOpen)}
-        onExportScaffold={() => { const scaffold = generateScaffold(project?.name || "repodre-architecture", nodes.map(n => ({id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, workspace: n.workspace, tableName: n.tableName, columns: n.columns})), edges.map(e => ({id: e.id, from: e.from, to: e.to, cardinality: e.cardinality, fromColumn: e.fromColumn, toColumn: e.toColumn}))); downloadScaffold(scaffold); }}
-        onExportApiTests={() => { const blob = new Blob([JSON.stringify(mockControllers, null, 2)], {type: "application/json"}); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "api-tests.json"; a.click(); }}
-        onImportSchema={() => setShowSchemaInput(true)}
-        onExportSchema={() => {
-          const payload = schemaSource || nodes.filter(n => n.workspace === "erd" && n.tableName).map(n => `-- ${n.tableName}`).join("\n");
-          const blob = new Blob([payload], { type: "text/sql" });
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = `${project?.name ?? "schema"}.sql`;
-          a.click();
-        }}
-        onToggleErdGuide={() => setErdGuideOpen(!erdGuideOpen)}
-      />
-
-      {/* ERD Cardinality Guide panel */}
-      <ErdGuide isOpen={erdGuideOpen} onClose={() => setErdGuideOpen(false)} />
-
-      {/* Floating Schema Import for ERD workspace */}
-      {showSchemaInput && workspace === "erd" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowSchemaInput(false)}>
-          <div onClick={e => e.stopPropagation()} className="relative">
-            <SchemaInput
-              value={schemaSource}
-              onValueChange={setSchemaSource}
-              onSubmit={(tables, ddl) => { handleSchemaImport(tables, ddl); setShowSchemaInput(false); }}
-              isLoading={isLoading}
-            />
-          </div>
+      {/* ── Top ribbon ──────────────────────────────────────────────────── */}
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
+        <div className="flex items-center gap-3">
+          <Link to="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
+            <RepodreLogo className="h-8 w-8" />
+            <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
+          </Link>
+          <span className="mx-1 h-5 w-px bg-border" />
+          <WorkspaceSwitcher workspace={workspace} onChange={handleWorkspaceChange} />
+          <span className="mx-1 h-5 w-px bg-border" />
+          <span className="font-mono text-xs text-muted-foreground">
+            {project?.name ?? (workspace === "app" ? "ecommerce-system" : "ecommerce-schema")}{" "}
+            / <span className="text-foreground">{workspace === "app" ? "execution-flow.map" : "schema.erd"}</span>
+          </span>
         </div>
-      )}
 
-      {/* Floating Controls for shape/accent picker (App workspace only) */}
-      {workspace === "app" && (
-        <FloatingControls
-          selectedShape={sel?.shape ?? null}
-          selectedAccent={sel?.accent ?? null}
-          hasSelection={!!sel}
-          onShapeChange={(shape) => sel && setShape(sel.id, shape)}
-          onAccentChange={(accent) => sel && setAccent(sel.id, accent)}
-        />
-      )}
+        <div className="flex items-center gap-2">
+          {/* Schema import + export (ERD viewport only) */}
+          {workspace === "erd" && (
+            <>
+              <SchemaInput
+                value={schemaSource}
+                onValueChange={setSchemaSource}
+                onSubmit={handleSchemaImport}
+                isLoading={isLoading}
+              />
+              <ExportSchemaButton nodes={nodes} edges={edges} />
+            </>
+          )}
 
-      {/* Main content area (accounting for fixed sidebar) */}
-      <div className="relative flex flex-col flex-1 ml-14">
-        {/* Privacy Shield banner */}
-        <PrivacyShield />
+          {/* Shape quick-picker — only 4 in ribbon; full set in node panel (App viewport only) */}
+          {workspace === "app" && (
+            <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-1">
+              {(["rectangle", "pill", "diamond", "cylinder"] as Shape[]).map((s) => (
+                <button
+                  key={s}
+                  title={s.charAt(0).toUpperCase() + s.slice(1)}
+                  disabled={!sel}
+                  onClick={() => sel && setShape(sel.id, s)}
+                  className={`flex h-8 w-9 items-center justify-center rounded-md transition-all duration-200 disabled:opacity-40 ${
+                    sel?.shape === s
+                      ? "bg-teal/20 text-teal shadow-[0_0_14px_-2px_var(--teal)]"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                >
+                  <ShapeIcon shape={s} />
+                </button>
+              ))}
+            </div>
+          )}
 
-        {/* ── Body ─────────────────────────────────────────────────────────── */}
-        <div className="relative flex min-h-0 flex-1">
-          {workspace === "app" && <FileTree nodes={nodes} edgeCount={edges.length} />}
+          {/* Smart-route toggle (App viewport only) */}
+          {workspace === "app" && (
+            <button
+              onClick={() => {
+                const next = !smartRoute;
+                setSmartRoute(next);
+                if (project) updateProject(project.id, { smartRoute: next }).catch(() => {});
+              }}
+              title="Collision-aware connector routing"
+              className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
+                smartRoute
+                  ? "border-teal/50 bg-teal/10 text-teal"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Spline className="h-3.5 w-3.5" />
+              Smart Route
+              <span className={`ml-1 h-1.5 w-1.5 rounded-full ${smartRoute ? "bg-teal" : "bg-muted-foreground/40"}`} />
+            </button>
+          )}
 
-          <main className="relative min-w-0 flex-1">
+          {/* Auto-layout toggle (App viewport only) */}
+          {workspace === "app" && (
+            <button
+              onClick={() => {
+                const next = !autoLayout;
+                setAutoLayout(next);
+                if (project) updateProject(project.id, { autoLayout: next }).catch(() => {});
+              }}
+              className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
+                autoLayout
+                  ? "border-teal/50 bg-teal/10 text-teal"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Magnet className="h-3.5 w-3.5" />
+              Auto-Layout
+              <span className={`ml-1 h-1.5 w-1.5 rounded-full ${autoLayout ? "bg-teal" : "bg-muted-foreground/40"}`} />
+            </button>
+          )}
+
+          {/* Wire style selector (App viewport only) */}
+          {workspace === "app" && (
+            <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-1" title="Connector wire style">
+              {(["curvy", "straight", "orthogonal"] as WireStyle[]).map((style) => {
+                const icons: Record<WireStyle, React.ReactNode> = {
+                  curvy: <Spline className="h-3.5 w-3.5" />,
+                  straight: <Minus className="h-3.5 w-3.5" />,
+                  orthogonal: <CornerDownRight className="h-3.5 w-3.5" />,
+                };
+                const labels: Record<WireStyle, string> = { curvy: "Curvy", straight: "Straight", orthogonal: "Orthogonal" };
+                return (
+                  <button
+                    key={style}
+                    title={labels[style]}
+                    onClick={() => setWireStyle(style)}
+                    className={`flex h-7 w-8 items-center justify-center rounded-md transition-all duration-200 ${
+                      wireStyle === style
+                        ? "bg-teal/20 text-teal"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                  >
+                    {icons[style]}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Environment Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <EnvironmentToggle
+              value={environment}
+              onChange={setEnvironment}
+            />
+          )}
+
+          {/* Layout Directives (App viewport only) */}
+          {workspace === "app" && (
+            <div className="relative">
+              <button
+                onClick={() => setShowLayoutPopover((v) => !v)}
+                title="Layout directives"
+                className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
+                  showLayoutPopover
+                    ? "border-teal/50 bg-teal/10 text-teal"
+                    : "border-border bg-background text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Layout className="h-3.5 w-3.5" />
+                Layout
+              </button>
+              {showLayoutPopover && (
+                <div className="absolute right-0 top-11 z-50 w-72 rounded-xl border border-border bg-popover p-4 shadow-2xl">
+                  <p className="mb-2 text-xs font-semibold text-foreground">Layout Directives</p>
+                  <p className="mb-1 text-[11px] text-muted-foreground">
+                    <code className="rounded bg-surface px-1">direction: TB</code> — hierarchical family-tree (top → down)
+                  </p>
+                  <p className="mb-3 text-[11px] text-muted-foreground">
+                    <code className="rounded bg-surface px-1">direction: LR</code> — left-to-right pipeline grid
+                  </p>
+                  <input
+                    type="text"
+                    value={layoutDirectives}
+                    onChange={(e) => setLayoutDirectives(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleApplyLayout()}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-teal focus:outline-none"
+                    placeholder="direction: LR, gap-x: 280, gap-y: 160"
+                  />
+                  <p className="mt-2 text-[10px] text-muted-foreground">
+                    Manually-positioned nodes are excluded. Press Enter or click Apply.
+                  </p>
+                  <button
+                    onClick={handleApplyLayout}
+                    className="mt-3 w-full rounded-lg bg-teal px-3 py-2 text-xs font-semibold text-white hover:bg-teal/90 transition-colors"
+                  >
+                    Apply Custom Layout
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* JSON Export / Import (App viewport only) */}
+          {workspace === "app" && (
+            <>
+              <button
+                onClick={handleExportJSON}
+                title="Export project as JSON"
+                className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-all hover:border-teal hover:text-teal"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Import project from JSON"
+                className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-all hover:border-teal hover:text-teal"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Import
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleImportFile}
+                className="hidden"
+              />
+            </>
+          )}
+
+          {/* Zoom controls */}
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-1">
+            <button
+              onClick={() => handleZoomChange(Math.max(25, zoom - 10))}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </button>
+            <span className="w-11 text-center font-mono text-xs tabular-nums">{zoom}%</span>
+            <button
+              onClick={() => handleZoomChange(Math.min(200, zoom + 10))}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <RecenterButton onClick={canvasPan.resetPan} />
+
+          {/* Refresh Canvas — manual reload from Supabase */}
+          <button
+            onClick={refreshCanvas}
+            disabled={isLoading || isDemoMode || isDraftMode}
+            title="Refresh Canvas — reload nodes and edges from database"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-all hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          </button>
+
+          {/* Reset to Auto-Layout — re-run ELK layout algorithm */}
+          <button
+            onClick={handleResetToAutoLayout}
+            disabled={isResettingLayout || isDemoMode || isDraftMode || nodes.length === 0}
+            title="Reset to Auto-Layout — re-apply ELK family-tree layout"
+            className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs font-medium text-muted-foreground transition-all hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <GitBranch className={`h-3.5 w-3.5 ${isResettingLayout ? "animate-pulse" : ""}`} />
+            <span className="hidden sm:inline">Auto Layout</span>
+          </button>
+
+          {/* API Test Export (App viewport only) */}
+          {workspace === "app" && (
+            <ApiTestExportButton
+              controllers={mockControllers}
+              modules={mockModules}
+              projectName={project?.name || "ecommerce-system"}
+            />
+          )}
+
+          {/* Code Preview Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <CodePreviewToggle
+              onClick={() => setCodePreviewOpen(!codePreviewOpen)}
+              isOpen={codePreviewOpen}
+              hasSelection={!!sel}
+            />
+          )}
+
+          {/* Bottleneck Summary (App viewport only) */}
+          {workspace === "app" && bottleneckWarnings.length > 0 && (
+            <BottleneckBadge warnings={bottleneckWarnings} />
+          )}
+
+          {/* Simulation Mode Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <SimulationModeToggle
+              isActive={simulationOpen}
+              onClick={() => setSimulationOpen(!simulationOpen)}
+            />
+          )}
+
+          {/* System Insights Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <SystemInsightsToggle
+              isOpen={insightsOpen}
+              onClick={() => setInsightsOpen(!insightsOpen)}
+              warningCount={nodes.filter((n) =>
+                edges.every((e) => e.from !== n.id && e.to !== n.id)
+              ).length}
+            />
+          )}
+
+          {/* AST Stream View Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <AstTokenizerToggle
+              onClick={() => setAstInspectorOpen(!astInspectorOpen)}
+              isActive={astInspectorOpen}
+            />
+          )}
+
+          {/* Simulate Live Traffic Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <button
+              onClick={() => setLiveTrafficActive(!liveTrafficActive)}
+              title="Simulate live traffic execution on SVG paths"
+              className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
+                liveTrafficActive
+                  ? "border-teal/50 bg-teal/10 text-teal"
+                  : "border-border bg-background text-muted-foreground hover:border-teal hover:text-teal"
+              }`}
+            >
+              <Activity className="h-3.5 w-3.5" />
+              Live Traffic
+              <span className={`ml-1 h-1.5 w-1.5 rounded-full ${liveTrafficActive ? "bg-teal animate-pulse" : "bg-muted-foreground/40"}`} />
+            </button>
+          )}
+
+          {/* Export Code Architecture Template (App viewport only) */}
+          {workspace === "app" && (
+            <button
+              onClick={() => {
+                const scaffold = generateScaffold(
+                  project?.name || "repodre-architecture",
+                  nodes.map((n) => ({
+                    id: n.id,
+                    label: n.label,
+                    sub: n.sub,
+                    shape: n.shape,
+                    accent: n.accent,
+                    workspace: n.workspace,
+                    tableName: n.tableName,
+                    columns: n.columns,
+                  })),
+                  edges.map((e) => ({
+                    id: e.id,
+                    from: e.from,
+                    to: e.to,
+                    cardinality: e.cardinality,
+                    fromColumn: e.fromColumn,
+                    toColumn: e.toColumn,
+                  })),
+                );
+                downloadScaffold(scaffold);
+              }}
+              title="Export code architecture template as scaffold"
+              className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-all hover:border-teal hover:text-teal"
+            >
+              <FileCode2 className="h-3.5 w-3.5" />
+              Export Scaffold
+            </button>
+          )}
+
+          {/* Webhook Sync Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <WebhookSyncToggle
+              isActive={webhookSyncOpen}
+              onClick={() => setWebhookSyncOpen(!webhookSyncOpen)}
+              isConnected={webhookSync.isConnected}
+              hasPendingSync={!!lastWebhookEvent}
+            />
+          )}
+
+          {/* Multiplayer Presence Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <MultiplayerToggle
+              isActive={multiplayerOpen}
+              onClick={() => setMultiplayerOpen(!multiplayerOpen)}
+              collaboratorCount={presenceState.collaborators.length}
+              isConnected={presenceState.isConnected}
+            />
+          )}
+
+          {/* Git PR Diff Toggle (App viewport only) */}
+          {workspace === "app" && (
+            <GitDiffToggle
+              isActive={gitDiffOpen}
+              onClick={() => {
+                if (!gitDiffOpen) {
+                  generateDiff();
+                }
+                setGitDiffOpen(!gitDiffOpen);
+              }}
+              diffCount={diffResult ? diffResult.addedCount + diffResult.deletedCount + diffResult.modifiedCount + diffResult.conflictCount : 0}
+            />
+          )}
+
+          {/* Recenter workspace button */}
+          <RecenterButton onClick={canvasPan.resetPan} />
+
+          {/* Refresh Canvas — manual reload from Supabase */}
+          <button
+            onClick={refreshCanvas}
+            disabled={isLoading || isDemoMode || isDraftMode}
+            title="Refresh Canvas — reload nodes and edges from database"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-all hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          </button>
+
+          <ThemeToggle />
+          <AuthButton />
+          <GuideToggle onClick={() => setGuideOpen(!guideOpen)} isOpen={guideOpen} />
+        </div>
+      </header>
+
+      {/* Privacy Shield banner */}
+      <PrivacyShield />
+
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
+      <div className="relative flex min-h-0 flex-1">
+        {workspace === "app" && <FileTree nodes={nodes} edgeCount={edges.length} />}
+
+        <main className="relative min-w-0 flex-1">
           {workspace === "app" ? (
             <>
               {/* App Journey Canvas */}
@@ -1387,39 +1654,29 @@ export async function POST(req: Request) {
                         labelY = (fc.y + tc.y) / 2;
                       }
 
-                      // ── Bridge node edges: no arrows, dashed neutral style ──
-                      const involvesBridge = fromNode?.shape === "circle" || toNode?.shape === "circle";
-
-                      const bridgeStrokeColor = involvesBridge ? "var(--node-bridge-stroke)" : smartStrokeColor;
-                      const bridgeDashArray = involvesBridge ? "4 4" : smartDashArray;
-                      const bridgeMarkerEnd = involvesBridge ? undefined : (linkType === "controller-to-db" ? "url(#arrow-db)" : "url(#arrow)");
-
                       return r.path ? (
                         <g key={r.id}>
                           <path
                             data-testid={`edge-${r.id}`}
                             data-detoured={r.detoured}
                             data-link-type={linkType}
-                            data-bridge={involvesBridge ? "true" : undefined}
                             d={r.path}
                             fill="none"
-                            stroke={bridgeStrokeColor}
+                            stroke={smartStrokeColor}
                             strokeWidth={highlightedEdgeIds.includes(r.id) ? 3 : r.detoured ? 1.5 : 2}
-                            strokeOpacity={highlightedEdgeIds.includes(r.id) ? 1 : involvesBridge ? 0.6 : 1}
-                            strokeDasharray={bridgeDashArray}
-                            markerEnd={bridgeMarkerEnd}
+                            strokeOpacity={highlightedEdgeIds.includes(r.id) ? 1 : 1}
+                            strokeDasharray={smartDashArray}
+                            markerEnd={linkType === "controller-to-db" ? "url(#arrow-db)" : "url(#arrow)"}
                             className={
                               highlightedEdgeIds.includes(r.id)
                                 ? "animate-pulse-glow"
-                                : involvesBridge
-                                  ? ""
-                                  : linkType === "ui-to-controller"
-                                    ? "repodre-controller-flow"
-                                    : linkType === "controller-to-db"
-                                      ? "repodre-db-flow"
-                                      : liveTrafficActive
-                                        ? "repodre-traffic-flow"
-                                        : ""
+                                : linkType === "ui-to-controller"
+                                  ? "repodre-controller-flow"
+                                  : linkType === "controller-to-db"
+                                    ? "repodre-db-flow"
+                                    : liveTrafficActive
+                                      ? "repodre-traffic-flow"
+                                      : ""
                             }
                           />
                           {decisionLabel && (
@@ -1559,14 +1816,6 @@ export async function POST(req: Request) {
                 </div>
               </div>
 
-              {/* App Journey Export Button */}
-              <div className="absolute right-4 top-4 z-30">
-                <CanvasExportButton
-                  getCanvasContainer={() => canvasRef.current}
-                  disabled={nodes.length === 0}
-                />
-              </div>
-
               {/* Legend */}
               <div className="pointer-events-none absolute bottom-4 left-4 flex items-center gap-4 rounded-lg border border-border bg-surface/80 px-3 py-2 text-[11px] text-muted-foreground backdrop-blur">
                 <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{background:"var(--neon-green)"}} />View</span>
@@ -1604,18 +1853,12 @@ export async function POST(req: Request) {
               {/* Time-Travel Tracer (App viewport only) */}
               {workspace === "app" && (
                 <TimeTravelTracer
-                  nodes={nodes
-                    .filter((n) => n.shape !== "circle")
-                    .map((n) => ({
-                      id: n.id,
-                      label: n.label,
-                      type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : n.shape === "document" ? "misc" : "error",
-                    }))}
-                  edges={edges.filter((e) => {
-                    const from = nodes.find((n) => n.id === e.from);
-                    const to = nodes.find((n) => n.id === e.to);
-                    return from?.shape !== "circle" && to?.shape !== "circle";
-                  }).map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+                  nodes={nodes.map((n) => ({
+                    id: n.id,
+                    label: n.label,
+                    type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : n.shape === "document" ? "misc" : "error",
+                  }))}
+                  edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
                   onHighlightNode={setHighlightedNodeId}
                   onHighlightEdges={setHighlightedEdgeIds}
                 />
@@ -1635,12 +1878,9 @@ export async function POST(req: Request) {
               panY={canvasPan.panY}
               onCanvasMouseDown={canvasPan.handleMouseDown}
               cursor={canvasPan.cursor}
-              onRenameColumn={handleRenameColumn}
-              onRenameTable={handleRenameTable}
             />
           )}
-          </main>
-        </div>
+        </main>
       </div>
 
       {/* Code Preview Panel (slide-out drawer) */}
@@ -1664,18 +1904,12 @@ export async function POST(req: Request) {
         <SimulationMode
           isOpen={simulationOpen}
           onClose={() => setSimulationOpen(false)}
-          nodes={nodes
-            .filter((n) => n.shape !== "circle")
-            .map((n) => ({
-              id: n.id,
-              type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
-              label: n.label,
-            }))}
-          edges={edges.filter((e) => {
-            const from = nodes.find((n) => n.id === e.from);
-            const to = nodes.find((n) => n.id === e.to);
-            return from?.shape !== "circle" && to?.shape !== "circle";
-          }).map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+          nodes={nodes.map((n) => ({
+            id: n.id,
+            type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
+            label: n.label,
+          }))}
+          edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
           onHighlightNode={setHighlightedNodeId}
           onHighlightEdges={setHighlightedEdgeIds}
         />
@@ -1686,18 +1920,12 @@ export async function POST(req: Request) {
         <SystemInsightsDashboard
           isOpen={insightsOpen}
           onClose={() => setInsightsOpen(false)}
-          nodes={nodes
-            .filter((n) => n.shape !== "circle")
-            .map((n) => ({
-              id: n.id,
-              type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
-              label: n.label,
-            }))}
-          edges={edges.filter((e) => {
-            const from = nodes.find((n) => n.id === e.from);
-            const to = nodes.find((n) => n.id === e.to);
-            return from?.shape !== "circle" && to?.shape !== "circle";
-          }).map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+          nodes={nodes.map((n) => ({
+            id: n.id,
+            type: n.shape === "pill" ? "view" : n.shape === "diamond" ? "validation" : n.shape === "rectangle" ? "controller" : n.shape === "cylinder" ? "database" : "error",
+            label: n.label,
+          }))}
+          edges={edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))}
         />
       )}
 
@@ -2006,8 +2234,6 @@ function CanvasNode({
 
   // Cylinder SVG is offset upward, so the outer div needs extra top padding
   const isCylinder = node.shape === "cylinder";
-  // Bridge (circle) nodes are visual section breaks — not executable
-  const isBridge = node.shape === "circle";
 
   // Compute diff styles
   const diffStyles = diffStatus ? getDiffNodeStyles(diffStatus) : {};
@@ -2026,13 +2252,12 @@ function CanvasNode({
         width: NODE_W,
         height: NODE_H,
         zIndex: isDragging ? 1000 : selected ? 10 : highlighted ? 5 : 1,
-        cursor: isDragging ? "grabbing" : isBridge ? "help" : "grab",
+        cursor: isDragging ? "grabbing" : "grab",
         // Cylinder cap bleeds outside the bounding box — clip children but not SVG
         overflow: isCylinder ? "visible" : "visible",
         boxShadow: highlighted ? "0 0 20px 4px var(--teal)" : undefined,
         ...diffStyles,
       }}
-      title={isBridge ? "Go to Next Section" : undefined}
       onClick={onSelect}
       onMouseDown={handleMouseDown}
     >
@@ -2076,7 +2301,6 @@ function CanvasNode({
             node.accent === "purple" ? "text-amber-950 dark:text-amber-50" :
             node.accent === "blue" ? "text-slate-900 dark:text-slate-100" :
             node.accent === "orange" ? "text-orange-950 dark:text-orange-50" :
-            node.accent === "slate" ? "text-slate-800 dark:text-slate-200" :
             "text-red-950 dark:text-red-50"
           }`}
           maxWidth={textMaxWidth(node.shape)}
@@ -2086,8 +2310,6 @@ function CanvasNode({
       )}
 
       {/* ── 30% Manual Override: Drag-to-connect handles (always visible on hover) ── */}
-      {/* Bridge nodes are visual-only — no drag-to-connect */}
-      {!isBridge && (
       <DragToConnectHandle
         nodeId={node.id}
         shape={node.shape}
@@ -2101,11 +2323,9 @@ function CanvasNode({
         zoom={zoom}
         onStartDrag={(handleId, startPos) => onStartDragConnect?.(handleId, startPos)}
       />
-      )}
 
       {/* ── Perimeter anchor handles (shown when selected) ── */}
-      {/* Bridge nodes are visual-only — no anchor handles */}
-      {showHandles && !isBridge &&
+      {showHandles &&
         handles.map((h) => {
           const key = `${node.id}:${h.id}`;
           const hot = hoverHandle === key;
@@ -2132,8 +2352,7 @@ function CanvasNode({
           );
         })}
 
-      {/* ── Cycle-shape button (hidden for bridge nodes) ── */}
-      {!isBridge && (
+      {/* ── Cycle-shape button ── */}
       <button
         onClick={(e) => { e.stopPropagation(); onCycleShape(); }}
         title="Cycle shape"
@@ -2143,7 +2362,6 @@ function CanvasNode({
       >
         <Sparkles className="h-3 w-3" />
       </button>
-      )}
 
       {/* ── Controller Badge (for logic layer nodes) ── */}
       {isControllerNode(node) && (
