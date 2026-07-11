@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from "react";
-import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Home, ShieldCheck, MessageCircle } from "lucide-react";
+import { Download, Upload, Activity, Play, FileCode as FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Hop as Home, ShieldCheck, MessageCircle } from "lucide-react";
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
 
