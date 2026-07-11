@@ -25,7 +25,7 @@ export interface ProjectRow {
   updated_at: string;
 }
 
-export type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red";
+export type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red" | "slate";
 
 export type Workspace = "app" | "erd";
 
@@ -199,15 +199,15 @@ function rowToAnnotation(row: AnnotationRow): Annotation {
     authorId: row.author_id,
     authorName: row.author_name,
     body: {
-      type: row.body.type,
+      type: row.body.type as "TextualBody",
       value: row.body.value,
-      format: row.body.format,
+      format: row.body.format as "text/plain",
     },
     target: {
-      type: row.target.type,
+      type: row.target.type as "CanvasNode",
       id: row.target.id,
       selector: {
-        type: row.target.selector.type,
+        type: row.target.selector.type as "NodeIdSelector",
         value: row.target.selector.value,
       },
     },

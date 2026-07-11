@@ -152,7 +152,7 @@ interface EdgeData {
   to: string;
   fromHandle?: HandleSegment;
   toHandle?: HandleSegment;
-  cardinality?: "one-to-one" | "one-to-many";
+  cardinality?: "one-to-one" | "one-to-many" | "many-to-many";
   fromColumn?: string;
   toColumn?: string;
   /** Semantic label carried from the blueprint ("Success", "Failure", etc.) */
@@ -597,6 +597,7 @@ export async function POST(req: Request) {
 }`,
       imports: [],
       exports: [],
+      calls: [],
     },
   ], []);
 
@@ -887,6 +888,7 @@ export async function POST(req: Request) {
           accent: n.accent,
           col: 0,
           row: 0,
+          swimlane: "api",
         })),
         edges: edges.map((e) => ({
           id: e.id,
@@ -1236,22 +1238,19 @@ export async function POST(req: Request) {
   );
 
   // Smart Links: classify edges by architectural layer (UI -> Controller -> DB)
-  const smartLinksResult = useMemo(
-    () =>
-      useSmartLinks(
-        nodes.map((n) => ({
-          id: n.id,
-          label: n.label,
-          sub: n.sub,
-          shape: n.shape,
-          accent: n.accent,
-          x: n.x,
-          y: n.y,
-          workspace: n.workspace,
-        })),
-        edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))
-      ),
-    [nodes, edges]
+  // NOTE: useSmartLinks is a hook — must be called at the top level, not inside useMemo.
+  const smartLinksResult = useSmartLinks(
+    nodes.map((n) => ({
+      id: n.id,
+      label: n.label,
+      sub: n.sub,
+      shape: n.shape,
+      accent: n.accent,
+      x: n.x,
+      y: n.y,
+      workspace: n.workspace,
+    })),
+    edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))
   );
 
   // ── Bundle offsets: stagger entry points for fan-in edges ──────────────
@@ -1394,6 +1393,8 @@ export async function POST(req: Request) {
           a.click();
         }}
         onToggleErdGuide={() => setErdGuideOpen(!erdGuideOpen)}
+        aiGuideOpen={aiGuideOpen}
+        onToggleAiGuide={() => setAiGuideOpen(!aiGuideOpen)}
       />
       {/* AI Interaction Protocols modal */}
       <AiGuideModal isOpen={aiGuideOpen} onClose={() => setAiGuideOpen(false)} />

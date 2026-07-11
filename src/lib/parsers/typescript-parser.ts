@@ -38,7 +38,7 @@ export class TypeScriptParser implements Parser {
       ast = this.convertNode(program as acorn.Node, source, "root");
       this.extractSymbols(ast, symbols, language);
     } catch (err) {
-      errors.push({
+      (errors as ParseError[]).push({
         message: err instanceof Error ? err.message : "Parse error",
         start: { row: 0, column: 0 },
         end: { row: 0, column: 0 },

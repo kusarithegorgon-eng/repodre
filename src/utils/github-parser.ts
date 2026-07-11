@@ -198,7 +198,7 @@ export async function parseGitHubRepoFiles(repoUrl: string, token?: string): Pro
   console.log(`[Repodre Safety Check] Scope: single repository only — no account-wide listing`);
 
   // Step 3: Get access token - use provided token or fall back to localStorage
-  let accessToken = token;
+  let accessToken: string | null = token ?? null;
   if (!accessToken) {
     accessToken = await getAccessToken();
   }

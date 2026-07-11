@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from "react";
-import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Chrome as Home, ShieldCheck } from "lucide-react";
+import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Home, ShieldCheck, MessageCircle } from "lucide-react";
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
 
@@ -244,6 +244,8 @@ export function IconSidebar({
   onImportSchema,
   onExportSchema,
   onToggleErdGuide,
+  aiGuideOpen,
+  onToggleAiGuide,
 }: IconSidebarProps) {
   const wireStyleIcon = {
     curvy: <Spline className="h-4 w-4" />,
