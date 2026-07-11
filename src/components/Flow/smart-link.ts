@@ -12,7 +12,7 @@ import {
   classifyNodeLayer,
   isControllerNode,
   type ArchitecturalLayer,
-} from "./ControllerNode";
+} from "./node-classifier";
 
 export interface SmartLinkEdge {
   id: string;

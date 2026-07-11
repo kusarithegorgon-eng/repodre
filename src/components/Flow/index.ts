@@ -6,11 +6,15 @@
  */
 
 export {
+  isControllerNode,
+  classifyNodeLayer,
+  type ArchitecturalLayer,
+} from "./node-classifier";
+
+export {
   ControllerNode,
   ControllerBadge,
   withControllerBadge,
-  isControllerNode,
-  classifyNodeLayer,
   createControllerNode,
   linkUiToController,
   linkControllerToDatabase,
@@ -20,7 +24,6 @@ export {
   SecurityWarningBadge,
   LinkButton,
   type ControllerNodeData,
-  type ArchitecturalLayer,
   type FlowNode,
   type FlowEdge,
   type ValidationResult,

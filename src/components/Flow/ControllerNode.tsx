@@ -20,6 +20,12 @@ import { GitBranch, Cpu, ShieldAlert, Link2 } from "lucide-react";
 import { NodeShapeSVG, type NodeType } from "@/components/NodeShapeSVG";
 import type { Shape, PositionedNode, Point } from "@/lib/canvas-geometry";
 import type { Accent } from "@/lib/db-client";
+import {
+  classifyNodeLayer,
+  isControllerNode,
+  type ArchitecturalLayer,
+} from "./node-classifier";
+export { classifyNodeLayer, isControllerNode, type ArchitecturalLayer };
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -47,8 +53,6 @@ interface ControllerNodeProps {
   onDoubleClick?: () => void;
   children?: React.ReactNode;
 }
-
-export type ArchitecturalLayer = "view" | "controller" | "database" | "validation" | "other";
 
 export interface FlowNode {
   id: string;
@@ -169,67 +173,6 @@ export function ControllerBadge({ className = "" }: { className?: string }) {
       <span>LOGIC</span>
     </div>
   );
-}
-
-// ─── Classification Helpers ─────────────────────────────────────────────────
-
-/**
- * Determines if a node should be treated as a controller based on its properties.
- */
-export function isControllerNode(
-  node: { label: string; sub: string; shape: string; accent: string }
-): boolean {
-  if (node.accent === "teal" || node.accent === "blue") return true;
-
-  const label = node.label.toLowerCase();
-  if (label.includes("/api/") || label.includes("controller")) return true;
-  if (label.includes("handler") || label.includes("service")) return true;
-
-  const sub = node.sub.toLowerCase();
-  if (sub.includes("controller") || sub.includes("endpoint")) return true;
-  if (sub.includes("handler") || sub.includes("service")) return true;
-
-  return false;
-}
-
-/**
- * Classifies nodes by their architectural layer.
- */
-export function classifyNodeLayer(node: {
-  label: string;
-  sub: string;
-  shape: string;
-  accent: string;
-}): ArchitecturalLayer {
-  const label = node.label.toLowerCase();
-  const sub = node.sub.toLowerCase();
-
-  // Bridge (circle) nodes are visual section breaks — not an architectural layer
-  if (node.shape === "circle" || node.accent === "slate") {
-    return "other";
-  }
-
-  // Database layer (cylinder shapes, blue accent)
-  if (node.shape === "cylinder" || node.accent === "blue") {
-    return "database";
-  }
-
-  // View/UI layer (pill shapes, green accent)
-  if (node.shape === "pill" || node.accent === "green") {
-    return "view";
-  }
-
-  // Validation layer (diamond shapes, purple accent)
-  if (node.shape === "diamond" || node.accent === "purple") {
-    return "validation";
-  }
-
-  // Controller layer (rectangle, teal accent, API paths)
-  if (isControllerNode(node)) {
-    return "controller";
-  }
-
-  return "other";
 }
 
 // ─── Controller Node Factory ────────────────────────────────────────────────
