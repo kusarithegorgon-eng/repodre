@@ -5,7 +5,7 @@
  * pattern matching for classes, functions, decorators, and imports.
  */
 
-import type { Parser, SourceLanguage, ParsedModule, UniversalNode, SymbolTable, Symbol, Import } from "./types";
+import type { Parser, SourceLanguage, ParsedModule, UniversalNode, SymbolTable, Symbol, Import, ParseError } from "./types";
 
 const PYTHON_EXTENSIONS = [".py", ".pyi"];
 
@@ -13,7 +13,7 @@ export class PythonParser implements Parser {
   readonly language: SourceLanguage = "python";
 
   parse(source: string, path: string): ParsedModule {
-    const errors: this["parse"][""]["errors"] = [];
+    const errors: ParseError[] = [];
 
     const ast = this.parsePython(source);
     const symbols = this.extractSymbols(ast, source);

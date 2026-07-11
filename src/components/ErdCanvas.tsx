@@ -27,12 +27,13 @@ import {
   type ErdSubgraph,
   type LaidOutErd,
 } from "@/lib/erd-layout";
-import type { Node, Edge } from "@/lib/db-client";
+import type { Node, Edge, ErdColumnRow, Accent } from "@/lib/db-client";
+import type { Shape } from "@/lib/canvas-geometry";
 import { X } from "lucide-react";
 
 interface ErdCanvasProps {
-  nodes: Node[];
-  edges: Edge[];
+  nodes: Array<{ id: string; label: string; sub: string; shape: Shape; accent: Accent; x: number; y: number; w?: number; h?: number; tableName?: string | null; columns?: ErdColumnRow[] | null; workspace?: string }>;
+  edges: Array<{ id: string; from: string; to: string; fromHandle?: string | null; toHandle?: string | null; cardinality?: string | null; fromColumn?: string | null; toColumn?: string | null }>;
   selected: string | null;
   onSelect: (id: string | null) => void;
   onDragEnd: (id: string, x: number, y: number) => void;

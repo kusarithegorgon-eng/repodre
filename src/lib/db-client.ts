@@ -304,7 +304,7 @@ export async function listNodes(projectId: string): Promise<Node[]> {
 
 export async function createNode(
   projectId: string,
-  node: Omit<Node, "id" | "projectId">
+  node: Omit<Node, "id" | "projectId"> & { columns?: ErdColumnRow[] | null; tableName?: string | null }
 ): Promise<Node> {
   const { data, error } = await supabase
     .from("nodes")
@@ -512,7 +512,7 @@ export async function listEdges(projectId: string): Promise<Edge[]> {
 
 export async function createEdge(
   projectId: string,
-  edge: Omit<Edge, "id" | "projectId">
+  edge: Omit<Edge, "id" | "projectId"> & { fromHandle?: string | null; toHandle?: string | null; cardinality?: string | null; fromColumn?: string | null; toColumn?: string | null }
 ): Promise<Edge> {
   const { data, error } = await supabase
     .from("edges")

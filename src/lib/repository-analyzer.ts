@@ -68,7 +68,7 @@ export interface AnalysisGraphNode {
   label: string;
   sub: string;
   shape: Shape;
-  accent: "green" | "purple" | "teal" | "blue" | "orange" | "red";
+  accent: "green" | "purple" | "teal" | "blue" | "orange" | "red" | "slate";
   x: number;
   y: number;
   /** Style hints for dynamic routes (dashed borders) */

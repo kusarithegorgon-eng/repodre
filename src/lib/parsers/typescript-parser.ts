@@ -6,7 +6,7 @@
  */
 
 import * as acorn from "acorn";
-import type { Parser, SourceLanguage, ParsedModule, UniversalNode, SymbolTable, Symbol, Import } from "./types";
+import type { Parser, SourceLanguage, ParsedModule, UniversalNode, SymbolTable, Symbol, Import, ParseError } from "./types";
 
 const TYPESCRIPT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 
@@ -15,7 +15,7 @@ export class TypeScriptParser implements Parser {
 
   parse(source: string, path: string): ParsedModule {
     const language = this.getLanguage(path) ?? "typescript";
-    const errors: this["parse"][""]["errors"] = [];
+    const errors: ParseError[] = [];
 
     let ast: UniversalNode;
     const symbols: SymbolTable = {

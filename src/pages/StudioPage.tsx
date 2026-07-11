@@ -897,7 +897,7 @@ export async function POST(req: Request) {
           accent: n.accent,
           col: 0,
           row: 0,
-          swimlane: "api",
+          swimlane: "logic",
         })),
         edges: edges.map((e) => ({
           id: e.id,
@@ -1393,7 +1393,7 @@ export async function POST(req: Request) {
         onToggleAiChat={() => setAiChatOpen(!aiChatOpen)}
         onToggleGitDiff={() => { if (!gitDiffOpen) generateDiff(); setGitDiffOpen(!gitDiffOpen); }}
         onToggleCodePreview={() => setCodePreviewOpen(!codePreviewOpen)}
-        onExportScaffold={() => { const scaffold = generateScaffold(project?.name || "repodre-architecture", nodes.map(n => ({id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, workspace: n.workspace, tableName: n.tableName, columns: n.columns})), edges.map(e => ({id: e.id, from: e.from, to: e.to, cardinality: e.cardinality, fromColumn: e.fromColumn, toColumn: e.toColumn}))); downloadScaffold(scaffold); }}
+        onExportScaffold={() => { const scaffold = generateScaffold(project?.name || "repodre-architecture", nodes.map(n => ({id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, workspace: n.workspace, tableName: n.tableName ?? null, columns: n.columns ?? undefined})), edges.map(e => ({id: e.id, from: e.from, to: e.to, cardinality: e.cardinality, fromColumn: e.fromColumn, toColumn: e.toColumn}))); downloadScaffold(scaffold); }}
         onExportApiTests={() => { const blob = new Blob([JSON.stringify(mockControllers, null, 2)], {type: "application/json"}); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "api-tests.json"; a.click(); }}
         onImportSchema={() => setShowSchemaInput(true)}
         onExportSchema={() => {
