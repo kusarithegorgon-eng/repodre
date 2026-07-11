@@ -47,6 +47,7 @@ import { WebhookSyncPanel, WebhookSyncToggle, useWebhookSync } from "@/component
 import { MultiplayerPresence, MultiplayerToggle, GhostCursors, useMultiplayerPresence } from "@/components/MultiplayerPresence";
 import { AnnotationPanel, AnnotationOverlay } from "@/components/AnnotationPanel";
 import { InviteMemberPanel } from "@/components/InviteMemberPanel";
+import { AiChatPanel } from "@/components/AiChatPanel";
 import { useAccessControl } from "@/hooks/useAccessControl";
 import { GitDiffOverlay, GitDiffToggle, useGitDiff, getDiffNodeStyles } from "@/components/GitDiffOverlay";
 import { ControllerBadge, isControllerNode, classifyNodeLayer, useSmartLinks, getSmartLinkClasses } from "@/components/Flow";
@@ -409,6 +410,7 @@ export function StudioPage() {
   const [isResettingLayout, setIsResettingLayout] = useState(false);
   const [selectedAnnotationNode, setSelectedAnnotationNode] = useState<string | null>(null);
   const [invitePanelOpen, setInvitePanelOpen] = useState(false);
+  const [aiChatOpen, setAiChatOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canComment = can(userRole, "create", "annotation");
@@ -675,11 +677,11 @@ export async function POST(req: Request) {
 
   const webhookSync = useWebhookSync(nodes, handleWebhookMutations);
 
-  // Multiplayer presence
+  // Multiplayer presence — loads real project members from project_members table
   const {
     presenceState,
     toggleConnection: togglePresenceConnection,
-  } = useMultiplayerPresence(canvasRef, zoom, nodes);
+  } = useMultiplayerPresence(canvasRef, zoom, nodes, project?.id, authUser?.id);
 
   // Git diff
   const {
@@ -1388,6 +1390,7 @@ export async function POST(req: Request) {
         annotationOpen={annotationOpen}
         onToggleInvite={() => setInvitePanelOpen(!invitePanelOpen)}
         canManageMembers={access.canManage}
+        onToggleAiChat={() => setAiChatOpen(!aiChatOpen)}
         onToggleGitDiff={() => { if (!gitDiffOpen) generateDiff(); setGitDiffOpen(!gitDiffOpen); }}
         onToggleCodePreview={() => setCodePreviewOpen(!codePreviewOpen)}
         onExportScaffold={() => { const scaffold = generateScaffold(project?.name || "repodre-architecture", nodes.map(n => ({id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, workspace: n.workspace, tableName: n.tableName, columns: n.columns})), edges.map(e => ({id: e.id, from: e.from, to: e.to, cardinality: e.cardinality, fromColumn: e.fromColumn, toColumn: e.toColumn}))); downloadScaffold(scaffold); }}
@@ -1884,6 +1887,17 @@ export async function POST(req: Request) {
         />
       )}
 
+      <AiChatPanel
+        isOpen={aiChatOpen}
+        onClose={() => setAiChatOpen(false)}
+        context={{
+          projectId: project?.id,
+          nodeCount: nodes.length,
+          edgeCount: edges.length,
+          workspace,
+        }}
+      />
+
       {/* Code Preview Panel (slide-out drawer) */}
       <CodePreviewPanel
         isOpen={codePreviewOpen}
@@ -1964,6 +1978,8 @@ export async function POST(req: Request) {
           canvasRef={canvasRef}
           zoom={zoom}
           nodes={nodes}
+          projectId={project?.id}
+          currentUserId={authUser?.id}
         />
       )}
 

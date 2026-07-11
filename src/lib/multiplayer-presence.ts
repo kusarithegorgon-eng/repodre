@@ -1,9 +1,12 @@
 /**
  * Multiplayer Presence State Machine
  *
- * Simulates real-time collaborative presence with ghost cursors,
- * developer labels, and high-contrast color indicators.
+ * Loads real project members from the project_members table and renders
+ * them as animated ghost cursors on the canvas. Falls back to an empty
+ * collaborator list when no members exist or the user is offline.
  */
+
+import { supabase } from "@/lib/supabase";
 
 export interface CollaboratorCursor {
   id: string;
@@ -29,19 +32,13 @@ export interface PresenceState {
 }
 
 const CURSOR_COLORS = [
-  { primary: "#ef4444", bg: "rgba(239, 68, 68, 0.15)" },    // Red
-  { primary: "#8b5cf6", bg: "rgba(139, 92, 246, 0.15)" },  // Purple
-  { primary: "#06b6d4", bg: "rgba(6, 182, 212, 0.15)" },   // Cyan
-  { primary: "#f97316", bg: "rgba(249, 115, 22, 0.15)" },  // Orange
-  { primary: "#ec4899", bg: "rgba(236, 72, 153, 0.15)" },  // Pink
-];
-
-const DEVELOPER_NAMES = [
-  { name: "Developer Alex", role: "Full-Stack Engineer" },
-  { name: "Architect Sam", role: "Systems Architect" },
-  { name: "Engineer Jordan", role: "Backend Developer" },
-  { name: "Designer Taylor", role: "UI/UX Designer" },
-  { name: "Lead Casey", role: "Tech Lead" },
+  { primary: "#ef4444", bg: "rgba(239, 68, 68, 0.15)" },
+  { primary: "#8b5cf6", bg: "rgba(139, 92, 246, 0.15)" },
+  { primary: "#06b6d4", bg: "rgba(6, 182, 212, 0.15)" },
+  { primary: "#f97316", bg: "rgba(249, 115, 22, 0.15)" },
+  { primary: "#ec4899", bg: "rgba(236, 72, 153, 0.15)" },
+  { primary: "#10b981", bg: "rgba(16, 185, 129, 0.15)" },
+  { primary: "#f59e0b", bg: "rgba(245, 158, 11, 0.15)" },
 ];
 
 const ACTIONS = [
@@ -53,45 +50,67 @@ const ACTIONS = [
   "Checking validation logic",
 ];
 
-export function generateMockCollaborators(count: number): CollaboratorCursor[] {
-  const collaborators: CollaboratorCursor[] = [];
-  const usedNames = new Set<string>();
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: "Admin",
+  EDITOR: "Editor",
+  VIEWER: "Viewer",
+};
 
-  for (let i = 0; i < count; i++) {
-    let availableNames = DEVELOPER_NAMES.filter((n) => !usedNames.has(n.name));
-    if (availableNames.length === 0) availableNames = DEVELOPER_NAMES;
-
-    const devInfo = availableNames[Math.floor(Math.random() * availableNames.length)];
-    usedNames.add(devInfo.name);
-
-    const colorConfig = CURSOR_COLORS[i % CURSOR_COLORS.length];
-
-    collaborators.push({
-      id: `collab_${i}_${Date.now()}`,
-      name: devInfo.name,
-      role: devInfo.role,
-      color: colorConfig.primary,
-      backgroundColor: colorConfig.bg,
-      position: {
-        x: Math.random() * 800 + 100,
-        y: Math.random() * 400 + 100,
-      },
-      velocity: {
-        x: (Math.random() - 0.5) * 2,
-        y: (Math.random() - 0.5) * 2,
-      },
-      targetNode: null,
-      lastUpdate: Date.now(),
-      isTyping: Math.random() > 0.7,
-      currentAction: ACTIONS[Math.floor(Math.random() * ACTIONS.length)],
-    });
-  }
-
-  return collaborators;
+export interface ProjectMemberRow {
+  id: string;
+  user_id: string;
+  email: string;
+  role: string;
 }
 
 /**
- * Updates cursor positions with smooth interpolation toward target.
+ * Fetches real project members from Supabase and converts them to
+ * CollaboratorCursor objects with assigned colors and initial positions.
+ */
+export async function loadProjectMembers(
+  projectId: string,
+  currentUserId?: string | null
+): Promise<CollaboratorCursor[]> {
+  const { data, error } = await supabase
+    .from("project_members")
+    .select("id, user_id, email, role")
+    .eq("project_id", projectId);
+
+  if (error || !data) return [];
+
+  const members = data as ProjectMemberRow[];
+  const now = Date.now();
+
+  return members
+    .filter((m) => m.user_id !== currentUserId)
+    .map((member, index) => {
+      const colorConfig = CURSOR_COLORS[index % CURSOR_COLORS.length];
+      const displayName = member.email.split("@")[0] || "User";
+      const capitalized =
+        displayName.charAt(0).toUpperCase() + displayName.slice(1);
+
+      return {
+        id: member.id,
+        name: capitalized,
+        role: ROLE_LABELS[member.role] ?? member.role,
+        color: colorConfig.primary,
+        backgroundColor: colorConfig.bg,
+        position: {
+          x: Math.random() * 600 + 100,
+          y: Math.random() * 300 + 100,
+        },
+        velocity: { x: 0, y: 0 },
+        targetNode: null,
+        lastUpdate: now,
+        isTyping: false,
+        currentAction: ACTIONS[Math.floor(Math.random() * ACTIONS.length)],
+        cursorToken: `tok_${member.id}_${now}`,
+      };
+    });
+}
+
+/**
+ * Updates cursor positions with smooth interpolation toward target nodes.
  */
 export function updateCursorPosition(
   cursor: CollaboratorCursor,
@@ -103,8 +122,7 @@ export function updateCursorPosition(
   const now = Date.now();
   const elapsed = (now - cursor.lastUpdate) / 1000;
 
-  // Randomly select a new target node occasionally
-  if (!cursor.targetNode || Math.random() < 0.01) {
+  if (!cursor.targetNode || Math.random() < 0.005) {
     const randomNode = nodes[Math.floor(Math.random() * nodes.length)];
     cursor.targetNode = randomNode?.id || null;
   }
@@ -114,7 +132,6 @@ export function updateCursorPosition(
   if (cursor.targetNode) {
     const targetNode = nodes.find((n) => n.id === cursor.targetNode);
     if (targetNode) {
-      // Move toward the target node
       const dx = targetNode.x - cursor.position.x;
       const dy = targetNode.y - cursor.position.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
@@ -125,31 +142,22 @@ export function updateCursorPosition(
         newPosition.y += (dy / distance) * speed;
       }
 
-      // Reached target, pick new one
       if (distance < 20) {
         cursor.targetNode = null;
       }
     }
   } else {
-    // Random wandering with smooth velocity
     cursor.velocity.x += (Math.random() - 0.5) * 0.5;
     cursor.velocity.y += (Math.random() - 0.5) * 0.5;
-
-    // Dampen velocity
     cursor.velocity.x *= 0.95;
     cursor.velocity.y *= 0.95;
-
-    // Clamp velocity
     const maxVel = 2;
     cursor.velocity.x = Math.max(-maxVel, Math.min(maxVel, cursor.velocity.x));
     cursor.velocity.y = Math.max(-maxVel, Math.min(maxVel, cursor.velocity.y));
-
-    // Apply velocity
     newPosition.x += cursor.velocity.x * zoom * elapsed * 60;
     newPosition.y += cursor.velocity.y * zoom * elapsed * 60;
   }
 
-  // Clamp to canvas bounds (with padding)
   const padding = 50;
   newPosition.x = Math.max(padding, Math.min(canvasWidth - padding, newPosition.x));
   newPosition.y = Math.max(padding, Math.min(canvasHeight - padding, newPosition.y));
@@ -158,25 +166,27 @@ export function updateCursorPosition(
     ...cursor,
     position: newPosition,
     lastUpdate: now,
-    isTyping: Math.random() > 0.9 ? !cursor.isTyping : cursor.isTyping,
+    isTyping: Math.random() > 0.95 ? !cursor.isTyping : cursor.isTyping,
   };
 }
 
 /**
- * Creates the initial presence state with mock collaborators.
+ * Creates an empty presence state. Collaborators are loaded
+ * asynchronously via loadProjectMembers.
  */
 export function initializePresenceState(): PresenceState {
   return {
-    collaborators: generateMockCollaborators(2 + Math.floor(Math.random() * 2)),
+    collaborators: [],
     sessionId: `session_${Date.now()}`,
-    roomName: "architecture-review",
+    roomName: "project-session",
     isConnected: true,
     lastSnapshotAt: Date.now(),
   };
 }
 
 /**
- * Returns presence state after connecting/disconnecting.
+ * Toggles connection state. When reconnecting, returns empty collaborators
+ * — the caller must re-fetch members via loadProjectMembers.
  */
 export function toggleConnection(state: PresenceState): PresenceState {
   if (state.isConnected) {
@@ -190,7 +200,7 @@ export function toggleConnection(state: PresenceState): PresenceState {
   return {
     ...state,
     isConnected: true,
-    collaborators: generateMockCollaborators(2 + Math.floor(Math.random() * 2)),
+    collaborators: [],
     lastSnapshotAt: Date.now(),
   };
 }

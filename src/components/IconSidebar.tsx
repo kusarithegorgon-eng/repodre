@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from "react";
-import { Download, Upload, Activity, Play, FileCode as FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Hop as Home, ShieldCheck, MessageCircle, UserPlus } from "lucide-react";
+import { Download, Upload, Activity, Play, FileCode as FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Hop as Home, ShieldCheck, MessageCircle, UserPlus, Sparkles } from "lucide-react";
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
 
@@ -180,6 +180,7 @@ export interface IconSidebarProps {
   annotationOpen: boolean;
   onToggleInvite: () => void;
   canManageMembers: boolean;
+  onToggleAiChat: () => void;
   onToggleGitDiff: () => void;
   onToggleCodePreview: () => void;
   onExportScaffold: () => void;
@@ -241,6 +242,7 @@ export function IconSidebar({
   annotationOpen,
   onToggleInvite,
   canManageMembers,
+  onToggleAiChat,
   onToggleGitDiff,
   onToggleCodePreview,
   onExportScaffold,
@@ -456,6 +458,13 @@ export function IconSidebar({
                 active={false}
               />
             )}
+
+            <SidebarButton
+              icon={<Sparkles className="h-4 w-4" />}
+              tooltip="AI Architecture Assistant"
+              onClick={onToggleAiChat}
+              active={false}
+            />
 
             <SidebarButton
               icon={<GitCompare className="h-4 w-4" />}

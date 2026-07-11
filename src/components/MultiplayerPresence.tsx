@@ -1,14 +1,19 @@
 /**
  * MultiplayerPresence — Real-Time Collaborative Ghost Cursors
  *
- * Displays ghost cursors for simulated collaborators with high-contrast
- * color indicators and developer name labels.
+ * Loads real project members from the project_members table and renders
+ * them as animated ghost cursors on the canvas.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Users, Wifi, WifiOff, User, Zap } from "lucide-react";
+import { Users, Wifi, WifiOff, User, RefreshCw } from "lucide-react";
 import type { CollaboratorCursor, PresenceState } from "@/lib/multiplayer-presence";
-import { initializePresenceState, updateCursorPosition, toggleConnection } from "@/lib/multiplayer-presence";
+import {
+  initializePresenceState,
+  updateCursorPosition,
+  toggleConnection as togglePresenceConnectionState,
+  loadProjectMembers,
+} from "@/lib/multiplayer-presence";
 
 interface MultiplayerPresenceProps {
   isOpen: boolean;
@@ -16,6 +21,8 @@ interface MultiplayerPresenceProps {
   canvasRef: React.RefObject<HTMLDivElement>;
   zoom: number;
   nodes: Array<{ id: string; label: string; x: number; y: number }>;
+  projectId?: string | null;
+  currentUserId?: string | null;
 }
 
 export function MultiplayerPresence({
@@ -24,10 +31,35 @@ export function MultiplayerPresence({
   canvasRef,
   zoom,
   nodes,
+  projectId,
+  currentUserId,
 }: MultiplayerPresenceProps) {
   const [presenceState, setPresenceState] = useState<PresenceState>(initializePresenceState);
+  const [loading, setLoading] = useState(false);
   const animationRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(Date.now());
+
+  // Load real project members when panel opens or project changes
+  const fetchMembers = useCallback(async () => {
+    if (!projectId) return;
+    setLoading(true);
+    try {
+      const collaborators = await loadProjectMembers(projectId, currentUserId);
+      setPresenceState((prev) => ({
+        ...prev,
+        collaborators,
+        isConnected: true,
+      }));
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, currentUserId]);
+
+  useEffect(() => {
+    if (isOpen && projectId) {
+      fetchMembers();
+    }
+  }, [isOpen, projectId, fetchMembers]);
 
   // Animation loop for cursor movement
   useEffect(() => {
@@ -42,7 +74,6 @@ export function MultiplayerPresence({
       const now = Date.now();
       const elapsed = now - lastTimeRef.current;
 
-      // Update every 50ms
       if (elapsed > 50) {
         lastTimeRef.current = now;
 
@@ -76,7 +107,10 @@ export function MultiplayerPresence({
 
   const handleToggleConnection = useCallback(() => {
     setPresenceState((prev) => toggleConnection(prev));
-  }, []);
+    if (!presenceState.isConnected && projectId) {
+      fetchMembers();
+    }
+  }, [presenceState.isConnected, projectId, fetchMembers]);
 
   if (!isOpen) return null;
 
@@ -96,12 +130,22 @@ export function MultiplayerPresence({
             </p>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={fetchMembers}
+            disabled={loading}
+            title="Refresh members"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            onClick={onClose}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       {/* Connection toggle */}
@@ -132,10 +176,21 @@ export function MultiplayerPresence({
           <CollaboratorRow key={collab.id} collaborator={collab} />
         ))}
 
-        {presenceState.collaborators.length === 0 && (
+        {presenceState.collaborators.length === 0 && !loading && (
           <div className="rounded-lg border border-dashed border-border p-4 text-center">
             <User className="mx-auto h-6 w-6 text-muted-foreground/50" />
-            <p className="mt-1 text-xs text-muted-foreground">No collaborators online</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {projectId
+                ? "No collaborators yet. Invite members to see them here."
+                : "Open a project to load collaborators."}
+            </p>
+          </div>
+        )}
+
+        {loading && (
+          <div className="rounded-lg border border-dashed border-border p-4 text-center">
+            <RefreshCw className="mx-auto h-5 w-5 animate-spin text-muted-foreground/50" />
+            <p className="mt-1 text-xs text-muted-foreground">Loading members...</p>
           </div>
         )}
       </div>
@@ -273,15 +328,29 @@ export function MultiplayerToggle({
 }
 
 /**
- * Hook for managing multiplayer presence state.
+ * Hook for managing multiplayer presence state with real project members.
  */
 export function useMultiplayerPresence(
   canvasRef: React.RefObject<HTMLDivElement>,
   zoom: number,
-  nodes: Array<{ id: string; label: string; x: number; y: number }>
+  nodes: Array<{ id: string; label: string; x: number; y: number }>,
+  projectId?: string | null,
+  currentUserId?: string | null
 ) {
   const [presenceState, setPresenceState] = useState<PresenceState>(initializePresenceState);
   const animationRef = useRef<number | null>(null);
+
+  // Load real members when project changes
+  useEffect(() => {
+    if (!projectId) return;
+    loadProjectMembers(projectId, currentUserId).then((collaborators) => {
+      setPresenceState((prev) => ({
+        ...prev,
+        collaborators,
+        isConnected: true,
+      }));
+    });
+  }, [projectId, currentUserId]);
 
   useEffect(() => {
     if (!presenceState.isConnected) {
@@ -333,15 +402,14 @@ export function useMultiplayerPresence(
   }, []);
 
   const addCollaborator = useCallback(() => {
-    setPresenceState((prev) => {
-      if (!prev.isConnected) return prev;
-      const newCollabs = initializePresenceState().collaborators.slice(0, 1);
-      return {
+    if (!projectId) return;
+    loadProjectMembers(projectId, currentUserId).then((collaborators) => {
+      setPresenceState((prev) => ({
         ...prev,
-        collaborators: [...prev.collaborators, ...newCollabs],
-      };
+        collaborators: [...prev.collaborators, ...collaborators],
+      }));
     });
-  }, []);
+  }, [projectId, currentUserId]);
 
   return {
     presenceState,
