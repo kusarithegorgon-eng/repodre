@@ -18,6 +18,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
 import { AiDisclosureBadge } from "@/components/AiDisclosureBadge";
 import { RecentProjectsPanel } from "@/components/RecentProjectsPanel";
+import { Tooltip } from "@/components/Tooltip";
 import { analyzeRepository, type AnalysisResult, type AnalysisProgress as AnalysisProgressType } from "@/lib/repository-analyzer";
 import { signInWithGitHub } from "@/lib/github-auth";
 import { createProject, batchCreateNodes, batchCreateEdges, syncRepoToSupabase } from "@/lib/db-client";
@@ -267,19 +268,23 @@ export function HomePage() {
 
               <p className="mt-3 text-xs text-muted-foreground">
                 Try:{" "}
-                <button
-                  onClick={() => setRepoUrl("vercel/next.js")}
-                  className="text-teal hover:underline"
-                >
-                  vercel/next.js
-                </button>
+                <Tooltip content="Fill input with vercel/next.js" side="top">
+                  <button
+                    onClick={() => setRepoUrl("vercel/next.js")}
+                    className="text-teal hover:underline"
+                  >
+                    vercel/next.js
+                  </button>
+                </Tooltip>
                 ,{" "}
-                <button
-                  onClick={() => setRepoUrl("supabase/supabase")}
-                  className="text-teal hover:underline"
-                >
-                  supabase/supabase
-                </button>
+                <Tooltip content="Fill input with supabase/supabase" side="top">
+                  <button
+                    onClick={() => setRepoUrl("supabase/supabase")}
+                    className="text-teal hover:underline"
+                  >
+                    supabase/supabase
+                  </button>
+                </Tooltip>
                 , or your own repo
               </p>
             </div>
@@ -319,31 +324,37 @@ export function HomePage() {
             Want to see it in action?
           </p>
           <div className="flex flex-col items-center gap-3">
-            <Link
-              to="/studio"
-              className="inline-flex items-center gap-2 rounded-lg bg-surface border border-border px-4 py-2 text-sm font-medium text-foreground transition-all duration-200 hover:border-teal hover:text-teal"
-            >
-              View Demo Project
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+            <Tooltip content="Open the Studio with a demo project" side="top">
+              <Link
+                to="/studio"
+                className="inline-flex items-center gap-2 rounded-lg bg-surface border border-border px-4 py-2 text-sm font-medium text-foreground transition-all duration-200 hover:border-teal hover:text-teal"
+              >
+                View Demo Project
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Tooltip>
 
             {/* Test button for github-parser */}
-            <button
-              onClick={handleTestParser}
-              className="inline-flex items-center gap-2 rounded-lg bg-teal/10 border border-teal/30 px-4 py-2 text-sm font-medium text-teal transition-all duration-200 hover:bg-teal/20"
-            >
-              Test GitHub Parser
-              <GitBranch className="h-4 w-4" />
-            </button>
+            <Tooltip content="Parse a GitHub repo URL client-side" side="top">
+              <button
+                onClick={handleTestParser}
+                className="inline-flex items-center gap-2 rounded-lg bg-teal/10 border border-teal/30 px-4 py-2 text-sm font-medium text-teal transition-all duration-200 hover:bg-teal/20"
+              >
+                Test GitHub Parser
+                <GitBranch className="h-4 w-4" />
+              </button>
+            </Tooltip>
 
             {/* Sync to Database button */}
-            <button
-              onClick={handleSyncToDatabase}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue/10 border border-blue/30 px-4 py-2 text-sm font-medium text-blue transition-all duration-200 hover:bg-blue/20"
-            >
+            <Tooltip content="Sync repository files to Supabase" side="top">
+              <button
+                onClick={handleSyncToDatabase}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue/10 border border-blue/30 px-4 py-2 text-sm font-medium text-blue transition-all duration-200 hover:bg-blue/20"
+              >
               Sync to Database
               <Database className="h-4 w-4" />
-            </button>
+              </button>
+            </Tooltip>
             {syncStatus && (
               <p className="text-xs text-muted-foreground">{syncStatus}</p>
             )}

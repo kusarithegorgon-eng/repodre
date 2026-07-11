@@ -20,6 +20,7 @@ import { DragToConnectHandle, LiveEdgeDrawing, useDragToConnect } from "@/compon
 import { NodeSpawnerPopover, useNodeSpawner, createNewNodeConfig } from "@/components/NodeSpawnerPopover";
 import { IconSidebar } from "@/components/IconSidebar";
 import { FloatingControls } from "@/components/FloatingControls";
+import { Tooltip } from "@/components/Tooltip";
 import { CanvasExportButton } from "@/components/CanvasExportButton";
 import { ErdGuide } from "@/components/ErdGuide";
 import {
@@ -56,11 +57,13 @@ import {
   type Shape,
   type HandleSegment,
   type PositionedNode,
+  type Box,
   anchorHandles,
   centerOf,
   paddingFor,
   perimeterPoint,
   routeEdge,
+  orthogonalRoute,
   snappedEdgePath,
   textMaxWidth,
 } from "@/lib/canvas-geometry";
@@ -132,13 +135,27 @@ function straightEdgePath(a: NodeData, b: NodeData): string {
   return `M ${ap.x} ${ap.y} L ${bp.x} ${bp.y}`;
 }
 
-function orthogonalEdgePath(a: NodeData, b: NodeData): string {
+function orthogonalEdgePath(a: NodeData, b: NodeData, allNodes: NodeData[], edgeIndex: number): string {
   const ac = centerOf(a);
   const bc = centerOf(b);
   const ap = perimeterPoint(a, bc.x, bc.y);
   const bp = perimeterPoint(b, ac.x, ac.y);
-  const midX = (ap.x + bp.x) / 2;
-  return `M ${ap.x} ${ap.y} H ${midX} V ${bp.y} H ${bp.x}`;
+
+  // Build obstacle list: all nodes except a and b
+  const obstacles: Box[] = allNodes
+    .filter((n) => n.id !== a.id && n.id !== b.id)
+    .map((n) => {
+      const pad = paddingFor(n);
+      const w = (n.w || NODE_W) + pad * 2;
+      const h = (n.h || NODE_H) + pad * 2;
+      return { x: n.x - w / 2, y: n.y - h / 2, w, h };
+    });
+
+  // Per-edge offset to separate overlapping parallel segments
+  const offset = edgeIndex * 24;
+
+  const result = orthogonalRoute(ap, bp, obstacles, 18, offset);
+  return result.path;
 }
 
 interface EdgeData {
@@ -1146,7 +1163,7 @@ export async function POST(req: Request) {
   // the snapped port path from useEdgeSnap.
   const routed = useMemo(
     () =>
-      edges.map((e) => {
+      edges.map((e, idx) => {
         const a = nodes.find((n) => n.id === e.from);
         const b = nodes.find((n) => n.id === e.to);
         if (!a || !b) return { id: e.id, path: "", detoured: false };
@@ -1155,7 +1172,7 @@ export async function POST(req: Request) {
           return { id: e.id, path: straightEdgePath(a, b), detoured: false };
         }
         if (wireStyle === "orthogonal") {
-          return { id: e.id, path: orthogonalEdgePath(a, b), detoured: false };
+          return { id: e.id, path: orthogonalEdgePath(a, b, nodes, idx), detoured: false };
         }
 
         // Curvy (default): snap-based bezier with smart collision routing
@@ -2134,15 +2151,16 @@ function CanvasNode({
 
       {/* ── Cycle-shape button (hidden for bridge nodes) ── */}
       {!isBridge && (
-      <button
-        onClick={(e) => { e.stopPropagation(); onCycleShape(); }}
-        title="Cycle shape"
-        className={`absolute -right-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground opacity-0 transition-all duration-200 hover:text-teal group-hover:opacity-100 ${
-          selected ? "opacity-100" : ""
-        }`}
-      >
-        <Sparkles className="h-3 w-3" />
-      </button>
+      <Tooltip content="Cycle shape" side="right">
+        <button
+          onClick={(e) => { e.stopPropagation(); onCycleShape(); }}
+          className={`absolute -right-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground opacity-0 transition-all duration-200 hover:text-teal group-hover:opacity-100 ${
+            selected ? "opacity-100" : ""
+          }`}
+        >
+          <Sparkles className="h-3 w-3" />
+        </button>
+      </Tooltip>
       )}
 
       {/* ── Controller Badge (for logic layer nodes) ── */}
@@ -2200,13 +2218,14 @@ function CanvasNode({
 
       {/* ── Spawn child node button (right-center edge) ── */}
       {onSpawnChild && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onSpawnChild(); }}
-          title="Add child node"
-          className="absolute -right-4 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border-2 border-teal bg-background text-teal opacity-0 shadow-md transition-all duration-200 hover:bg-teal hover:text-white group-hover:opacity-100"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip content="Add child node" side="right">
+          <button
+            onClick={(e) => { e.stopPropagation(); onSpawnChild(); }}
+            className="absolute -right-4 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border-2 border-teal bg-background text-teal opacity-0 shadow-md transition-all duration-200 hover:bg-teal hover:text-white group-hover:opacity-100"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
       )}
     </div>
   );
@@ -2250,19 +2269,22 @@ function NodeOptions({
           <p className="mt-0.5 max-w-[200px] truncate font-mono text-xs text-foreground">{node.label}</p>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            onClick={onDelete}
-            title="Delete node (cascades edges)"
-            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip content="Delete node (cascades edges)" side="top">
+            <button
+              onClick={onDelete}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Close settings panel" side="top">
+            <button
+              onClick={onClose}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -2272,19 +2294,19 @@ function NodeOptions({
         {ALL_SHAPES.map((s) => {
           const active = node.shape === s;
           return (
-            <button
-              key={s}
-              onClick={() => onShape(s)}
-              title={s.charAt(0).toUpperCase() + s.slice(1)}
-              className={`flex h-11 flex-col items-center justify-center gap-1 rounded-lg border transition-all duration-200 ${
-                active
-                  ? "border-teal bg-teal/10 text-teal shadow-[0_0_14px_-4px_var(--teal)]"
-                  : "border-border bg-background text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <ShapeIcon shape={s} />
-              <span className="text-[9px] capitalize leading-none">{s}</span>
-            </button>
+            <Tooltip key={s} content={s.charAt(0).toUpperCase() + s.slice(1)} side="top">
+              <button
+                onClick={() => onShape(s)}
+                className={`flex h-11 flex-col items-center justify-center gap-1 rounded-lg border transition-all duration-200 ${
+                  active
+                    ? "border-teal bg-teal/10 text-teal shadow-[0_0_14px_-4px_var(--teal)]"
+                    : "border-border bg-background text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <ShapeIcon shape={s} />
+                <span className="text-[9px] capitalize leading-none">{s}</span>
+              </button>
+            </Tooltip>
           );
         })}
       </div>
@@ -2309,15 +2331,15 @@ function NodeOptions({
         {(Object.keys(ACCENT) as Accent[]).map((key) => {
           const active = node.accent === key;
           return (
-            <button
-              key={key}
-              onClick={() => onAccent(key)}
-              title={ACCENT[key].label}
-              className={`h-7 w-7 rounded-full border-2 transition-all duration-200 ${
-                active ? "scale-110 border-foreground" : "border-transparent opacity-70 hover:opacity-100"
-              }`}
-              style={{ background: ACCENT[key].color }}
-            />
+            <Tooltip key={key} content={ACCENT[key].label} side="top">
+              <button
+                onClick={() => onAccent(key)}
+                className={`h-7 w-7 rounded-full border-2 transition-all duration-200 ${
+                  active ? "scale-110 border-foreground" : "border-transparent opacity-70 hover:opacity-100"
+                }`}
+                style={{ background: ACCENT[key].color }}
+              />
+            </Tooltip>
           );
         })}
       </div>

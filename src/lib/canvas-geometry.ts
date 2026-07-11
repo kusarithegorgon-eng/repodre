@@ -705,6 +705,107 @@ export interface RoutedEdge {
   detoured: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Orthogonal (Manhattan) routing with obstacle avoidance + overlap offsets
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an orthogonal (90-degree only) path between two perimeter points,
+ * detouring around obstacle boxes and applying per-edge vertical offsets
+ * so coincident segments don't overlap.
+ *
+ * @param start     - perimeter anchor on the source node
+ * @param end       - perimeter anchor on the target node
+ * @param obstacles - bounding boxes of other nodes to avoid
+ * @param pad       - padding around obstacle boxes
+ * @param offset    - perpendicular offset to separate overlapping edges
+ */
+export function orthogonalRoute(
+  start: Point,
+  end: Point,
+  obstacles: Box[] = [],
+  pad = 18,
+  offset = 0,
+): { path: string; detoured: boolean } {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+
+  // Determine if the dominant direction is horizontal or vertical
+  const isHorizontal = Math.abs(dx) >= Math.abs(dy);
+
+  // Apply per-edge offset to the mid-segment to separate overlapping wires
+  const offX = isHorizontal ? 0 : offset;
+  const offY = isHorizontal ? offset : 0;
+
+  // Try the simple H-V-H or V-H-V route first
+  const midX = (start.x + end.x) / 2 + offX;
+  const midY = (start.y + end.y) / 2 + offY;
+
+  let path: string;
+  if (isHorizontal) {
+    path = `M ${start.x} ${start.y} H ${midX} V ${end.y} H ${end.x}`;
+  } else {
+    path = `M ${start.x} ${start.y} V ${midY} H ${end.x} V ${end.y}`;
+  }
+
+  // Check if the simple route collides with any obstacle
+  const simpleSegments = isHorizontal
+    ? [
+        { p: start, q: { x: midX, y: start.y } },
+        { p: { x: midX, y: start.y }, q: { x: midX, y: end.y } },
+        { p: { x: midX, y: end.y }, q: end },
+      ]
+    : [
+        { p: start, q: { x: start.x, y: midY } },
+        { p: { x: start.x, y: midY }, q: { x: end.x, y: midY } },
+        { p: { x: end.x, y: midY }, q: end },
+      ];
+
+  const collides = simpleSegments.some((seg) =>
+    obstacles.some((b) => segmentIntersectsBox(seg.p, seg.q, b, pad)),
+  );
+
+  if (!collides) {
+    return { path, detoured: false };
+  }
+
+  // Try detour routes: shift the mid-point to dodge obstacles
+  const detourCandidates = isHorizontal
+    ? [40, 80, 120, 160, 200, -40, -80, -120, -160, -200]
+    : [40, 80, 120, 160, 200, -40, -80, -120, -160, -200];
+
+  for (const detour of detourCandidates) {
+    const altMidX = isHorizontal ? midX : midX + detour;
+    const altMidY = isHorizontal ? midY + detour : midY;
+
+    const altSegments = isHorizontal
+      ? [
+          { p: start, q: { x: altMidX, y: start.y } },
+          { p: { x: altMidX, y: start.y }, q: { x: altMidX, y: end.y } },
+          { p: { x: altMidX, y: end.y }, q: end },
+        ]
+      : [
+          { p: start, q: { x: start.x, y: altMidY } },
+          { p: { x: start.x, y: altMidY }, q: { x: end.x, y: altMidY } },
+          { p: { x: end.x, y: altMidY }, q: end },
+        ];
+
+    const altCollides = altSegments.some((seg) =>
+      obstacles.some((b) => segmentIntersectsBox(seg.p, seg.q, b, pad)),
+    );
+
+    if (!altCollides) {
+      const altPath = isHorizontal
+        ? `M ${start.x} ${start.y} H ${altMidX} V ${end.y} H ${end.x}`
+        : `M ${start.x} ${start.y} V ${altMidY} H ${end.x} V ${end.y}`;
+      return { path: altPath, detoured: true };
+    }
+  }
+
+  // Fallback: use the simple route even if it collides (best effort)
+  return { path, detoured: true };
+}
+
 /**
  * Build a connector path between two nodes that:
  *  - anchors on each node's true perimeter (shape-aware polygon snapping),

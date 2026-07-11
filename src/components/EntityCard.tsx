@@ -8,6 +8,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Key, Link2, Shield, Trash2, Pencil } from "lucide-react";
+import { Tooltip } from "@/components/Tooltip";
 import type { ErdTableNode } from "@/lib/erd-layout";
 import { ERD_HEADER_HEIGHT, ERD_ROW_HEIGHT } from "@/lib/erd-layout";
 
@@ -138,13 +139,14 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect, onDel
         </span>
 
         {onDelete && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            title="Delete table"
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500/10 hover:text-red-500"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
+          <Tooltip content="Delete table" side="top">
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500/10 hover:text-red-500"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </Tooltip>
         )}
       </div>
 
