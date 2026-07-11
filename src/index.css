@@ -1,82 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
+@layer base {
+  :root {
+    --bg-primary: #f8f9fa;
+    --bg-secondary: #ffffff;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --border: #e2e8f0;
+    --sidebar: #1a1a2e;
+    --sidebar-text: #e2e8f0;
+  }
+  .dark {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --accent: #3b82f6;
+    --accent-hover: #60a5fa;
+    --border: #334155;
+    --sidebar: #0a0a1a;
+    --sidebar-text: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+  }
 }
 
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
-}
-
-body {
-  font-family: "Inter", system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  background: #f6f7f9;
-  color: #1e2430;
-}
-
-/* Subtle dotted grid for the canvas */
-.erd-grid {
-  background-image: radial-gradient(circle, #d4d9e2 1px, transparent 1px);
-  background-size: 22px 22px;
-}
-
-/* Relationship line hover glow */
-.rel-line {
-  transition: filter 120ms ease, stroke-width 120ms ease;
-}
-.rel-line:hover {
-  filter: drop-shadow(0 0 6px rgba(56, 132, 255, 0.45));
-  stroke-width: 3;
-}
-
-/* Tooltip fade */
-.tooltip-enter {
-  animation: tooltipIn 120ms ease forwards;
-}
-@keyframes tooltipIn {
-  from {
+@layer utilities {
+  .btn-hover {
+    @apply transition-all duration-150 ease-in-out;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-hover::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.08);
     opacity: 0;
-    transform: translateY(4px);
+    transition: opacity 0.15s ease;
+    pointer-events: none;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+  .btn-hover:hover::after { opacity: 1; }
+  .btn-hover:active { transform: scale(0.97); }
 
-/* Panel slide */
-.panel-enter {
-  animation: panelIn 160ms ease forwards;
-}
-@keyframes panelIn {
-  from {
-    opacity: 0;
-    transform: translateX(12px);
+  .hover-lift {
+    @apply transition-transform duration-150;
   }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-thumb {
-  background: #aeb7c6;
-  border-radius: 6px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #818ea4;
-  background-clip: content-box;
+  .hover-lift:hover { transform: translateY(-1px); }
+  .hover-lift:active { transform: translateY(0); }
 }
