@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/erd/GuidePanel.tsx","./src/erd/RelationshipLine.tsx","./src/erd/RelationshipPanel.tsx","./src/erd/TableCard.tsx","./src/erd/data.ts"],"version":"5.9.3"}
