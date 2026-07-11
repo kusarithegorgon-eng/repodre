@@ -46,6 +46,8 @@ import { EnvironmentToggle, useProductionOverlay, type Environment } from "@/com
 import { WebhookSyncPanel, WebhookSyncToggle, useWebhookSync } from "@/components/WebhookSyncPanel";
 import { MultiplayerPresence, MultiplayerToggle, GhostCursors, useMultiplayerPresence } from "@/components/MultiplayerPresence";
 import { AnnotationPanel, AnnotationOverlay } from "@/components/AnnotationPanel";
+import { InviteMemberPanel } from "@/components/InviteMemberPanel";
+import { useAccessControl } from "@/hooks/useAccessControl";
 import { GitDiffOverlay, GitDiffToggle, useGitDiff, getDiffNodeStyles } from "@/components/GitDiffOverlay";
 import { ControllerBadge, isControllerNode, classifyNodeLayer, useSmartLinks, getSmartLinkClasses } from "@/components/Flow";
 import type { WebhookEvent, NodeMutation } from "@/lib/webhook-sync";
@@ -406,10 +408,16 @@ export function StudioPage() {
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const [isResettingLayout, setIsResettingLayout] = useState(false);
   const [selectedAnnotationNode, setSelectedAnnotationNode] = useState<string | null>(null);
+  const [invitePanelOpen, setInvitePanelOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canComment = can(userRole, "create", "annotation");
   const activeAnnotationNodeId = selectedAnnotationNode ?? selected;
+
+  // Project-scoped access control — checks project_members table for the
+  // current user's role on the active project. Falls back to viewer when no
+  // project is loaded or the user is not signed in.
+  const access = useAccessControl(project?.id, authUser);
   const selectedAnnotationTarget = activeAnnotationNodeId
     ? nodes.find((node) => node.id === activeAnnotationNodeId)
     : null;
@@ -845,6 +853,7 @@ export async function POST(req: Request) {
   // are instantly purged from local state AND the database, preventing
   // layout rendering exceptions from orphaned edge endpoints.
   const handleDeleteNode = useCallback(async (id: string) => {
+    if (!access.canDelete) return;
     // 1. Cascade-filter: remove all edges pointing to this node
     const orphanedEdges = edges.filter((e) => e.from === id || e.to === id);
     setEdges((prev) => prev.filter((e) => e.from !== id && e.to !== id));
@@ -860,9 +869,7 @@ export async function POST(req: Request) {
       await deleteNode(id);
       await Promise.all(orphanedEdges.map((e) => deleteEdge(e.id)));
     } catch { /* ignore — local state is already clean */ }
-  }, [edges]);
-
-  // Delete a single edge (used by the edge cleanup loop and manual deletion)
+  }, [edges, access.canDelete]);
   const handleDeleteEdge = useCallback(async (id: string) => {
     setEdges((prev) => prev.filter((e) => e.id !== id));
     try { await deleteEdge(id); } catch { /* ignore */ }
@@ -1379,6 +1386,8 @@ export async function POST(req: Request) {
         onToggleAnnotations={() => setAnnotationOpen(!annotationOpen)}
         annotationCount={annotations.length}
         annotationOpen={annotationOpen}
+        onToggleInvite={() => setInvitePanelOpen(!invitePanelOpen)}
+        canManageMembers={access.canManage}
         onToggleGitDiff={() => { if (!gitDiffOpen) generateDiff(); setGitDiffOpen(!gitDiffOpen); }}
         onToggleCodePreview={() => setCodePreviewOpen(!codePreviewOpen)}
         onExportScaffold={() => { const scaffold = generateScaffold(project?.name || "repodre-architecture", nodes.map(n => ({id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, workspace: n.workspace, tableName: n.tableName, columns: n.columns})), edges.map(e => ({id: e.id, from: e.from, to: e.to, cardinality: e.cardinality, fromColumn: e.fromColumn, toColumn: e.toColumn}))); downloadScaffold(scaffold); }}
@@ -1866,6 +1875,14 @@ export async function POST(req: Request) {
         onDeleteAnnotation={handleDeleteAnnotation}
         canComment={canComment}
       />
+
+      {project && (
+        <InviteMemberPanel
+          projectId={project.id}
+          isOpen={invitePanelOpen}
+          onClose={() => setInvitePanelOpen(false)}
+        />
+      )}
 
       {/* Code Preview Panel (slide-out drawer) */}
       <CodePreviewPanel

@@ -37,6 +37,8 @@ interface ErdCanvasProps {
   onSelect: (id: string | null) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onDeleteNode?: (id: string) => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
   zoom: number;
   panX?: number;
   panY?: number;
@@ -55,6 +57,8 @@ export function ErdCanvas({
   onSelect,
   onDragEnd,
   onDeleteNode,
+  canEdit = true,
+  canDelete = true,
   zoom,
   panX = 0,
   panY = 0,

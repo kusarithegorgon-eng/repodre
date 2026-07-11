@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from "react";
-import { Download, Upload, Activity, Play, FileCode as FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Hop as Home, ShieldCheck, MessageCircle } from "lucide-react";
+import { Download, Upload, Activity, Play, FileCode as FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Hop as Home, ShieldCheck, MessageCircle, UserPlus } from "lucide-react";
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
 
@@ -178,6 +178,8 @@ export interface IconSidebarProps {
   onToggleAnnotations: () => void;
   annotationCount: number;
   annotationOpen: boolean;
+  onToggleInvite: () => void;
+  canManageMembers: boolean;
   onToggleGitDiff: () => void;
   onToggleCodePreview: () => void;
   onExportScaffold: () => void;
@@ -237,6 +239,8 @@ export function IconSidebar({
   onToggleAnnotations,
   annotationCount,
   annotationOpen,
+  onToggleInvite,
+  canManageMembers,
   onToggleGitDiff,
   onToggleCodePreview,
   onExportScaffold,
@@ -443,6 +447,15 @@ export function IconSidebar({
               active={annotationOpen}
               badge={annotationCount > 0}
             />
+
+            {canManageMembers && (
+              <SidebarButton
+                icon={<UserPlus className="h-4 w-4" />}
+                tooltip="Invite Members"
+                onClick={onToggleInvite}
+                active={false}
+              />
+            )}
 
             <SidebarButton
               icon={<GitCompare className="h-4 w-4" />}
