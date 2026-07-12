@@ -383,10 +383,12 @@ export function StudioPage() {
   const [workspace, setWorkspace] = useState<Workspace>("app");
   const [nodes, setNodes] = useState<NodeData[]>(INITIAL_NODES);
   const [edges, setEdges] = useState<EdgeData[]>(INITIAL_EDGES);
-  const [selected, setSelected] = useState<string | null>("n1");
+  const [selected, setSelected] = useState<string | null>(null);
   const [autoLayout, setAutoLayout] = useState(true);
   const [smartRoute, setSmartRoute] = useState(true);
   const [zoom, setZoom] = useState(100);
+  const [layoutDensity, setLayoutDensity] = useState<LayoutDensity>("compact");
+  const [isLayoutRunning, setIsLayoutRunning] = useState(false);
   const [hoverHandle, setHoverHandle] = useState<string | null>(null);
   const [schemaSource, setSchemaSource] = useState<string>("");
   const [codePreviewOpen, setCodePreviewOpen] = useState(false);
@@ -975,6 +977,58 @@ export async function POST(req: Request) {
     setShowLayoutPopover(false);
   }, [layoutDirectives, edges]);
 
+  // ─── Smart Layout (ELK-powered hierarchical) ───────────────────────────────
+  const handleRunSmartLayout = useCallback(async (density: LayoutDensity) => {
+    setIsLayoutRunning(true);
+    try {
+      const lockedIds = new Set(
+        nodes.filter((n) => n.isManuallyPositioned).map((n) => n.id),
+      );
+      const layoutNodes = nodes.map((n) => ({
+        id: n.id,
+        isManuallyPositioned: n.isManuallyPositioned,
+        x: n.x,
+        y: n.y,
+      }));
+      const layoutEdges = edges.map((e) => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+      }));
+
+      const result = await runSmartLayout(layoutNodes, layoutEdges, {
+        density,
+        direction: "DOWN",
+        lockedIds,
+      });
+
+      const newPositions = new Map<string, { x: number; y: number }>();
+      setNodes((prev) =>
+        prev.map((n) => {
+          const pos = result.positions.get(n.id);
+          if (!pos) return n;
+          const snapped = { x: snapToGrid(pos.x), y: snapToGrid(pos.y) };
+          newPositions.set(n.id, snapped);
+          return { ...n, x: snapped.x, y: snapped.y, isManuallyPositioned: false };
+        }),
+      );
+
+      // Persist to database (batch)
+      if (project?.id && !isDraftMode) {
+        const batch = Array.from(newPositions.entries()).map(([id, pos]) => ({
+          id,
+          x: pos.x,
+          y: pos.y,
+        }));
+        if (batch.length > 0) {
+          batchUpdateNodePositions(project.id, batch).catch(() => {});
+        }
+      }
+    } finally {
+      setIsLayoutRunning(false);
+    }
+  }, [nodes, edges, project?.id, isDraftMode]);
+
   const setSub = useCallback(async (id: string, sub: string) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, sub } : n)));
   }, []);
@@ -1183,10 +1237,24 @@ export async function POST(req: Request) {
         if (snap && snap.path) {
           return { id: e.id, path: snap.path, detoured: false };
         }
+        // Smoothstep fallback: rounded orthogonal path between node boundaries
+        const smoothPath = smoothstepBetweenNodes(a, b, 12);
+        if (smoothPath) {
+          return { id: e.id, path: smoothPath, detoured: false };
+        }
         const r = routeEdge(a, b, smartRoute ? nodes : [a, b]);
         return { id: e.id, path: r.path, detoured: r.detoured };
       }),
     [edges, nodes, smartRoute, snapResult, wireStyle],
+  );
+
+  // ── Focus Mode: Contextual Path Lighting ────────────────────────────────
+  // Memoised BFS from the selected node — only recomputes on selection or
+  // edge-topology change, never on drag / zoom.  Returns opacity helpers so
+  // the render layer can dim non-connected nodes/edges to 15 %.
+  const focusMode = useFocusMode(
+    selected,
+    edges.map((e) => ({ id: e.id, from: e.from, to: e.to })),
   );
 
   if (isLoading) {
@@ -1415,7 +1483,7 @@ export async function POST(req: Request) {
                       const bridgeMarkerEnd = involvesBridge ? undefined : (linkType === "controller-to-db" ? "url(#arrow-db)" : "url(#arrow)");
 
                       return r.path ? (
-                        <g key={r.id}>
+                        <g key={r.id} opacity={focusMode.getEdgeOpacity(r.id)} style={{ transition: "opacity 200ms ease" }}>
                           <path
                             data-testid={`edge-${r.id}`}
                             data-detoured={r.detoured}
@@ -1503,8 +1571,15 @@ export async function POST(req: Request) {
                     <GettingStartedOverlay />
                   )}
                   {nodes.map((n) => (
-                    <CanvasNode
+                    <div
                       key={n.id}
+                      style={{
+                        opacity: focusMode.getNodeOpacity(n.id),
+                        transition: "opacity 200ms ease",
+                      }}
+                    >
+                    <CanvasNode
+                      key={n.id + "-inner"}
                       node={n}
                       zoom={zoom / 100}
                       selected={selected === n.id}
@@ -1529,6 +1604,7 @@ export async function POST(req: Request) {
                       canDrag={roleAccess.canMove}
                       canAdd={roleAccess.canAdd}
                     />
+                    </div>
                   ))}
 
                   {/* Production overlay nodes (read replicas, firewall gates) */}
@@ -1582,7 +1658,14 @@ export async function POST(req: Request) {
               </div>
 
               {/* App Journey Export Button */}
-              <div className="absolute right-4 top-4 z-30">
+              <div className="absolute right-4 top-4 z-30 flex items-center gap-2">
+                <LayoutControls
+                  density={layoutDensity}
+                  onChangeDensity={setLayoutDensity}
+                  onRunLayout={handleRunSmartLayout}
+                  isRunning={isLayoutRunning}
+                  disabled={nodes.length === 0}
+                />
                 <CanvasExportButton
                   getCanvasContainer={() => canvasRef.current}
                   disabled={nodes.length === 0}
