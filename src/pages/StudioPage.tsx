@@ -1527,6 +1527,7 @@ export async function POST(req: Request) {
                       envVars={getEnvVarsForNode(n.label, new Map([[mockModules[0]?.path?.split('/').pop()?.replace(/\.(ts|tsx)$/, '') || 'route', scanForEnvVariables(mockModules[0]?.source || '')]]))}
                       diffStatus={gitDiffOpen ? getNodeDiffStatus(n.id, diffResult) : undefined}
                       canDrag={roleAccess.canMove}
+                      canAdd={roleAccess.canAdd}
                     />
                   ))}
 
@@ -1960,6 +1961,7 @@ function CanvasNode({
   envVars,
   diffStatus,
   canDrag,
+  canAdd,
 }: {
   node: NodeData;
   zoom: number;
@@ -1980,6 +1982,7 @@ function CanvasNode({
   envVars?: EnvScanResult | null;
   diffStatus?: DiffStatus;
   canDrag?: boolean;
+  canAdd?: boolean;
 }) {
   const a = ACCENT[node.accent];
 
