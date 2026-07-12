@@ -21,6 +21,7 @@ import { NodeSpawnerPopover, useNodeSpawner, createNewNodeConfig } from "@/compo
 import { IconSidebar } from "@/components/IconSidebar";
 import { FloatingControls } from "@/components/FloatingControls";
 import { Tooltip } from "@/components/Tooltip";
+import { useRoleAccess } from "@/hooks/useRoleAccess";
 import { CanvasExportButton } from "@/components/CanvasExportButton";
 import { ErdGuide } from "@/components/ErdGuide";
 import {
@@ -599,6 +600,8 @@ export async function POST(req: Request) {
 
   // Resolve the active project ID from the URL or fall back to the demo workspace ID
   const activeProjectId = search.project ?? (workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID);
+
+  const roleAccess = useRoleAccess(activeProjectId);
 
   // Refresh Canvas: reloads nodes and edges from Supabase for the active project.
   // Called on initial render, on project/workspace change, on realtime updates,
@@ -1523,6 +1526,7 @@ export async function POST(req: Request) {
                       antiPatternWarnings={getWarningsForNode(n.id, antiPatternWarnings)}
                       envVars={getEnvVarsForNode(n.label, new Map([[mockModules[0]?.path?.split('/').pop()?.replace(/\.(ts|tsx)$/, '') || 'route', scanForEnvVariables(mockModules[0]?.source || '')]]))}
                       diffStatus={gitDiffOpen ? getNodeDiffStatus(n.id, diffResult) : undefined}
+                      canDrag={roleAccess.canMove}
                     />
                   ))}
 
@@ -1605,6 +1609,8 @@ export async function POST(req: Request) {
                   onDelete={() => handleDeleteNode(sel.id)}
                   envVars={getEnvVarsForNode(sel.label, new Map([[mockModules[0]?.path?.split('/').pop()?.replace(/\.(ts|tsx)$/, '') || 'route', scanForEnvVariables(mockModules[0]?.source || '')]]))}
                   antiPatternWarnings={getWarningsForNode(sel.id, antiPatternWarnings)}
+                  canDelete={roleAccess.canDelete}
+                  canAdd={roleAccess.canAdd}
                 />
               )}
 
@@ -1953,6 +1959,7 @@ function CanvasNode({
   antiPatternWarnings,
   envVars,
   diffStatus,
+  canDrag,
 }: {
   node: NodeData;
   zoom: number;
@@ -1972,6 +1979,7 @@ function CanvasNode({
   antiPatternWarnings?: AntiPatternWarning[];
   envVars?: EnvScanResult | null;
   diffStatus?: DiffStatus;
+  canDrag?: boolean;
 }) {
   const a = ACCENT[node.accent];
 
@@ -1986,6 +1994,7 @@ function CanvasNode({
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
+    if (canDrag === false) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -2218,7 +2227,7 @@ function CanvasNode({
       )}
 
       {/* ── Spawn child node button (right-center edge) ── */}
-      {onSpawnChild && (
+      {onSpawnChild && canAdd !== false && (
         <Tooltip content="Add child node" side="right">
           <button
             onClick={(e) => { e.stopPropagation(); onSpawnChild(); }}
@@ -2250,6 +2259,8 @@ function NodeOptions({
   onDelete,
   envVars,
   antiPatternWarnings,
+  canDelete,
+  canAdd,
 }: {
   node: NodeData;
   onShape: (s: Shape) => void;
@@ -2259,6 +2270,8 @@ function NodeOptions({
   onDelete: () => void;
   envVars?: EnvScanResult | null;
   antiPatternWarnings?: AntiPatternWarning[];
+  canDelete?: boolean;
+  canAdd?: boolean;
 }) {
   const a = ACCENT[node.accent];
 
@@ -2270,14 +2283,16 @@ function NodeOptions({
           <p className="mt-0.5 max-w-[200px] truncate font-mono text-xs text-foreground">{node.label}</p>
         </div>
         <div className="flex items-center gap-1">
-          <Tooltip content="Delete node (cascades edges)" side="top">
-            <button
-              onClick={onDelete}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
-             data-tip="Delete node">
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </Tooltip>
+          {canDelete !== false && (
+            <Tooltip content="Delete node (cascades edges)" side="top">
+              <button
+                onClick={onDelete}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
+               data-tip="Delete node">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          )}
           <Tooltip content="Close settings panel" side="top">
             <button
               onClick={onClose}
