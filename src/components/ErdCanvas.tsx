@@ -332,6 +332,7 @@ export function ErdCanvas({
             </div>
             <button
               onClick={() => { setSelectedEdgeId(null); setConstraintTooltip(null); }}
+              data-tip="Close constraint details"
               className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             >
               <X className="h-3 w-3" />

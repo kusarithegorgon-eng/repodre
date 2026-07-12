@@ -97,6 +97,7 @@ export function MultiplayerPresence({
           </div>
         </div>
         <button
+        data-tip="Close multiplayer panel"
           onClick={onClose}
           className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
@@ -112,7 +113,7 @@ export function MultiplayerPresence({
             ? "border-teal/50 bg-teal/10 text-teal"
             : "border-border bg-background text-muted-foreground hover:border-teal hover:text-teal"
         }`}
-      >
+       data-tip="Open multiplayer presence">
         {presenceState.isConnected ? (
           <>
             <Wifi className="h-3.5 w-3.5" />
@@ -256,7 +257,7 @@ export function MultiplayerToggle({
           ? "border-teal/50 bg-teal/10 text-teal"
           : "border-border bg-background text-muted-foreground hover:border-teal hover:text-teal"
       }`}
-    >
+     data-tip="Toggle multiplayer presence">
       <Users className="h-3.5 w-3.5" />
       <span>Multiplayer</span>
       {collaboratorCount > 0 && (

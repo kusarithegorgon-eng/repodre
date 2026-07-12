@@ -1902,6 +1902,7 @@ function TreeRow({ node, depth, defaultOpen }: { node: TreeNode; depth: number; 
     <div>
       <button
         onClick={() => isFolder && setOpen((v) => !v)}
+        data-tip={node.name}
         className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         style={{ paddingLeft: depth * 14 + 8 }}
       >
@@ -2273,7 +2274,7 @@ function NodeOptions({
             <button
               onClick={onDelete}
               className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
-            >
+             data-tip="Delete node">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </Tooltip>
@@ -2281,7 +2282,7 @@ function NodeOptions({
             <button
               onClick={onClose}
               className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
+             data-tip="Close settings panel">
               <X className="h-3.5 w-3.5" />
             </button>
           </Tooltip>

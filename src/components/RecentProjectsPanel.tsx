@@ -116,7 +116,7 @@ export function RecentProjectsPanel({
         <button
           onClick={fetchProjects}
           disabled={isLoading}
-          title="Refresh projects list"
+          data-tip="Refresh projects list"
           className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
@@ -137,7 +137,7 @@ export function RecentProjectsPanel({
                 <button
                   onClick={fetchProjects}
                   className="inline-flex items-center gap-1.5 rounded-md border border-teal/40 bg-teal/10 px-2.5 py-1 text-xs font-medium text-teal transition-colors hover:bg-teal/20"
-                >
+                 data-tip="Refresh projects list">
                   <RefreshCw className="h-3 w-3" />
                   Refresh
                 </button>
@@ -151,7 +151,7 @@ export function RecentProjectsPanel({
             <button
               onClick={fetchProjects}
               className="mt-2 text-xs text-muted-foreground hover:text-foreground"
-            >
+             data-tip="Open project">
               Try again
             </button>
           </div>

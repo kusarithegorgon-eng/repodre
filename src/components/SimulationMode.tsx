@@ -150,6 +150,7 @@ export function SimulationMode({
         </div>
         <button
           onClick={onClose}
+          data-tip="Close simulation"
           className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent transition-colors"
         >
           <X className="h-4 w-4 text-muted-foreground" />
@@ -229,14 +230,14 @@ export function SimulationMode({
       <div className="flex items-center justify-center gap-2 border-t border-border p-4">
         <button
           onClick={handleReset}
-          title="Reset"
+          data-tip="Reset simulation"
           className="flex h-9 w-9 items-center justify-center rounded-lg border border-border hover:bg-accent transition-colors"
         >
           <RotateCcw className="h-4 w-4" />
         </button>
         <button
           onClick={() => setIsPlaying(!isPlaying)}
-          title={isPlaying ? "Pause" : "Play"}
+          data-tip={isPlaying ? "Pause" : "Play"}
           className="flex h-10 w-10 items-center justify-center rounded-full bg-teal text-white hover:bg-teal/90 transition-colors"
         >
           {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -244,7 +245,7 @@ export function SimulationMode({
         <button
           onClick={handleNext}
           disabled={currentStep >= simulationPath.length - 1}
-          title="Next step"
+          data-tip="Advance to next step"
           className="flex h-9 w-9 items-center justify-center rounded-lg border border-border hover:bg-accent transition-colors disabled:opacity-40"
         >
           <SkipForward className="h-4 w-4" />
@@ -284,7 +285,7 @@ export function SimulationModeToggle({
   return (
     <button
       onClick={onClick}
-      title="Toggle simulation mode"
+      data-tip="Toggle simulation mode"
       className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
         isActive
           ? "border-teal bg-teal/10 text-teal"

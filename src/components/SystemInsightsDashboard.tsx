@@ -182,7 +182,7 @@ export function SystemInsightsDashboard({
         </div>
         <button
           onClick={onClose}
-          className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent transition-colors"
+          data-tip="Close insights" className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent transition-colors"
         >
           <X className="h-4 w-4 text-muted-foreground" />
         </button>

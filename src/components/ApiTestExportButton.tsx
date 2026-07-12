@@ -153,7 +153,7 @@ function ExportOption({
     <button
       onClick={onClick}
       className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent"
-    >
+     data-tip="Export as Postman collection">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface text-muted-foreground">
         {icon}
       </div>

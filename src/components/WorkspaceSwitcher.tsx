@@ -20,7 +20,7 @@ export function WorkspaceSwitcher({ workspace, onChange }: WorkspaceSwitcherProp
     <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-1">
       <button
         onClick={() => onChange("app")}
-        title="App Journey viewport — horizontal execution timeline"
+        data-tip="App Journey viewport — horizontal execution timeline"
         className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-all ${
           workspace === "app"
             ? "bg-teal/20 text-teal shadow-[0_0_14px_-4px_var(--teal)]"
@@ -32,7 +32,7 @@ export function WorkspaceSwitcher({ workspace, onChange }: WorkspaceSwitcherProp
       </button>
       <button
         onClick={() => onChange("erd")}
-        title="Database ERD viewport — relational grid with Crow's Foot notation"
+        data-tip="Database ERD viewport — relational grid with Crow's Foot notation"
         className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-all ${
           workspace === "erd"
             ? "bg-teal/20 text-teal shadow-[0_0_14px_-4px_var(--teal)]"

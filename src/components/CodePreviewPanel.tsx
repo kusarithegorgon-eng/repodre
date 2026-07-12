@@ -381,6 +381,7 @@ export function CodePreviewPanel({
         </div>
         <button
           onClick={onClose}
+          data-tip="Close code preview"
           className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent transition-colors"
         >
           <X className="h-4 w-4 text-muted-foreground" />
@@ -408,7 +409,7 @@ export function CodePreviewPanel({
           {/* View Raw toggle */}
           <button
             onClick={() => setViewRaw(!viewRaw)}
-            title={viewRaw ? "Show extracted code" : "Show full file content"}
+            data-tip={viewRaw ? "Show extracted code" : "Show full file content"}
             className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
               viewRaw
                 ? "bg-teal/10 text-teal"
@@ -429,6 +430,7 @@ export function CodePreviewPanel({
           </button>
           <button
             onClick={handleCopy}
+            data-tip="Copy code to clipboard"
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
             {copied ? (
@@ -514,6 +516,7 @@ export function CodePreviewToggle({
   return (
     <button
       onClick={onClick}
+      data-tip="View source code for selected node"
       className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
         isOpen
           ? "border-teal bg-teal/10 text-teal"

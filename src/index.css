@@ -455,3 +455,119 @@ body {
 .theme-transition * {
   transition: background-color 0.2s ease, border-color 0.2s ease;
 }
+
+/* ─── Universal Hover Tooltip System ──────────────────────────────────── */
+/*
+ * Any element with data-tip="Label text" gets a CSS-only hover tooltip.
+ * Position via data-tip-pos: top (default) | bottom | left | right.
+ * Works on buttons, links, icons — no JS wrapper needed.
+ */
+[data-tip] {
+  position: relative;
+}
+
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 9999;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 150ms ease, visibility 150ms ease;
+}
+
+/* Arrow */
+[data-tip]::before {
+  content: "";
+  position: absolute;
+  z-index: 9999;
+  border: 5px solid transparent;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 150ms ease, visibility 150ms ease;
+}
+
+/* Default: top */
+[data-tip]::after {
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+[data-tip]::before {
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-top-color: var(--popover);
+}
+
+/* Bottom */
+[data-tip-pos="bottom"]::after {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+[data-tip-pos="bottom"]::before {
+  top: 100%;
+  bottom: auto;
+  border-top-color: transparent;
+  border-bottom-color: var(--popover);
+}
+
+/* Left */
+[data-tip-pos="left"]::after {
+  right: calc(100% + 8px);
+  bottom: auto;
+  left: auto;
+  top: 50%;
+  transform: translateY(-50%);
+}
+[data-tip-pos="left"]::before {
+  right: 100%;
+  bottom: auto;
+  left: auto;
+  top: 50%;
+  transform: translateY(-50%);
+  border-top-color: transparent;
+  border-left-color: var(--popover);
+}
+
+/* Right */
+[data-tip-pos="right"]::after {
+  left: calc(100% + 8px);
+  bottom: auto;
+  top: 50%;
+  transform: translateY(-50%);
+}
+[data-tip-pos="right"]::before {
+  left: 100%;
+  bottom: auto;
+  top: 50%;
+  transform: translateY(-50%);
+  border-top-color: transparent;
+  border-right-color: var(--popover);
+}
+
+/* Show on hover + focus (keyboard accessibility) */
+[data-tip]:hover::after,
+[data-tip]:hover::before,
+[data-tip]:focus-visible::after,
+[data-tip]:focus-visible::before {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Delay so quick mouse-overs don't flicker */
+[data-tip]:hover::after,
+[data-tip]:hover::before {
+  transition-delay: 350ms;
+}

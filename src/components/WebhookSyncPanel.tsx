@@ -44,6 +44,7 @@ export function WebhookSyncPanel({
           </div>
         </div>
         <button
+        data-tip="Close webhook sync panel"
           onClick={onClose}
           className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
@@ -158,7 +159,7 @@ function CommitRow({
       <button
         onClick={onToggle}
         className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent transition-colors"
-      >
+       data-tip="Open webhook sync panel">
         {expanded ? (
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
         ) : (
@@ -215,7 +216,7 @@ export function WebhookSyncToggle({
           ? "border-teal/50 bg-teal/10 text-teal"
           : "border-border bg-background text-muted-foreground hover:border-teal hover:text-teal"
       }`}
-    >
+     data-tip="Toggle webhook sync">
       <Webhook className="h-3.5 w-3.5" />
       <span>Webhook Sync</span>
       <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />

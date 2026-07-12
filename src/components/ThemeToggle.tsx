@@ -8,7 +8,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      data-tip={isDark ? "Switch to light mode" : "Switch to dark mode"}
       className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-all duration-200 hover:text-foreground hover:border-teal/50"
     >
       {isDark ? (

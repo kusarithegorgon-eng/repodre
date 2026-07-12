@@ -299,6 +299,7 @@ export function HomePage() {
                   setIsAnalyzing(false);
                   setProgress(null);
                 }}
+                data-tip="Cancel analysis"
                 className="mt-4 text-sm text-muted-foreground hover:text-foreground"
               >
                 Cancel
@@ -401,9 +402,9 @@ export function HomePage() {
       {/* Footer */}
       <footer className="border-t border-border px-6 py-6 text-center text-xs text-muted-foreground">
         <div className="flex items-center justify-center gap-4">
-          <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
+          <Link to="/privacy" data-tip="Read our Privacy Policy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
           <span className="text-border">·</span>
-          <Link to="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+          <Link to="/terms" data-tip="Read our Terms of Service" className="hover:text-foreground transition-colors">Terms of Service</Link>
           <span className="text-border">·</span>
           <span>Built with React and Supabase</span>
         </div>
