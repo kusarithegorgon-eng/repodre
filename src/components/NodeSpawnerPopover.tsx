@@ -199,7 +199,6 @@ export function NodeSpawnerPopover({
             Add Node
           </span>
           <button
-        data-tip="Close node spawner"
             onClick={onClose}
             className="flex h-5 w-5 items-center justify-center rounded hover:bg-accent"
           >

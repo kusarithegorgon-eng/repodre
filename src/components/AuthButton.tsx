@@ -73,7 +73,6 @@ export function AuthButton() {
     return (
       <button
         onClick={handleSignIn}
-        data-tip="Sign in with your GitHub account"
         className="flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-medium text-foreground transition-all duration-200 hover:border-teal hover:text-teal"
       >
         <LogIn className="h-4 w-4" />
@@ -86,7 +85,6 @@ export function AuthButton() {
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        data-tip="Account menu"
         className="flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition-all hover:border-teal"
       >
         {avatar ? (
@@ -103,7 +101,6 @@ export function AuthButton() {
           <div className="absolute right-0 top-full z-20 mt-2 w-48 rounded-lg border border-border bg-popover p-2 shadow-xl">
             <button
               onClick={handleSignOut}
-              data-tip="Sign out of your account"
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <LogOut className="h-4 w-4" />

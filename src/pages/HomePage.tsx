@@ -1,14 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, useCallback } from "react";
-import {
-  GitBranch,
-  Sparkles,
-  Zap,
-  Shield,
-  Globe,
-  ArrowRight,
-  Database,
-} from "lucide-react";
+import { GitBranch, Sparkles, Zap, Shield, Globe, ArrowRight, Database, CircleAlert as AlertCircle, X, Menu, FolderOpen } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { RepoInput } from "@/components/RepoInput";
@@ -18,12 +10,12 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
 import { AiDisclosureBadge } from "@/components/AiDisclosureBadge";
 import { RecentProjectsPanel } from "@/components/RecentProjectsPanel";
-import { Tooltip } from "@/components/Tooltip";
 import { analyzeRepository, type AnalysisResult, type AnalysisProgress as AnalysisProgressType } from "@/lib/repository-analyzer";
 import { signInWithGitHub } from "@/lib/github-auth";
 import { createProject, batchCreateNodes, batchCreateEdges, syncRepoToSupabase } from "@/lib/db-client";
 import type { HandleSegment } from "@/lib/canvas-geometry";
 import { parseRepository } from "@/utils/github-parser";
+import { parseGitHubUrl } from "@/lib/github-api";
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -35,6 +27,13 @@ export function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [toast, setToast] = useState<{ message: string; type: "error" | "info" } | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const showToast = useCallback((message: string, type: "error" | "info" = "error") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 6000);
+  }, []);
 
   const handleSelectProject = useCallback((projectId: string) => {
     navigate({ to: "/studio", search: { project: projectId } });
@@ -107,23 +106,40 @@ export function HomePage() {
   const handleAnalyze = useCallback(async () => {
     if (!repoUrl.trim() || isAnalyzing) return;
 
+    // Input validation: check URL format before starting parse
+    const trimmedUrl = repoUrl.trim();
+    const parsed = parseGitHubUrl(trimmedUrl);
+    if (!parsed) {
+      const msg = "Invalid repository URL. Expected format: github.com/owner/repo or owner/repo";
+      setError(msg);
+      showToast(msg);
+      return;
+    }
+
     setIsAnalyzing(true);
     setError(null);
     setResult(null);
 
     try {
-      const analysisResult = await analyzeRepository(repoUrl, setProgress, {
+      const analysisResult = await analyzeRepository(trimmedUrl, setProgress, {
         maxFiles: 100,
       });
 
       setResult(analysisResult);
 
       if (analysisResult.success && analysisResult.graph) {
+        // Always persist swimlane lanes for StudioPage rendering
+        if (analysisResult.graph.swimlaneLayout) {
+          sessionStorage.setItem(
+            "repodre-swimlanes",
+            JSON.stringify(analysisResult.graph.swimlaneLayout.lanes)
+          );
+        }
         try {
           // Save the project to the database
           const project = await createProject({
             name: analysisResult.repo?.name || "Untitled Project",
-            description: `Dependency graph for ${analysisResult.repo?.full_name || repoUrl}`,
+            description: `Dependency graph for ${analysisResult.repo?.full_name || trimmedUrl}`,
             zoom: 100,
             autoLayout: true,
             smartRoute: true,
@@ -177,28 +193,43 @@ export function HomePage() {
       } else if (!analysisResult.success) {
         if (analysisResult.accessIssue) {
           setError(analysisResult.accessIssue.message);
+          showToast(analysisResult.accessIssue.message);
         } else {
-          setError(analysisResult.error || "Analysis failed");
+          const msg = analysisResult.error || "Analysis failed";
+          setError(msg);
+          showToast("Parsing failed. Please ensure the repository is public and accessible.");
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      const message = err instanceof Error ? err.message : "An unexpected error occurred";
+      setError(message);
+      showToast("Parsing failed. Please ensure the repository is public and accessible.");
     } finally {
       setIsAnalyzing(false);
       setProgress(null);
     }
-  }, [repoUrl, isAnalyzing, navigate]);
+  }, [repoUrl, isAnalyzing, navigate, showToast]);
 
   const isProgress = progress && progress.phase !== "complete" && progress.phase !== "error";
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* Header */}
-      <header className="flex h-14 items-center justify-between border-b border-border px-6">
-        <Link to="/" className="flex items-center gap-2.5">
-          <RepodreLogo className="h-8 w-8" />
-          <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
-        </Link>
+      <header className="flex h-14 items-center justify-between border-b border-border px-4 md:px-6">
+        <div className="flex items-center gap-2">
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-border md:hidden hover:bg-surface"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <Link to="/" className="flex items-center gap-2.5">
+            <RepodreLogo className="h-8 w-8" />
+            <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
+          </Link>
+        </div>
         <div className="flex items-center gap-2">
           <AiDisclosureBadge />
           <ThemeToggle />
@@ -206,21 +237,71 @@ export function HomePage() {
         </div>
       </header>
 
+      {/* Mobile Projects Drawer */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          {/* Drawer */}
+          <div className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface border-r border-border shadow-xl">
+            <div className="flex h-14 items-center justify-between border-b border-border px-4">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="h-5 w-5 text-teal" />
+                <span className="text-sm font-medium">Recent Projects</span>
+              </div>
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-background"
+                aria-label="Close menu"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="h-[calc(100%-3.5rem)] overflow-y-auto">
+              <RecentProjectsPanel
+                onSelectProject={(id) => {
+                  handleSelectProject(id);
+                  setMobileMenuOpen(false);
+                }}
+                refreshKey={refreshKey}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed top-16 right-4 z-50 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 shadow-lg backdrop-blur-sm">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+          <p className="flex-1 text-sm font-medium text-red-500">{toast.message}</p>
+          <button
+            onClick={() => setToast(null)}
+            className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Privacy Shield banner */}
       <PrivacyShield />
 
       {/* Main Content with Sidebar */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {/* Recent Projects Sidebar — fixed width, scrollable internally */}
-        <div className="absolute inset-y-0 left-0 w-72 shrink-0 border-r border-border bg-surface">
+        {/* Recent Projects Sidebar — fixed width on desktop, hidden on mobile */}
+        <aside className="hidden md:block absolute inset-y-0 left-0 w-72 shrink-0 border-r border-border bg-surface">
           <RecentProjectsPanel
             onSelectProject={handleSelectProject}
             refreshKey={refreshKey}
           />
-        </div>
+        </aside>
 
         {/* Hero — centered regardless of sidebar content */}
-        <main className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12 ml-72">
+        <main className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12 md:ml-72">
         <div className="mx-auto max-w-2xl text-center">
           <div className="mb-6 flex items-center justify-center gap-2">
             <Sparkles className="h-5 w-5 text-teal" />
@@ -268,23 +349,19 @@ export function HomePage() {
 
               <p className="mt-3 text-xs text-muted-foreground">
                 Try:{" "}
-                <Tooltip content="Fill input with vercel/next.js" side="top">
-                  <button
-                    onClick={() => setRepoUrl("vercel/next.js")}
-                    className="text-teal hover:underline"
-                  >
-                    vercel/next.js
-                  </button>
-                </Tooltip>
+                <button
+                  onClick={() => setRepoUrl("vercel/next.js")}
+                  className="text-teal hover:underline"
+                >
+                  vercel/next.js
+                </button>
                 ,{" "}
-                <Tooltip content="Fill input with supabase/supabase" side="top">
-                  <button
-                    onClick={() => setRepoUrl("supabase/supabase")}
-                    className="text-teal hover:underline"
-                  >
-                    supabase/supabase
-                  </button>
-                </Tooltip>
+                <button
+                  onClick={() => setRepoUrl("supabase/supabase")}
+                  className="text-teal hover:underline"
+                >
+                  supabase/supabase
+                </button>
                 , or your own repo
               </p>
             </div>
@@ -299,7 +376,6 @@ export function HomePage() {
                   setIsAnalyzing(false);
                   setProgress(null);
                 }}
-                data-tip="Cancel analysis"
                 className="mt-4 text-sm text-muted-foreground hover:text-foreground"
               >
                 Cancel
@@ -325,37 +401,31 @@ export function HomePage() {
             Want to see it in action?
           </p>
           <div className="flex flex-col items-center gap-3">
-            <Tooltip content="Open the Studio with a demo project" side="top">
-              <Link
-                to="/studio"
-                className="inline-flex items-center gap-2 rounded-lg bg-surface border border-border px-4 py-2 text-sm font-medium text-foreground transition-all duration-200 hover:border-teal hover:text-teal"
-              >
-                View Demo Project
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Tooltip>
+            <Link
+              to="/studio"
+              className="inline-flex items-center gap-2 rounded-lg bg-surface border border-border px-4 py-2 text-sm font-medium text-foreground transition-all duration-200 hover:border-teal hover:text-teal"
+            >
+              View Demo Project
+              <ArrowRight className="h-4 w-4" />
+            </Link>
 
             {/* Test button for github-parser */}
-            <Tooltip content="Parse a GitHub repo URL client-side" side="top">
-              <button
-                onClick={handleTestParser}
-                className="inline-flex items-center gap-2 rounded-lg bg-teal/10 border border-teal/30 px-4 py-2 text-sm font-medium text-teal transition-all duration-200 hover:bg-teal/20"
-              >
-                Test GitHub Parser
-                <GitBranch className="h-4 w-4" />
-              </button>
-            </Tooltip>
+            <button
+              onClick={handleTestParser}
+              className="inline-flex items-center gap-2 rounded-lg bg-teal/10 border border-teal/30 px-4 py-2 text-sm font-medium text-teal transition-all duration-200 hover:bg-teal/20"
+            >
+              Test GitHub Parser
+              <GitBranch className="h-4 w-4" />
+            </button>
 
             {/* Sync to Database button */}
-            <Tooltip content="Sync repository files to Supabase" side="top">
-              <button
-                onClick={handleSyncToDatabase}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue/10 border border-blue/30 px-4 py-2 text-sm font-medium text-blue transition-all duration-200 hover:bg-blue/20"
-              >
+            <button
+              onClick={handleSyncToDatabase}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue/10 border border-blue/30 px-4 py-2 text-sm font-medium text-blue transition-all duration-200 hover:bg-blue/20"
+            >
               Sync to Database
               <Database className="h-4 w-4" />
-              </button>
-            </Tooltip>
+            </button>
             {syncStatus && (
               <p className="text-xs text-muted-foreground">{syncStatus}</p>
             )}
@@ -402,9 +472,9 @@ export function HomePage() {
       {/* Footer */}
       <footer className="border-t border-border px-6 py-6 text-center text-xs text-muted-foreground">
         <div className="flex items-center justify-center gap-4">
-          <Link to="/privacy" data-tip="Read our Privacy Policy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
+          <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
           <span className="text-border">·</span>
-          <Link to="/terms" data-tip="Read our Terms of Service" className="hover:text-foreground transition-colors">Terms of Service</Link>
+          <Link to="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
           <span className="text-border">·</span>
           <span>Built with React and Supabase</span>
         </div>

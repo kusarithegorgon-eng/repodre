@@ -144,6 +144,14 @@ export async function checkRepositoryAccess(
       };
     }
 
+    if (response.status === 400) {
+      return {
+        accessible: false,
+        reason: "error",
+        message: "Bad request. The repository URL may be malformed or the API rejected the request.",
+      };
+    }
+
     return {
       accessible: false,
       reason: "error",

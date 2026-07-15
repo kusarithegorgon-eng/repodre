@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Download, ChevronDown, Image, FileCode, Check, Loader as Loader2 } from "lucide-react";
+import { Download, ChevronDown, Image, FileCode, Check, Loader2 } from "lucide-react";
 import { exportCanvas, type ExportFormat } from "@/lib/canvas-export";
 
 interface CanvasExportButtonProps {
@@ -116,7 +116,7 @@ function ExportOption({
     <button
       onClick={onClick}
       className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent"
-     data-tip="Export as PNG image">
+    >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface text-muted-foreground">
         {icon}
       </div>

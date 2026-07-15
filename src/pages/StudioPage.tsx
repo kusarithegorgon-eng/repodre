@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { PrivacyShield } from "@/components/PrivacyShield";
 import { ApiTestExportButton } from "@/components/ApiTestExportButton";
 import { GuideModal, GuideToggle } from "@/components/GuideModal";
+import { AiGuideModal, AiGuideToggle } from "@/components/AiGuideModal";
 import { GettingStartedOverlay } from "@/components/RecentProjectsPanel";
 import { CodePreviewPanel, CodePreviewToggle } from "@/components/CodePreviewPanel";
 import { BottleneckBadge } from "@/components/BottleneckBadge";
@@ -20,8 +21,6 @@ import { DragToConnectHandle, LiveEdgeDrawing, useDragToConnect } from "@/compon
 import { NodeSpawnerPopover, useNodeSpawner, createNewNodeConfig } from "@/components/NodeSpawnerPopover";
 import { IconSidebar } from "@/components/IconSidebar";
 import { FloatingControls } from "@/components/FloatingControls";
-import { Tooltip } from "@/components/Tooltip";
-import { useRoleAccess } from "@/hooks/useRoleAccess";
 import { CanvasExportButton } from "@/components/CanvasExportButton";
 import { ErdGuide } from "@/components/ErdGuide";
 import {
@@ -46,6 +45,7 @@ import { scanForEnvVariables, type EnvScanResult, getEnvVarsForNode } from "@/li
 import { EnvironmentToggle, useProductionOverlay, type Environment } from "@/components/EnvironmentToggle";
 import { WebhookSyncPanel, WebhookSyncToggle, useWebhookSync } from "@/components/WebhookSyncPanel";
 import { MultiplayerPresence, MultiplayerToggle, GhostCursors, useMultiplayerPresence } from "@/components/MultiplayerPresence";
+import { AnnotationPanel, AnnotationOverlay } from "@/components/AnnotationPanel";
 import { GitDiffOverlay, GitDiffToggle, useGitDiff, getDiffNodeStyles } from "@/components/GitDiffOverlay";
 import { ControllerBadge, isControllerNode, classifyNodeLayer, useSmartLinks, getSmartLinkClasses } from "@/components/Flow";
 import type { WebhookEvent, NodeMutation } from "@/lib/webhook-sync";
@@ -58,19 +58,22 @@ import {
   type Shape,
   type HandleSegment,
   type PositionedNode,
-  type Box,
   anchorHandles,
   centerOf,
   paddingFor,
   perimeterPoint,
   routeEdge,
-  orthogonalRoute,
   snappedEdgePath,
+  smoothstepEdgePath,
+  findPathCrossings,
+  insertHopArcs,
   textMaxWidth,
 } from "@/lib/canvas-geometry";
 import { layoutHierarchicalGraph } from "@/lib/system-blueprint";
 import { layoutJourneyGraphWithElk } from "@/lib/elk-layout";
 import type { JourneyGraph } from "@/lib/journey-flow-builder";
+import type { SwimlaneLayout } from "@/lib/swimlane-layout";
+import { LANE_WIDTH } from "@/lib/swimlane-layout";
 import {
   loadFullProject,
   loadGraphFromDatabase,
@@ -81,16 +84,22 @@ import {
   createEdge,
   deleteNode,
   deleteEdge,
+  listAnnotations,
+  createAnnotation,
+  deleteAnnotation,
   batchCreateNodes,
   batchCreateEdges,
   batchUpdateNodePositions,
   type Project,
   type Workspace,
   type Edge,
+  type Annotation,
 } from "@/lib/db-client";
 import { detectCardinality, type ParsedTable } from "@/lib/sql-tokenizer";
 import { useEdgeSnap } from "@/hooks/useEdgeSnap";
 import { supabase } from "@/lib/supabase";
+import { can, getRoleFromUser, type Role } from "@/lib/rbac";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -136,28 +145,6 @@ function straightEdgePath(a: NodeData, b: NodeData): string {
   return `M ${ap.x} ${ap.y} L ${bp.x} ${bp.y}`;
 }
 
-function orthogonalEdgePath(a: NodeData, b: NodeData, allNodes: NodeData[], edgeIndex: number): string {
-  const ac = centerOf(a);
-  const bc = centerOf(b);
-  const ap = perimeterPoint(a, bc.x, bc.y);
-  const bp = perimeterPoint(b, ac.x, ac.y);
-
-  // Build obstacle list: all nodes except a and b
-  const obstacles: Box[] = allNodes
-    .filter((n) => n.id !== a.id && n.id !== b.id)
-    .map((n) => {
-      const pad = paddingFor(n);
-      const w = (n.w || NODE_W) + pad * 2;
-      const h = (n.h || NODE_H) + pad * 2;
-      return { x: n.x - w / 2, y: n.y - h / 2, w, h };
-    });
-
-  // Per-edge offset to separate overlapping parallel segments
-  const offset = edgeIndex * 24;
-
-  const result = orthogonalRoute(ap, bp, obstacles, 18, offset);
-  return result.path;
-}
 
 interface EdgeData {
   id: string;
@@ -383,12 +370,10 @@ export function StudioPage() {
   const [workspace, setWorkspace] = useState<Workspace>("app");
   const [nodes, setNodes] = useState<NodeData[]>(INITIAL_NODES);
   const [edges, setEdges] = useState<EdgeData[]>(INITIAL_EDGES);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>("n1");
   const [autoLayout, setAutoLayout] = useState(true);
   const [smartRoute, setSmartRoute] = useState(true);
   const [zoom, setZoom] = useState(100);
-  const [layoutDensity, setLayoutDensity] = useState<LayoutDensity>("compact");
-  const [isLayoutRunning, setIsLayoutRunning] = useState(false);
   const [hoverHandle, setHoverHandle] = useState<string | null>(null);
   const [schemaSource, setSchemaSource] = useState<string>("");
   const [codePreviewOpen, setCodePreviewOpen] = useState(false);
@@ -397,7 +382,7 @@ export function StudioPage() {
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [highlightedEdgeIds, setHighlightedEdgeIds] = useState<string[]>([]);
-  const [wireStyle, setWireStyle] = useState<WireStyle>("curvy");
+  const [wireStyle, setWireStyle] = useState<WireStyle>("orthogonal");
   const [layoutDirectives, setLayoutDirectives] = useState("direction: LR, gap-x: 280, gap-y: 160");
   const [showLayoutPopover, setShowLayoutPopover] = useState(false);
   const [astInspectorOpen, setAstInspectorOpen] = useState(false);
@@ -408,13 +393,111 @@ export function StudioPage() {
   const [antiPatternWarnings, setAntiPatternWarnings] = useState<AntiPatternWarning[]>([]);
   const [webhookSyncOpen, setWebhookSyncOpen] = useState(false);
   const [multiplayerOpen, setMultiplayerOpen] = useState(false);
+  const [annotationOpen, setAnnotationOpen] = useState(false);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [gitDiffOpen, setGitDiffOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [erdGuideOpen, setErdGuideOpen] = useState(false);
+  const [aiGuideOpen, setAiGuideOpen] = useState(false);
+  const [authUser, setAuthUser] = useState<SupabaseUser | null>(null);
+  const [userRole, setUserRole] = useState<Role>("viewer");
+  const [swimlaneLanes, setSwimlaweLanes] = useState<SwimlaneLayout["lanes"] | null>(null);
   const [showSchemaInput, setShowSchemaInput] = useState(false);
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const [isResettingLayout, setIsResettingLayout] = useState(false);
+  const [selectedAnnotationNode, setSelectedAnnotationNode] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const canComment = can(userRole, "create", "annotation");
+  const activeAnnotationNodeId = selectedAnnotationNode ?? selected;
+  const selectedAnnotationTarget = activeAnnotationNodeId
+    ? nodes.find((node) => node.id === activeAnnotationNodeId)
+    : null;
+  const selectedAnnotationNodeData = selectedAnnotationTarget
+    ? { nodeId: selectedAnnotationTarget.id, label: selectedAnnotationTarget.label, sub: selectedAnnotationTarget.sub }
+    : null;
+
+  const handleAnnotationNodeSelect = useCallback((nodeId: string) => {
+    setSelectedAnnotationNode(nodeId);
+    setSelected(nodeId);
+    setAnnotationOpen(true);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!mounted) return;
+      setAuthUser(user);
+      setUserRole(getRoleFromUser(user));
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user ?? null;
+      if (!mounted) return;
+      setAuthUser(user);
+      setUserRole(getRoleFromUser(user));
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Load annotations for the active project when it changes.
+  useEffect(() => {
+    if (isDemoMode || isDraftMode) {
+      setAnnotations([]);
+      return;
+    }
+
+    const loadAnnotations = async () => {
+      try {
+        const list = await listAnnotations(activeProjectId);
+        setAnnotations(list);
+      } catch {
+        setAnnotations([]);
+      }
+    };
+
+    loadAnnotations();
+  }, [activeProjectId, isDemoMode, isDraftMode]);
+
+  const handleCreateAnnotation = useCallback(async (nodeId: string, body: string) => {
+    if (!project) return;
+
+    const annotation = await createAnnotation(project.id, {
+      nodeId,
+      authorId: authUser?.id ?? null,
+      authorName: authUser?.user_metadata?.login || authUser?.email || "Guest",
+      body: {
+        type: "TextualBody",
+        value: body,
+        format: "text/plain",
+      },
+      target: {
+        type: "CanvasNode",
+        id: nodeId,
+        selector: {
+          type: "NodeIdSelector",
+          value: nodeId,
+        },
+      },
+    });
+
+    setAnnotations((prev) => [...prev, annotation]);
+    setAnnotationOpen(true);
+  }, [project, authUser]);
+
+  const handleDeleteAnnotation = useCallback(async (annotationId: string) => {
+    try {
+      await deleteAnnotation(annotationId);
+      setAnnotations((prev) => prev.filter((annotation) => annotation.id !== annotationId));
+    } catch {
+      // ignore failure, keep local state coherent
+    }
+  }, []);
 
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
   const canvasPan = useCanvasPan({
@@ -594,7 +677,7 @@ export async function POST(req: Request) {
     if (webhookSync.isConnected) {
       webhookSync.triggerMockEvent();
     }
-  }, [webhookSync.isConnected]);
+  }, [webhookSync.isConnected, webhookSync.triggerMockEvent]);
 
   // Project IDs for the two demo workspaces
   const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
@@ -602,8 +685,6 @@ export async function POST(req: Request) {
 
   // Resolve the active project ID from the URL or fall back to the demo workspace ID
   const activeProjectId = search.project ?? (workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID);
-
-  const roleAccess = useRoleAccess(activeProjectId);
 
   // Refresh Canvas: reloads nodes and edges from Supabase for the active project.
   // Called on initial render, on project/workspace change, on realtime updates,
@@ -699,6 +780,16 @@ export async function POST(req: Request) {
 
     refreshCanvas();
   }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID, isDemoMode, isDraftMode, search.project, refreshCanvas]);
+
+  // Load swimlane lane metadata from sessionStorage (set by analysis pipeline)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("repodre-swimlanes");
+      if (raw) {
+        setSwimlaweLanes(JSON.parse(raw) as SwimlaneLayout["lanes"]);
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   // Auto-refresh canvas when the nodes or edges table updates in Supabase (realtime)
   useEffect(() => {
@@ -977,58 +1068,6 @@ export async function POST(req: Request) {
     setShowLayoutPopover(false);
   }, [layoutDirectives, edges]);
 
-  // ─── Smart Layout (ELK-powered hierarchical) ───────────────────────────────
-  const handleRunSmartLayout = useCallback(async (density: LayoutDensity) => {
-    setIsLayoutRunning(true);
-    try {
-      const lockedIds = new Set(
-        nodes.filter((n) => n.isManuallyPositioned).map((n) => n.id),
-      );
-      const layoutNodes = nodes.map((n) => ({
-        id: n.id,
-        isManuallyPositioned: n.isManuallyPositioned,
-        x: n.x,
-        y: n.y,
-      }));
-      const layoutEdges = edges.map((e) => ({
-        id: e.id,
-        from: e.from,
-        to: e.to,
-      }));
-
-      const result = await runSmartLayout(layoutNodes, layoutEdges, {
-        density,
-        direction: "DOWN",
-        lockedIds,
-      });
-
-      const newPositions = new Map<string, { x: number; y: number }>();
-      setNodes((prev) =>
-        prev.map((n) => {
-          const pos = result.positions.get(n.id);
-          if (!pos) return n;
-          const snapped = { x: snapToGrid(pos.x), y: snapToGrid(pos.y) };
-          newPositions.set(n.id, snapped);
-          return { ...n, x: snapped.x, y: snapped.y, isManuallyPositioned: false };
-        }),
-      );
-
-      // Persist to database (batch)
-      if (project?.id && !isDraftMode) {
-        const batch = Array.from(newPositions.entries()).map(([id, pos]) => ({
-          id,
-          x: pos.x,
-          y: pos.y,
-        }));
-        if (batch.length > 0) {
-          batchUpdateNodePositions(project.id, batch).catch(() => {});
-        }
-      }
-    } finally {
-      setIsLayoutRunning(false);
-    }
-  }, [nodes, edges, project?.id, isDraftMode]);
-
   const setSub = useCallback(async (id: string, sub: string) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, sub } : n)));
   }, []);
@@ -1215,47 +1254,72 @@ export async function POST(req: Request) {
     [nodes, edges]
   );
 
-  // For edges without explicit handles, fall back to the collision-aware
-  // routeEdge (which may detour around obstacles). Edges with handles use
-  // the snapped port path from useEdgeSnap.
-  const routed = useMemo(
-    () =>
-      edges.map((e, idx) => {
-        const a = nodes.find((n) => n.id === e.from);
-        const b = nodes.find((n) => n.id === e.to);
-        if (!a || !b) return { id: e.id, path: "", detoured: false };
+  // ── Bundle offsets: stagger entry points for fan-in edges ──────────────
+  // When multiple edges arrive at the same target node, offset each path
+  // by ±N px so they don't pile up on exactly the same pixel.
+  const bundleOffsets = useMemo(() => {
+    const byTarget = new Map<string, string[]>();
+    for (const e of edges) {
+      const arr = byTarget.get(e.to) ?? [];
+      arr.push(e.id);
+      byTarget.set(e.to, arr);
+    }
+    const offsets = new Map<string, number>();
+    for (const edgeIds of byTarget.values()) {
+      if (edgeIds.length < 2) continue;
+      const n = edgeIds.length;
+      const spread = Math.min((n - 1) * 10, 36);
+      const step = n > 1 ? spread / (n - 1) : 0;
+      edgeIds.forEach((id, i) => {
+        offsets.set(id, -spread / 2 + i * step);
+      });
+    }
+    return offsets;
+  }, [edges]);
 
-        if (wireStyle === "straight") {
-          return { id: e.id, path: straightEdgePath(a, b), detoured: false };
-        }
-        if (wireStyle === "orthogonal") {
-          return { id: e.id, path: orthogonalEdgePath(a, b, nodes, idx), detoured: false };
-        }
+  // ── Primary path computation: smoothstep orthogonal with bundle offsets ──
+  const routed = useMemo(() => {
+    const rawPaths = edges.map((e) => {
+      const a = nodes.find((n) => n.id === e.from);
+      const b = nodes.find((n) => n.id === e.to);
+      if (!a || !b) return { id: e.id, path: "", detoured: false };
 
-        // Curvy (default): snap-based bezier with smart collision routing
-        const snap = snapResult.edges.get(e.id);
-        if (snap && snap.path) {
-          return { id: e.id, path: snap.path, detoured: false };
-        }
-        // Smoothstep fallback: rounded orthogonal path between node boundaries
-        const smoothPath = smoothstepBetweenNodes(a, b, 12);
-        if (smoothPath) {
-          return { id: e.id, path: smoothPath, detoured: false };
-        }
-        const r = routeEdge(a, b, smartRoute ? nodes : [a, b]);
-        return { id: e.id, path: r.path, detoured: r.detoured };
-      }),
-    [edges, nodes, smartRoute, snapResult, wireStyle],
-  );
+      if (wireStyle === "straight") {
+        return { id: e.id, path: straightEdgePath(a, b), detoured: false };
+      }
 
-  // ── Focus Mode: Contextual Path Lighting ────────────────────────────────
-  // Memoised BFS from the selected node — only recomputes on selection or
-  // edge-topology change, never on drag / zoom.  Returns opacity helpers so
-  // the render layer can dim non-connected nodes/edges to 15 %.
-  const focusMode = useFocusMode(
-    selected,
-    edges.map((e) => ({ id: e.id, from: e.from, to: e.to })),
-  );
+      if (wireStyle === "orthogonal") {
+        const offset = bundleOffsets.get(e.id) ?? 0;
+        return {
+          id: e.id,
+          path: smoothstepEdgePath(
+            { ...a, w: a.w ?? NODE_W, h: a.h ?? NODE_H },
+            { ...b, w: b.w ?? NODE_W, h: b.h ?? NODE_H },
+            offset,
+          ),
+          detoured: false,
+        };
+      }
+
+      // Curvy: snap-based bezier with collision routing
+      const snap = snapResult.edges.get(e.id);
+      if (snap && snap.path) return { id: e.id, path: snap.path, detoured: false };
+      const r = routeEdge(a, b, smartRoute ? nodes : [a, b]);
+      return { id: e.id, path: r.path, detoured: r.detoured };
+    });
+
+    // ── Hop-arc injection: add visual "bridge" bumps where lines cross ──
+    if (wireStyle === "orthogonal") {
+      const crossings = findPathCrossings(rawPaths.filter(p => p.path));
+      return rawPaths.map((p) => {
+        const xs = crossings.get(p.id);
+        if (!xs || xs.length === 0) return p;
+        return { ...p, path: insertHopArcs(p.path, xs) };
+      });
+    }
+
+    return rawPaths;
+  }, [edges, nodes, smartRoute, snapResult, wireStyle, bundleOffsets]);
 
   if (isLoading) {
     return (
@@ -1313,6 +1377,9 @@ export async function POST(req: Request) {
         onToggleLiveTraffic={() => setLiveTrafficActive(!liveTrafficActive)}
         onToggleWebhookSync={() => setWebhookSyncOpen(!webhookSyncOpen)}
         onToggleMultiplayer={() => setMultiplayerOpen(!multiplayerOpen)}
+        onToggleAnnotations={() => setAnnotationOpen(!annotationOpen)}
+        annotationCount={annotations.length}
+        annotationOpen={annotationOpen}
         onToggleGitDiff={() => { if (!gitDiffOpen) generateDiff(); setGitDiffOpen(!gitDiffOpen); }}
         onToggleCodePreview={() => setCodePreviewOpen(!codePreviewOpen)}
         onExportScaffold={() => { const scaffold = generateScaffold(project?.name || "repodre-architecture", nodes.map(n => ({id: n.id, label: n.label, sub: n.sub, shape: n.shape, accent: n.accent, workspace: n.workspace, tableName: n.tableName, columns: n.columns})), edges.map(e => ({id: e.id, from: e.from, to: e.to, cardinality: e.cardinality, fromColumn: e.fromColumn, toColumn: e.toColumn}))); downloadScaffold(scaffold); }}
@@ -1323,11 +1390,16 @@ export async function POST(req: Request) {
           const blob = new Blob([payload], { type: "text/sql" });
           const a = document.createElement("a");
           a.href = URL.createObjectURL(blob);
+        aiGuideOpen={aiGuideOpen}
+        onToggleAiGuide={() => setAiGuideOpen(!aiGuideOpen)}
           a.download = `${project?.name ?? "schema"}.sql`;
           a.click();
         }}
         onToggleErdGuide={() => setErdGuideOpen(!erdGuideOpen)}
       />
+      {/* AI Interaction Protocols modal */}
+      <AiGuideModal isOpen={aiGuideOpen} onClose={() => setAiGuideOpen(false)} />
+
 
       {/* ERD Cardinality Guide panel */}
       <ErdGuide isOpen={erdGuideOpen} onClose={() => setErdGuideOpen(false)} />
@@ -1373,7 +1445,7 @@ export async function POST(req: Request) {
               <div
                 ref={canvasRef}
                 className="grid-canvas absolute inset-0 overflow-hidden"
-                onClick={() => { setSelected(null); setShowLayoutPopover(false); }}
+                onClick={() => { setSelected(null); setSelectedAnnotationNode(null); setShowLayoutPopover(false); }}
                 onMouseDown={canvasPan.handleMouseDown}
                 style={{ cursor: canvasPan.cursor }}
               >
@@ -1381,6 +1453,55 @@ export async function POST(req: Request) {
                   className="relative h-full w-full origin-top-left"
                   style={{ transform: `${canvasPan.transform} scale(${zoom / 100})` }}
                 >
+                  {/* ── Swimlane background bands ── */}
+                  {swimlaneLanes && swimlaneLanes.filter((l) => l.populated).length > 1 && (() => {
+                    const populated = swimlaneLanes.filter((l) => l.populated);
+                    const totalWidth = populated.length > 0
+                      ? Math.max(...populated.map((l) => l.x + LANE_WIDTH))
+                      : 0;
+                    return (
+                      <div
+                        className="pointer-events-none absolute top-0 left-0"
+                        style={{ width: totalWidth, height: 4000, zIndex: 0 }}
+                      >
+                        {populated.map((lane) => (
+                          <div
+                            key={lane.id}
+                            className="absolute top-0"
+                            style={{
+                              left: lane.x,
+                              width: LANE_WIDTH,
+                              height: 4000,
+                              background: lane.headerBg,
+                              borderRight: `1px solid ${lane.color}20`,
+                            }}
+                          >
+                            {/* Lane header */}
+                            <div
+                              className="absolute top-0 left-0 right-0 flex items-center justify-center gap-2"
+                              style={{
+                                height: 60,
+                                background: `${lane.color}18`,
+                                borderBottom: `2px solid ${lane.color}38`,
+                              }}
+                            >
+                              <div
+                                className="h-2 w-2 rounded-full"
+                                style={{ background: lane.color }}
+                              />
+                              <span
+                                className="text-xs font-semibold uppercase tracking-widest"
+                                style={{ color: lane.color }}
+                              >
+                                {lane.label}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                   {/* Edge SVG layer */}
                   <svg
                     data-testid="edge-layer"
@@ -1483,7 +1604,7 @@ export async function POST(req: Request) {
                       const bridgeMarkerEnd = involvesBridge ? undefined : (linkType === "controller-to-db" ? "url(#arrow-db)" : "url(#arrow)");
 
                       return r.path ? (
-                        <g key={r.id} opacity={focusMode.getEdgeOpacity(r.id)} style={{ transition: "opacity 200ms ease" }}>
+                        <g key={r.id}>
                           <path
                             data-testid={`edge-${r.id}`}
                             data-detoured={r.detoured}
@@ -1571,15 +1692,8 @@ export async function POST(req: Request) {
                     <GettingStartedOverlay />
                   )}
                   {nodes.map((n) => (
-                    <div
-                      key={n.id}
-                      style={{
-                        opacity: focusMode.getNodeOpacity(n.id),
-                        transition: "opacity 200ms ease",
-                      }}
-                    >
                     <CanvasNode
-                      key={n.id + "-inner"}
+                      key={n.id}
                       node={n}
                       zoom={zoom / 100}
                       selected={selected === n.id}
@@ -1588,7 +1702,7 @@ export async function POST(req: Request) {
                       hoverHandle={hoverHandle}
                       onHoverHandle={setHoverHandle}
                       onReattach={(seg) => reattach(n.id, seg)}
-                      onSelect={(e) => { e.stopPropagation(); setSelected(n.id); }}
+                      onSelect={(e) => { e.stopPropagation(); setSelectedAnnotationNode(null); setSelected(n.id); }}
                       onCycleShape={() => {
                         const idx = ALL_SHAPES.indexOf(n.shape);
                         setShape(n.id, ALL_SHAPES[(idx + 1) % ALL_SHAPES.length]);
@@ -1601,10 +1715,7 @@ export async function POST(req: Request) {
                       antiPatternWarnings={getWarningsForNode(n.id, antiPatternWarnings)}
                       envVars={getEnvVarsForNode(n.label, new Map([[mockModules[0]?.path?.split('/').pop()?.replace(/\.(ts|tsx)$/, '') || 'route', scanForEnvVariables(mockModules[0]?.source || '')]]))}
                       diffStatus={gitDiffOpen ? getNodeDiffStatus(n.id, diffResult) : undefined}
-                      canDrag={roleAccess.canMove}
-                      canAdd={roleAccess.canAdd}
                     />
-                    </div>
                   ))}
 
                   {/* Production overlay nodes (read replicas, firewall gates) */}
@@ -1657,15 +1768,14 @@ export async function POST(req: Request) {
                 </div>
               </div>
 
+              <AnnotationOverlay
+                nodes={nodes}
+                annotations={annotations}
+                onSelectNode={handleAnnotationNodeSelect}
+              />
+
               {/* App Journey Export Button */}
-              <div className="absolute right-4 top-4 z-30 flex items-center gap-2">
-                <LayoutControls
-                  density={layoutDensity}
-                  onChangeDensity={setLayoutDensity}
-                  onRunLayout={handleRunSmartLayout}
-                  isRunning={isLayoutRunning}
-                  disabled={nodes.length === 0}
-                />
+              <div className="absolute right-4 top-4 z-30">
                 <CanvasExportButton
                   getCanvasContainer={() => canvasRef.current}
                   disabled={nodes.length === 0}
@@ -1693,8 +1803,6 @@ export async function POST(req: Request) {
                   onDelete={() => handleDeleteNode(sel.id)}
                   envVars={getEnvVarsForNode(sel.label, new Map([[mockModules[0]?.path?.split('/').pop()?.replace(/\.(ts|tsx)$/, '') || 'route', scanForEnvVariables(mockModules[0]?.source || '')]]))}
                   antiPatternWarnings={getWarningsForNode(sel.id, antiPatternWarnings)}
-                  canDelete={roleAccess.canDelete}
-                  canAdd={roleAccess.canAdd}
                 />
               )}
 
@@ -1749,6 +1857,16 @@ export async function POST(req: Request) {
           </main>
         </div>
       </div>
+
+      <AnnotationPanel
+        isOpen={annotationOpen}
+        selectedNode={selectedAnnotationNodeData}
+        annotations={annotations}
+        onClose={() => { setAnnotationOpen(false); setSelectedAnnotationNode(null); }}
+        onCreateAnnotation={handleCreateAnnotation}
+        onDeleteAnnotation={handleDeleteAnnotation}
+        canComment={canComment}
+      />
 
       {/* Code Preview Panel (slide-out drawer) */}
       <CodePreviewPanel
@@ -1992,7 +2110,6 @@ function TreeRow({ node, depth, defaultOpen }: { node: TreeNode; depth: number; 
     <div>
       <button
         onClick={() => isFolder && setOpen((v) => !v)}
-        data-tip={node.name}
         className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         style={{ paddingLeft: depth * 14 + 8 }}
       >
@@ -2043,8 +2160,6 @@ function CanvasNode({
   antiPatternWarnings,
   envVars,
   diffStatus,
-  canDrag,
-  canAdd,
 }: {
   node: NodeData;
   zoom: number;
@@ -2064,8 +2179,6 @@ function CanvasNode({
   antiPatternWarnings?: AntiPatternWarning[];
   envVars?: EnvScanResult | null;
   diffStatus?: DiffStatus;
-  canDrag?: boolean;
-  canAdd?: boolean;
 }) {
   const a = ACCENT[node.accent];
 
@@ -2080,7 +2193,6 @@ function CanvasNode({
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    if (canDrag === false) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -2247,16 +2359,15 @@ function CanvasNode({
 
       {/* ── Cycle-shape button (hidden for bridge nodes) ── */}
       {!isBridge && (
-      <Tooltip content="Cycle shape" side="right">
-        <button
-          onClick={(e) => { e.stopPropagation(); onCycleShape(); }}
-          className={`absolute -right-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground opacity-0 transition-all duration-200 hover:text-teal group-hover:opacity-100 ${
-            selected ? "opacity-100" : ""
-          }`}
-        >
-          <Sparkles className="h-3 w-3" />
-        </button>
-      </Tooltip>
+      <button
+        onClick={(e) => { e.stopPropagation(); onCycleShape(); }}
+        title="Cycle shape"
+        className={`absolute -right-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground opacity-0 transition-all duration-200 hover:text-teal group-hover:opacity-100 ${
+          selected ? "opacity-100" : ""
+        }`}
+      >
+        <Sparkles className="h-3 w-3" />
+      </button>
       )}
 
       {/* ── Controller Badge (for logic layer nodes) ── */}
@@ -2313,15 +2424,14 @@ function CanvasNode({
       )}
 
       {/* ── Spawn child node button (right-center edge) ── */}
-      {onSpawnChild && canAdd !== false && (
-        <Tooltip content="Add child node" side="right">
-          <button
-            onClick={(e) => { e.stopPropagation(); onSpawnChild(); }}
-            className="absolute -right-4 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border-2 border-teal bg-background text-teal opacity-0 shadow-md transition-all duration-200 hover:bg-teal hover:text-white group-hover:opacity-100"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </Tooltip>
+      {onSpawnChild && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onSpawnChild(); }}
+          title="Add child node"
+          className="absolute -right-4 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border-2 border-teal bg-background text-teal opacity-0 shadow-md transition-all duration-200 hover:bg-teal hover:text-white group-hover:opacity-100"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
       )}
     </div>
   );
@@ -2345,8 +2455,6 @@ function NodeOptions({
   onDelete,
   envVars,
   antiPatternWarnings,
-  canDelete,
-  canAdd,
 }: {
   node: NodeData;
   onShape: (s: Shape) => void;
@@ -2356,8 +2464,6 @@ function NodeOptions({
   onDelete: () => void;
   envVars?: EnvScanResult | null;
   antiPatternWarnings?: AntiPatternWarning[];
-  canDelete?: boolean;
-  canAdd?: boolean;
 }) {
   const a = ACCENT[node.accent];
 
@@ -2369,24 +2475,19 @@ function NodeOptions({
           <p className="mt-0.5 max-w-[200px] truncate font-mono text-xs text-foreground">{node.label}</p>
         </div>
         <div className="flex items-center gap-1">
-          {canDelete !== false && (
-            <Tooltip content="Delete node (cascades edges)" side="top">
-              <button
-                onClick={onDelete}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
-               data-tip="Delete node">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </Tooltip>
-          )}
-          <Tooltip content="Close settings panel" side="top">
-            <button
-              onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-             data-tip="Close settings panel">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </Tooltip>
+          <button
+            onClick={onDelete}
+            title="Delete node (cascades edges)"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={onClose}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
 
@@ -2396,19 +2497,19 @@ function NodeOptions({
         {ALL_SHAPES.map((s) => {
           const active = node.shape === s;
           return (
-            <Tooltip key={s} content={s.charAt(0).toUpperCase() + s.slice(1)} side="top">
-              <button
-                onClick={() => onShape(s)}
-                className={`flex h-11 flex-col items-center justify-center gap-1 rounded-lg border transition-all duration-200 ${
-                  active
-                    ? "border-teal bg-teal/10 text-teal shadow-[0_0_14px_-4px_var(--teal)]"
-                    : "border-border bg-background text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <ShapeIcon shape={s} />
-                <span className="text-[9px] capitalize leading-none">{s}</span>
-              </button>
-            </Tooltip>
+            <button
+              key={s}
+              onClick={() => onShape(s)}
+              title={s.charAt(0).toUpperCase() + s.slice(1)}
+              className={`flex h-11 flex-col items-center justify-center gap-1 rounded-lg border transition-all duration-200 ${
+                active
+                  ? "border-teal bg-teal/10 text-teal shadow-[0_0_14px_-4px_var(--teal)]"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ShapeIcon shape={s} />
+              <span className="text-[9px] capitalize leading-none">{s}</span>
+            </button>
           );
         })}
       </div>
@@ -2433,15 +2534,15 @@ function NodeOptions({
         {(Object.keys(ACCENT) as Accent[]).map((key) => {
           const active = node.accent === key;
           return (
-            <Tooltip key={key} content={ACCENT[key].label} side="top">
-              <button
-                onClick={() => onAccent(key)}
-                className={`h-7 w-7 rounded-full border-2 transition-all duration-200 ${
-                  active ? "scale-110 border-foreground" : "border-transparent opacity-70 hover:opacity-100"
-                }`}
-                style={{ background: ACCENT[key].color }}
-              />
-            </Tooltip>
+            <button
+              key={key}
+              onClick={() => onAccent(key)}
+              title={ACCENT[key].label}
+              className={`h-7 w-7 rounded-full border-2 transition-all duration-200 ${
+                active ? "scale-110 border-foreground" : "border-transparent opacity-70 hover:opacity-100"
+              }`}
+              style={{ background: ACCENT[key].color }}
+            />
           );
         })}
       </div>

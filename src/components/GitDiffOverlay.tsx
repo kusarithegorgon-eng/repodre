@@ -49,7 +49,6 @@ export function GitDiffOverlay({
           </div>
         </div>
         <button
-        data-tip="Close diff overlay"
           onClick={onClose}
           className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
@@ -117,14 +116,14 @@ export function GitDiffOverlay({
           <button
             onClick={onApplyDiff}
             className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-green-500 px-3 py-2 text-xs font-medium text-white hover:bg-green-600 transition-colors"
-           data-tip="Apply diff changes to canvas">
+          >
             <Plus className="h-3 w-3" />
             Apply Changes
           </button>
           <button
             onClick={onRevertDiff}
             className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-           data-tip="Apply diff changes">
+          >
             <RefreshCw className="h-3 w-3" />
             Revert
           </button>
@@ -207,7 +206,7 @@ export function GitDiffToggle({
           ? "border-purple-500/50 bg-purple-500/10 text-purple-500"
           : "border-border bg-background text-muted-foreground hover:border-purple-500 hover:text-purple-500"
       }`}
-     data-tip="Toggle PR diff overlay">
+    >
       <GitPullRequest className="h-3.5 w-3.5" />
       <span>PR Diff</span>
       {diffCount > 0 && (

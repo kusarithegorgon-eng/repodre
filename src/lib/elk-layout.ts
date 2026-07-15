@@ -10,8 +10,10 @@
  * - Async API compatible with the existing repository analyzer
  */
 
-import ELK from "elkjs/lib/elk.bundled.js";
+import ELK from "elkjs/lib/elk-api.js";
+import workerUrl from "elkjs/lib/elk-worker.min.js?url";
 import type { JourneyGraph, JourneyNode, JourneyEdge, JourneyNodeType } from "./journey-flow-builder";
+import { layoutJourneyTree } from "./journey-flow-builder";
 
 export interface ElkLayoutOptions {
   /** Layout direction: DOWN (top-to-bottom) or RIGHT (left-to-right) */
@@ -36,12 +38,12 @@ export interface ElkLayoutOptions {
 
 const DEFAULT_ELK_OPTIONS: ElkLayoutOptions = {
   direction: "DOWN",
-  nodeNodeSpacing: 80,
-  nodeEdgeSpacing: 40,
-  edgeEdgeSpacing: 20,
-  layerSpacing: 220,
-  decisionSpacing: 120,
-  bridgeSpacing: 160,
+  nodeNodeSpacing: 100,
+  nodeEdgeSpacing: 50,
+  edgeEdgeSpacing: 25,
+  layerSpacing: 340,
+  decisionSpacing: 140,
+  bridgeSpacing: 240,
   startX: 120,
   startY: 100,
 };
@@ -52,7 +54,7 @@ const NODE_HEIGHT = 80;
 // Bridge nodes are smaller circles
 const BRIDGE_NODE_SIZE = 72;
 
-const elk = new ELK();
+const elk = new ELK({ workerUrl, workerFactory: (url: string) => new Worker(url) });
 
 /**
  * Layout a JourneyGraph using ELK's layered algorithm.
@@ -177,12 +179,20 @@ export async function layoutJourneyGraphWithElk(
       "elk.layered.layering.strategy": "NETWORK_SIMPLEX",
       // Content-based node size
       "elk.layered.nodePlacement.favorStraightEdges": "true",
-      // Edge routing
+      // Edge routing: orthogonal for clean right-angle paths
       "elk.edgeRouting": "ORTHOGONAL",
+      // Edge bundling: merge parallel edges that follow the same path
+      "elk.layered.mergeEdges": "true",
+      // Thoroughness for crossing minimization (higher = better but slower)
+      "elk.layered.thoroughness": "8",
       // Additional spacing for decision nodes
       "elk.layered.spacing.edgeNodeBetweenLayers": `${opts.nodeEdgeSpacing}`,
       // Port constraints to ensure clean edge anchors
       "elk.portConstraints": "FIXED_ORDER",
+      // Edge label placement to avoid overlaps
+      "elk.layered.edgeLabels.insideSwitch": "true",
+      // Straight edge routing preference
+      "elk.layered.edgeStraightening": "IMPROVE_STRAIGHTNESS",
     } as Record<string, string>,
   };
 
@@ -230,18 +240,21 @@ export async function layoutJourneyGraphWithElk(
 
     return positions;
   } catch (error) {
-    console.error("ELK layout failed, falling back to simple layout:", error);
+    console.error("ELK layout failed, falling back to sync tree layout:", error);
 
-    // Fallback: simple vertical layout
-    graph.nodes.forEach((node, i) => {
-      const isBridge = node.type === "bridge";
-      const extraSpacing = isBridge ? opts.bridgeSpacing : 0;
-      positions.set(node.id, {
-        x: opts.startX + (i % 4) * opts.nodeNodeSpacing,
-        y: opts.startY + Math.floor(i / 4) * (opts.layerSpacing + extraSpacing),
-        depth: Math.floor(i / 4),
-      });
+    // Fallback: use the synchronous tree layout (no web worker, no GWT)
+    const fallbackPositions = layoutJourneyTree(graph, {
+      nodeSep: opts.nodeNodeSpacing,
+      rankSep: opts.layerSpacing,
+      decisionNodeSep: opts.decisionSpacing,
+      bridgeRankSep: opts.bridgeSpacing,
+      startX: opts.startX,
+      startY: opts.startY,
     });
+
+    for (const [id, pos] of fallbackPositions.entries()) {
+      positions.set(id, pos);
+    }
 
     return positions;
   }

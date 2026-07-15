@@ -276,7 +276,7 @@ export async function loadPersistedGraph(
         line: n.line as number | undefined,
         metadata: n.metadata as Record<string, unknown> | undefined,
       })),
-      edges: (edges ?? []).map((e: Record<string>) => ({
+      edges: (edges ?? []).map((e: Record<string, unknown>) => ({
         id: e.id as string,
         from: e.from_node_id as string,
         to: e.to_node_id as string,

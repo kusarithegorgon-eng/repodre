@@ -17,6 +17,7 @@ export interface CollaboratorCursor {
   lastUpdate: number;
   isTyping: boolean;
   currentAction: string;
+  cursorToken: string;
 }
 
 export interface PresenceState {
@@ -24,6 +25,7 @@ export interface PresenceState {
   sessionId: string;
   roomName: string;
   isConnected: boolean;
+  lastSnapshotAt: number;
 }
 
 const CURSOR_COLORS = [
@@ -169,6 +171,7 @@ export function initializePresenceState(): PresenceState {
     sessionId: `session_${Date.now()}`,
     roomName: "architecture-review",
     isConnected: true,
+    lastSnapshotAt: Date.now(),
   };
 }
 
@@ -188,5 +191,6 @@ export function toggleConnection(state: PresenceState): PresenceState {
     ...state,
     isConnected: true,
     collaborators: generateMockCollaborators(2 + Math.floor(Math.random() * 2)),
+    lastSnapshotAt: Date.now(),
   };
 }

@@ -51,6 +51,15 @@ export type JourneyNodeType =
 /** Fine-grained CRUD classification for action nodes */
 export type ActionCrudType = "CREATE" | "READ" | "UPDATE" | "DELETE" | "API";
 
+/** Swimlane column categories for the functional group layout */
+export type SwimlaneLane =
+  | "entry"
+  | "auth"
+  | "logic"
+  | "services"
+  | "data"
+  | "errors";
+
 export interface JourneyNode {
   id: string;
   type: JourneyNodeType;
@@ -61,6 +70,8 @@ export interface JourneyNode {
   sourcePath?: string;
   col: number;
   row: number;
+  /** Functional swimlane column this node belongs to */
+  swimlane: SwimlaneLane;
   /** For action nodes: the refined CRUD type */
   crudType?: ActionCrudType;
   /** DB model names this action imports/references */
@@ -461,6 +472,26 @@ function nextNodeId(): string { return `j_${++nodeCounter}`; }
 function nextEdgeId(): string { return `j_e${++edgeCounter}`; }
 function resetCounters(): void { nodeCounter = 0; edgeCounter = 0; }
 
+// ─── Swimlane mapping ─────────────────────────────────────────────────────
+
+const NODE_TYPE_TO_SWIMLANE: Record<JourneyNodeType, SwimlaneLane> = {
+  start:            "entry",
+  page:             "entry",
+  end:              "entry",
+  logout:           "entry",
+  auth:             "auth",
+  validation:       "auth",
+  middleware:       "auth",
+  decision:         "logic",
+  action:           "logic",
+  external_service: "services",
+  service:          "services",
+  cache:            "services",
+  database:         "data",
+  error_handler:    "errors",
+  bridge:           "logic",
+};
+
 // ─── Module section classification (for Bridge nodes) ─────────────────────
 
 /**
@@ -525,6 +556,7 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
       accent: overrides?.accent ?? style.accent,
       col,
       row,
+      swimlane: NODE_TYPE_TO_SWIMLANE[type],
       sourcePath,
       crudType: overrides?.crudType,
       referencedModels: overrides?.referencedModels,
@@ -854,16 +886,36 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     }
   }
 
+  // ── Service Bus Pattern ──────────────────────────────────────────────────
+  // When multiple background services exist, introduce a Service Bus node
+  // to consolidate fan-out edges. Instead of each service connecting directly
+  // to the database (causing edge explosion), all services connect to the
+  // Service Bus, which then connects to the database.
+  let serviceBusNode: JourneyNode | null = null;
+  if (serviceNodes.length > 1 && dbNodes.length > 0) {
+    // Create a single Service Bus intermediary node
+    serviceBusNode = addNode("service", "Service Bus", 5, placeInCol(5), undefined, {
+      sub: "Message Bus",
+    });
+  }
+
   // Background services connect to actions that trigger them
   if (serviceNodes.length > 0) {
     for (const svc of serviceNodes) {
       if (actionNodes.length > 0) {
         addEdge(actionNodes[0].id, svc.id, "enqueue");
       }
-      // Services may also write to DB
-      if (dbNodes.length > 0) {
+      // Services connect to Service Bus (if present) or directly to DB
+      if (serviceBusNode) {
+        addEdge(svc.id, serviceBusNode.id, "publish");
+      } else if (dbNodes.length > 0) {
         addEdge(svc.id, dbNodes[0].id, "process");
       }
+    }
+
+    // Service Bus connects to database (single trunk instead of fan-out)
+    if (serviceBusNode && dbNodes.length > 0) {
+      addEdge(serviceBusNode.id, dbNodes[0].id, "process");
     }
   }
 
@@ -1095,10 +1147,10 @@ export interface TreeLayoutOptions {
 }
 
 const DEFAULT_TREE_OPTIONS: TreeLayoutOptions = {
-  nodeSep: 320,
-  rankSep: 220,
-  decisionNodeSep: 420,
-  bridgeRankSep: 160,
+  nodeSep: 380,
+  rankSep: 340,
+  decisionNodeSep: 480,
+  bridgeRankSep: 240,
   startX: 120,
   startY: 100,
 };

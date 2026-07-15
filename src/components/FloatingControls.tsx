@@ -7,7 +7,6 @@
 
 import { useState } from "react";
 import { ShapeIcon } from "@/components/NodeShapeSVG";
-import { Tooltip } from "@/components/Tooltip";
 import type { Shape } from "@/lib/canvas-geometry";
 import type { Accent } from "@/lib/db-client";
 
@@ -46,13 +45,12 @@ export function FloatingControls({
   return (
     <div className="fixed bottom-4 left-[68px] z-40 flex flex-col gap-2">
       {/* Collapsed toggle button */}
-      <Tooltip content={expanded ? "Collapse shape controls" : "Expand shape controls"} side="right">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className={`flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface text-muted-foreground shadow-lg transition-all hover:bg-accent hover:text-foreground ${
-            expanded ? "ring-2 ring-teal/50" : ""
-          }`}
-        >
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className={`flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface text-muted-foreground shadow-lg transition-all hover:bg-accent hover:text-foreground ${
+          expanded ? "ring-2 ring-teal/50" : ""
+        }`}
+      >
         <svg
           width="16"
           height="16"
@@ -67,7 +65,6 @@ export function FloatingControls({
           <circle cx="6" cy="8" r="1.5" fill="currentColor" />
         </svg>
       </button>
-      </Tooltip>
 
       {/* Expanded controls */}
       {expanded && (
@@ -75,39 +72,39 @@ export function FloatingControls({
           {/* Shape picker */}
           <div className="flex flex-wrap gap-1">
             {SHAPES.slice(0, 6).map((shape) => (
-              <Tooltip key={shape} content={shape.charAt(0).toUpperCase() + shape.slice(1)} side="top">
-                <button
-                  onClick={() => onShapeChange(shape)}
-                  className={`flex h-8 w-9 items-center justify-center rounded-md border transition-all ${
-                    selectedShape === shape
-                      ? "border-teal/50 bg-teal/10 text-teal shadow-sm"
-                      : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
-                  }`}
-                >
-                  <ShapeIcon shape={shape} className="h-4 w-4" />
-                </button>
-              </Tooltip>
+              <button
+                key={shape}
+                onClick={() => onShapeChange(shape)}
+                title={shape.charAt(0).toUpperCase() + shape.slice(1)}
+                className={`flex h-8 w-9 items-center justify-center rounded-md border transition-all ${
+                  selectedShape === shape
+                    ? "border-teal/50 bg-teal/10 text-teal shadow-sm"
+                    : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+                }`}
+              >
+                <ShapeIcon shape={shape} className="h-4 w-4" />
+              </button>
             ))}
           </div>
 
           {/* Accent picker */}
           <div className="flex gap-1">
             {ACCENTS.map(({ accent, color, label }) => (
-              <Tooltip key={accent} content={label} side="top">
-                <button
-                  onClick={() => onAccentChange(accent)}
-                  className={`flex h-8 w-8 items-center justify-center rounded-md border transition-all ${
-                    selectedAccent === accent
-                      ? "border-teal/50 shadow-sm ring-1 ring-teal/30"
-                      : "border-border bg-background hover:bg-accent"
-                  }`}
-                >
-                  <span
-                    className="h-4 w-4 rounded-full"
-                    style={{ backgroundColor: color }}
-                  />
-                </button>
-              </Tooltip>
+              <button
+                key={accent}
+                onClick={() => onAccentChange(accent)}
+                title={label}
+                className={`flex h-8 w-8 items-center justify-center rounded-md border transition-all ${
+                  selectedAccent === accent
+                    ? "border-teal/50 shadow-sm ring-1 ring-teal/30"
+                    : "border-border bg-background hover:bg-accent"
+                }`}
+              >
+                <span
+                  className="h-4 w-4 rounded-full"
+                  style={{ backgroundColor: color }}
+                />
+              </button>
             ))}
           </div>
         </div>

@@ -101,7 +101,7 @@ export function ExportSchemaButton({ nodes, edges, disabled }: ExportSchemaButto
       <button
         onClick={() => setIsOpen((v) => !v)}
         disabled={disabled || tableCount === 0}
-        data-tip={tableCount === 0 ? "Add tables to the ERD canvas first" : "Export schema as SQL"}
+        title={tableCount === 0 ? "Add tables to the ERD canvas first" : "Export schema as SQL"}
         className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground transition-all hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Download className="h-3.5 w-3.5" />

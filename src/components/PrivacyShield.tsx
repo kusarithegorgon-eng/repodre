@@ -27,7 +27,7 @@ export function PrivacyShield() {
       <button
         onClick={dismiss}
         className="ml-auto shrink-0 text-muted-foreground/60 transition-colors hover:text-foreground"
-        data-tip="Dismiss"
+        title="Dismiss"
       >
         <X className="h-3 w-3" />
       </button>

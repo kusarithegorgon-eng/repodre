@@ -97,7 +97,6 @@ export function ErdGuide({ isOpen, onClose }: ErdGuideProps) {
           <span className="text-sm font-semibold text-foreground">ERD Cardinality Guide</span>
         </div>
         <button
-        data-tip="Close cardinality guide"
           onClick={onClose}
           className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
         >

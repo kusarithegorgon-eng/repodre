@@ -1,60 +1,101 @@
-import { supabase } from "@/lib/supabase";
+import type { User } from "@supabase/supabase-js";
 
-export type ProjectRole = "ADMIN" | "EDITOR" | "VIEWER";
+export type Role = "admin" | "editor" | "viewer";
 
-export interface RoleAccess {
-  role: ProjectRole | null;
-  canRead: boolean;
-  canEdit: boolean;
-  canDelete: boolean;
-  canMove: boolean;
-  canAdd: boolean;
-  loading: boolean;
+export type Resource = "project" | "node" | "edge" | "annotation" | "presence" | "comment";
+export type Action = "view" | "create" | "update" | "delete" | "comment" | "manage";
+
+export const ROLE_LABELS: Record<Role, string> = {
+  admin: "Admin",
+  editor: "Editor",
+  viewer: "Viewer",
+};
+
+export const ACCESS_CONTROL_MAP: Record<Resource, string> = {
+  project: "Project metadata, zoom settings, workspace visibility",
+  node: "Canvas nodes and visual entities",
+  edge: "Graph connections and relationships",
+  annotation: "Comments and annotations attached to node IDs",
+  presence: "Real-time collaboration cursors and room membership",
+  comment: "Textual discussion linked to specific canvas nodes",
+};
+
+const policyRules: Record<Role, Record<Resource, Action[]>> = {
+  admin: {
+    project: ["view", "create", "update", "delete"],
+    node: ["view", "create", "update", "delete"],
+    edge: ["view", "create", "update", "delete"],
+    annotation: ["view", "create", "update", "delete"],
+    presence: ["view", "manage"],
+    comment: ["view", "create", "update", "delete"],
+  },
+  editor: {
+    project: ["view", "create", "update"],
+    node: ["view", "create", "update"],
+    edge: ["view", "create", "update"],
+    annotation: ["view", "create", "update"],
+    presence: ["view", "manage"],
+    comment: ["view", "create", "update"],
+  },
+  viewer: {
+    project: ["view"],
+    node: ["view"],
+    edge: ["view"],
+    annotation: ["view", "create"],
+    presence: ["view"],
+    comment: ["view", "create"],
+  },
+};
+
+export interface PolicyRequest {
+  role: Role;
+  action: Action;
+  resource: Resource;
+  userId?: string;
+  projectId?: string;
 }
 
-export async function fetchRole(projectId: string): Promise<ProjectRole | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data, error } = await supabase
-    .from("project_members")
-    .select("role")
-    .eq("project_id", projectId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  return data.role as ProjectRole;
+export interface PolicyResponse {
+  allowed: boolean;
+  role: Role;
+  resource: Resource;
+  action: Action;
+  reason?: string;
 }
 
-export async function validateAction(
-  projectId: string,
-  action: "node.create" | "node.update" | "node.delete" | "edge.create" | "edge.update" | "edge.delete",
-): Promise<{ authorized: boolean; role: ProjectRole | null }> {
-  const { data, error } = await supabase.functions.invoke("gatekeeper", {
-    body: { projectId, action },
-  });
+export function can(role: Role, action: Action, resource: Resource): boolean {
+  const allowedActions = policyRules[role]?.[resource] ?? [];
+  return allowedActions.includes(action);
+}
 
-  if (error || !data) {
-    return { authorized: false, role: null };
+export function evaluatePolicy(request: PolicyRequest): PolicyResponse {
+  const allowed = can(request.role, request.action, request.resource);
+  return {
+    allowed,
+    role: request.role,
+    action: request.action,
+    resource: request.resource,
+    reason: allowed ? "allowed" : "denied by role policy",
+  };
+}
+
+export function enforce(role: Role, action: Action, resource: Resource): void {
+  if (!can(role, action, resource)) {
+    throw new Error(`Access denied: ${ROLE_LABELS[role]} cannot ${action} ${resource}`);
   }
-
-  return {
-    authorized: data.authorized === true,
-    role: data.role as ProjectRole | null,
-  };
 }
 
-export function roleToAccess(role: ProjectRole | null, loading: boolean): RoleAccess {
-  const isEditor = role === "EDITOR" || role === "ADMIN";
-  const isAdmin = role === "ADMIN";
-  return {
-    role,
-    canRead: true,
-    canEdit: isEditor,
-    canDelete: isAdmin,
-    canMove: isEditor,
-    canAdd: isEditor,
-    loading,
-  };
+export function getRoleFromMetadata(metadata: any): Role {
+  if (!metadata || typeof metadata !== "object") return "viewer";
+  const candidate = (metadata.role as string | undefined)?.toLowerCase();
+  if (candidate === "admin" || candidate === "editor" || candidate === "viewer") {
+    return candidate as Role;
+  }
+  return "viewer";
+}
+
+export function getRoleFromUser(user: User | null): Role {
+  if (!user) return "viewer";
+  const role = getRoleFromMetadata(user.user_metadata);
+  return role;
 }
