@@ -138,12 +138,16 @@ function highlightCode(code: string, language: string): string {
       return applySyntaxHighlight(code, SQL_SYNTAX_RULES);
     case "json":
       try {
-        return `<pre class="text-green-300">${JSON.stringify(JSON.parse(code), null, 2)}</pre>`;
+        const escaped = JSON.stringify(JSON.parse(code), null, 2)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+        return `<pre class="text-green-300">${escaped}</pre>`;
       } catch {
-        return code;
+        return applySyntaxHighlight(code, []);
       }
     default:
-      return code;
+      return applySyntaxHighlight(code, []);
   }
 }
 
