@@ -1,88 +1,8 @@
-/**
- * Database Client for Repodre
- *
- * Provides typed access to the Supabase database for
- * persisting projects, nodes, and edges.
- */
-
 import { supabase } from "./supabase";
-import type { Shape, HandleSegment, PositionedNode } from "./canvas-geometry";
-import type { Cardinality } from "./sql-tokenizer";
-// Re-export so consumers can import from db-client if desired
-export type { Cardinality };
+import type { NodeData, EdgeData, Workspace } from "./canvas-geometry";
 
-// Database row types
-export interface ProjectRow {
-  id: string;
-  name: string;
-  description: string | null;
-  zoom: number;
-  auto_layout: boolean;
-  smart_route: boolean;
-  workspace: "app" | "erd";
-  schema_source: string | null;
-  created_at: string;
-  updated_at: string;
-}
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-export type Accent = "green" | "purple" | "teal" | "blue" | "orange" | "red";
-
-export type Workspace = "app" | "erd";
-
-export interface ErdColumnRow {
-  name: string;
-  type: string;
-  pk: boolean;
-  fk: boolean;
-  unique: boolean;
-  nullable: boolean;
-}
-
-export interface NodeRow {
-  id: string;
-  project_id: string;
-  label: string;
-  sub: string;
-  shape: Shape;
-  accent: Accent;
-  x: number;
-  y: number;
-  w: number | null;
-  h: number | null;
-  workspace: Workspace;
-  columns: ErdColumnRow[] | null;
-  table_name: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface EdgeRow {
-  id: string;
-  project_id: string;
-  from_node: string;
-  to_node: string;
-  from_handle: HandleSegment | null;
-  to_handle: HandleSegment | null;
-  cardinality: Cardinality | null;
-  from_column: string | null;
-  to_column: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AnnotationRow {
-  id: string;
-  project_id: string;
-  node_id: string;
-  author_id: string | null;
-  author_name: string;
-  body: { type: string; value: string; format: string };
-  target: { type: string; id: string; selector: { type: string; value: string } };
-  created_at: string;
-  updated_at: string;
-}
-
-// Application types
 export interface Project {
   id: string;
   name: string;
@@ -92,575 +12,292 @@ export interface Project {
   smartRoute: boolean;
   workspace: Workspace;
   schemaSource: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
 }
 
-export interface Node extends PositionedNode {
-  id: string;
-  label: string;
-  sub: string;
-  shape: Shape;
-  accent: Accent;
-  projectId: string;
-  workspace: Workspace;
-  columns: ErdColumnRow[] | null;
-  tableName: string | null;
-}
-
-export interface Edge {
+export interface Snapshot {
   id: string;
   projectId: string;
-  from: string;
-  to: string;
-  fromHandle?: HandleSegment;
-  toHandle?: HandleSegment;
-  cardinality?: Cardinality;
-  fromColumn?: string;
-  toColumn?: string;
+  name: string;
+  description: string | null;
+  nodes: NodeData[];
+  edges: EdgeData[];
+  createdAt: string;
 }
 
-export interface Annotation {
-  id: string;
-  projectId: string;
-  nodeId: string;
-  authorId: string | null;
-  authorName: string;
-  body: {
-    type: "TextualBody";
-    value: string;
-    format: "text/plain";
-  };
-  target: {
-    type: "CanvasNode";
-    id: string;
-    selector: {
-      type: "NodeIdSelector";
-      value: string;
-    };
-  };
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// Converters
-function rowToProject(row: ProjectRow): Project {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    zoom: row.zoom,
-    autoLayout: row.auto_layout,
-    smartRoute: row.smart_route,
-    workspace: row.workspace,
-    schemaSource: row.schema_source,
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
-  };
-}
-
-function rowToNode(row: NodeRow): Node {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    label: row.label,
-    sub: row.sub,
-    shape: row.shape,
-    accent: row.accent,
-    x: row.x,
-    y: row.y,
-    w: row.w ?? undefined,
-    h: row.h ?? undefined,
-    workspace: row.workspace,
-    columns: row.columns ?? null,
-    tableName: row.table_name ?? null,
-  };
-}
-
-function rowToEdge(row: EdgeRow): Edge {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    from: row.from_node,
-    to: row.to_node,
-    fromHandle: row.from_handle ?? undefined,
-    toHandle: row.to_handle ?? undefined,
-    cardinality: row.cardinality ?? undefined,
-    fromColumn: row.from_column ?? undefined,
-    toColumn: row.to_column ?? undefined,
-  };
-}
-
-function rowToAnnotation(row: AnnotationRow): Annotation {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    nodeId: row.node_id,
-    authorId: row.author_id,
-    authorName: row.author_name,
-    body: {
-      type: row.body.type,
-      value: row.body.value,
-      format: row.body.format,
-    },
-    target: {
-      type: row.target.type,
-      id: row.target.id,
-      selector: {
-        type: row.target.selector.type,
-        value: row.target.selector.value,
-      },
-    },
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
-  };
-}
-
-// Project operations
+// ─── Projects ─────────────────────────────────────────────────────────────────
 
 export async function listProjects(): Promise<Project[]> {
   const { data, error } = await supabase
     .from("projects")
     .select("*")
     .order("updated_at", { ascending: false });
-
   if (error) throw error;
   return (data ?? []).map(rowToProject);
 }
 
-export async function getProject(id: string): Promise<Project | null> {
-  const { data, error } = await supabase
+export async function loadFullProject(projectId: string): Promise<{
+  project: Project;
+  nodes: NodeData[];
+  edges: EdgeData[];
+} | null> {
+  const { data: projRow, error: projErr } = await supabase
     .from("projects")
     .select("*")
-    .eq("id", id)
+    .eq("id", projectId)
     .maybeSingle();
+  if (projErr || !projRow) return null;
 
-  if (error) throw error;
-  return data ? rowToProject(data) : null;
-}
-
-export async function createProject(
-  project: Omit<Project, "id" | "createdAt" | "updatedAt">
-): Promise<Project> {
-  const { data, error } = await supabase
-    .from("projects")
-    .insert({
-      name: project.name,
-      description: project.description,
-      zoom: project.zoom,
-      auto_layout: project.autoLayout,
-      smart_route: project.smartRoute,
-      workspace: project.workspace,
-      schema_source: project.schemaSource,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return rowToProject(data);
-}
-
-export async function updateProject(
-  id: string,
-  updates: Partial<Pick<Project, "name" | "description" | "zoom" | "autoLayout" | "smartRoute" | "workspace" | "schemaSource">>
-): Promise<Project> {
-  const updateData: Record<string, unknown> = {};
-
-  if (updates.name !== undefined) updateData.name = updates.name;
-  if (updates.description !== undefined) updateData.description = updates.description;
-  if (updates.zoom !== undefined) updateData.zoom = updates.zoom;
-  if (updates.autoLayout !== undefined) updateData.auto_layout = updates.autoLayout;
-  if (updates.smartRoute !== undefined) updateData.smart_route = updates.smartRoute;
-  if (updates.workspace !== undefined) updateData.workspace = updates.workspace;
-  if (updates.schemaSource !== undefined) updateData.schema_source = updates.schemaSource;
-
-  const { data, error } = await supabase
-    .from("projects")
-    .update(updateData)
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return rowToProject(data);
-}
-
-export async function deleteProject(id: string): Promise<void> {
-  const { error } = await supabase.from("projects").delete().eq("id", id);
-  if (error) throw error;
-}
-
-// Node operations
-
-export async function listNodes(projectId: string): Promise<Node[]> {
-  const { data, error } = await supabase
+  const { data: nodeRows, error: nodeErr } = await supabase
     .from("nodes")
     .select("*")
     .eq("project_id", projectId);
+  if (nodeErr) throw nodeErr;
 
-  if (error) throw error;
-  return (data ?? []).map(rowToNode);
+  const { data: edgeRows, error: edgeErr } = await supabase
+    .from("edges")
+    .select("*")
+    .eq("project_id", projectId);
+  if (edgeErr) throw edgeErr;
+
+  return {
+    project: rowToProject(projRow),
+    nodes: (nodeRows ?? []).map(rowToNode),
+    edges: (edgeRows ?? []).map(rowToEdge),
+  };
 }
 
-export async function createNode(
-  projectId: string,
-  node: Omit<Node, "id" | "projectId">
-): Promise<Node> {
+export async function createProject(name: string, workspace: Workspace): Promise<Project> {
+  const { data, error } = await supabase
+    .from("projects")
+    .insert({ name, workspace })
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToProject(data);
+}
+
+export async function updateProject(projectId: string, updates: Partial<{
+  name: string;
+  zoom: number;
+  autoLayout: boolean;
+  smartRoute: boolean;
+  schema_source: string;
+}>): Promise<void> {
+  const { error } = await supabase
+    .from("projects")
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", projectId);
+  if (error) throw error;
+}
+
+// ─── Nodes ───────────────────────────────────────────────────────────────────
+
+export async function createNode(projectId: string, node: Partial<NodeData>): Promise<NodeData> {
   const { data, error } = await supabase
     .from("nodes")
     .insert({
       project_id: projectId,
-      label: node.label,
-      sub: node.sub,
-      shape: node.shape,
-      accent: node.accent,
-      x: node.x,
-      y: node.y,
-      w: node.w ?? null,
-      h: node.h ?? null,
-      workspace: node.workspace,
-      columns: node.columns ?? null,
-      table_name: node.tableName ?? null,
+      label: node.label ?? "New Node",
+      sub: node.sub ?? "",
+      shape: node.shape ?? "rectangle",
+      accent: node.accent ?? "teal",
+      x: node.x ?? 0,
+      y: node.y ?? 0,
+      workspace: node.workspace ?? "app",
+      table_name: node.tableName,
+      columns: node.columns,
     })
     .select()
     .single();
-
   if (error) throw error;
   return rowToNode(data);
 }
 
-export async function updateNode(
-  id: string,
-  updates: Partial<Pick<Node, "label" | "sub" | "shape" | "accent" | "x" | "y" | "w" | "h" | "workspace" | "columns" | "tableName">>
-): Promise<Node> {
-  const updateData: Record<string, unknown> = {};
-
-  if (updates.label !== undefined) updateData.label = updates.label;
-  if (updates.sub !== undefined) updateData.sub = updates.sub;
-  if (updates.shape !== undefined) updateData.shape = updates.shape;
-  if (updates.accent !== undefined) updateData.accent = updates.accent;
-  if (updates.x !== undefined) updateData.x = updates.x;
-  if (updates.y !== undefined) updateData.y = updates.y;
-  if (updates.w !== undefined) updateData.w = updates.w;
-  if (updates.h !== undefined) updateData.h = updates.h;
-  if (updates.workspace !== undefined) updateData.workspace = updates.workspace;
-  if (updates.columns !== undefined) updateData.columns = updates.columns;
-  if (updates.tableName !== undefined) updateData.table_name = updates.tableName;
-
-  const { data, error } = await supabase
+export async function updateNode(nodeId: string, updates: Partial<NodeData>): Promise<void> {
+  const { error } = await supabase
     .from("nodes")
-    .update(updateData)
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return rowToNode(data);
-}
-
-export async function deleteNode(id: string): Promise<void> {
-  const { error } = await supabase.from("nodes").delete().eq("id", id);
+    .update({
+      label: updates.label,
+      sub: updates.sub,
+      shape: updates.shape,
+      accent: updates.accent,
+      x: updates.x,
+      y: updates.y,
+      table_name: updates.tableName,
+      columns: updates.columns,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", nodeId);
   if (error) throw error;
 }
 
-export async function batchCreateNodes(
-  projectId: string,
-  nodes: Omit<Node, "id" | "projectId">[]
-): Promise<Node[]> {
-  const { data, error } = await supabase
-    .from("nodes")
-    .insert(
-      nodes.map((n) => ({
-        project_id: projectId,
-        label: n.label,
-        sub: n.sub,
-        shape: n.shape,
-        accent: n.accent,
-        x: n.x,
-        y: n.y,
-        w: n.w ?? null,
-        h: n.h ?? null,
-        workspace: n.workspace,
-        columns: n.columns ?? null,
-        table_name: n.tableName ?? null,
-      }))
-    )
-    .select();
+export async function deleteNode(nodeId: string): Promise<void> {
+  const { error } = await supabase.from("nodes").delete().eq("id", nodeId);
+  if (error) throw error;
+}
 
+export async function batchCreateNodes(projectId: string, nodes: Partial<NodeData>[]): Promise<NodeData[]> {
+  const rows = nodes.map((n) => ({
+    project_id: projectId,
+    label: n.label ?? "Node",
+    sub: n.sub ?? "",
+    shape: n.shape ?? "rectangle",
+    accent: n.accent ?? "teal",
+    x: n.x ?? 0,
+    y: n.y ?? 0,
+    workspace: n.workspace ?? "app",
+    table_name: n.tableName,
+    columns: n.columns,
+  }));
+  const { data, error } = await supabase.from("nodes").insert(rows).select();
   if (error) throw error;
   return (data ?? []).map(rowToNode);
 }
 
-/**
- * Batch update node positions for the Reset to Auto-Layout feature.
- * Updates x and y coordinates for multiple nodes in a single batch.
- */
-export async function batchUpdateNodePositions(
-  updates: Array<{ id: string; x: number; y: number }>
-): Promise<void> {
-  if (updates.length === 0) return;
-
-  // Update each node individually (Supabase doesn't support bulk update with different values)
-  // Using Promise.all for parallel execution
-  await Promise.all(
-    updates.map(({ id, x, y }) =>
-      supabase
-        .from("nodes")
-        .update({ x, y, updated_at: new Date().toISOString() })
-        .eq("id", id)
-    )
-  );
-}
-
-/**
- * Sync repository files to Supabase as nodes.
- * Uses upsert to prevent duplicates based on (project_id, label).
- * Files are mapped to nodes with inferred shapes and positions.
- */
-export async function syncRepoToSupabase(
-  projectId: string,
-  files: Array<{ id: string; name: string }>
-): Promise<{ success: boolean; count: number; error?: string }> {
-  if (!files.length) {
-    return { success: true, count: 0 };
-  }
-
-  // Map files to node format
-  const nodes = files.map((file, index) => ({
-    label: file.name,
-    sub: inferSubLabel(file.id),
-    shape: inferShape(file.id) as Shape,
-    accent: "teal" as Accent,
-    x: 80 + (index % 6) * 200,
-    y: 80 + Math.floor(index / 6) * 140,
-    workspace: "app" as Workspace,
-    columns: null,
-    tableName: null,
-  }));
-
-  try {
-    const { data, error } = await supabase
-      .from("nodes")
-      .upsert(
-        nodes.map((n) => ({
-          project_id: projectId,
-          label: n.label,
-          sub: n.sub,
-          shape: n.shape,
-          accent: n.accent,
-          x: n.x,
-          y: n.y,
-          w: null,
-          h: null,
-          workspace: n.workspace,
-          columns: null,
-          table_name: null,
-        })),
-        {
-          onConflict: "project_id,label",
-          ignoreDuplicates: false,
-        }
-      )
-      .select();
-
-    if (error) {
-      console.error("Supabase upsert error:", error);
-      return { success: false, count: 0, error: error.message };
-    }
-
-    console.log(`Successfully synced ${data?.length ?? 0} nodes to database`);
-    return { success: true, count: data?.length ?? 0 };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("syncRepoToSupabase error:", message);
-    return { success: false, count: 0, error: message };
+export async function batchUpdateNodePositions(updates: { id: string; x: number; y: number }[]): Promise<void> {
+  for (const u of updates) {
+    await supabase.from("nodes").update({ x: u.x, y: u.y, updated_at: new Date().toISOString() }).eq("id", u.id);
   }
 }
 
-function inferSubLabel(path: string): string {
-  if (path.includes("/api/") || path.includes("/routes/")) return "Endpoint · Route";
-  if (path.includes("component") || path.includes("Component")) return "UI · Component";
-  if (path.includes("hook") || path.includes("use")) return "Hook · Logic";
-  if (path.includes("util") || path.includes("lib")) return "Utility · Helper";
-  if (path.includes("test") || path.includes(".spec.")) return "Test · Coverage";
-  if (path.endsWith(".css") || path.endsWith(".scss")) return "Style · CSS";
-  if (path.endsWith(".md")) return "Docs · Markdown";
-  return "File · Source";
-}
+// ─── Edges ───────────────────────────────────────────────────────────────────
 
-function inferShape(path: string): string {
-  if (path.includes("/api/") || path.includes("/routes/")) return "rectangle";
-  if (path.includes("component") || path.includes("Component")) return "pill";
-  if (path.includes("hook") || path.includes("use")) return "hexagon";
-  if (path.includes("util") || path.includes("lib")) return "parallelogram";
-  if (path.includes("test") || path.includes(".spec.")) return "diamond";
-  if (path.endsWith(".css") || path.endsWith(".scss")) return "document";
-  return "rectangle";
-}
-
-// Edge operations
-
-export async function listEdges(projectId: string): Promise<Edge[]> {
-  const { data, error } = await supabase
-    .from("edges")
-    .select("*")
-    .eq("project_id", projectId);
-
-  if (error) throw error;
-  return (data ?? []).map(rowToEdge);
-}
-
-export async function createEdge(
-  projectId: string,
-  edge: Omit<Edge, "id" | "projectId">
-): Promise<Edge> {
+export async function createEdge(projectId: string, edge: Partial<EdgeData>): Promise<EdgeData> {
   const { data, error } = await supabase
     .from("edges")
     .insert({
       project_id: projectId,
       from_node: edge.from,
       to_node: edge.to,
-      from_handle: edge.fromHandle ?? null,
-      to_handle: edge.toHandle ?? null,
-      cardinality: edge.cardinality ?? null,
-      from_column: edge.fromColumn ?? null,
-      to_column: edge.toColumn ?? null,
+      from_handle: edge.fromHandle,
+      to_handle: edge.toHandle,
+      cardinality: edge.cardinality,
+      from_column: edge.fromColumn,
+      to_column: edge.toColumn,
     })
     .select()
     .single();
-
   if (error) throw error;
   return rowToEdge(data);
 }
 
-export async function updateEdge(
-  id: string,
-  updates: Partial<Pick<Edge, "from" | "to" | "fromHandle" | "toHandle">>
-): Promise<Edge> {
-  const updateData: Record<string, unknown> = {};
-
-  if (updates.from !== undefined) updateData.from_node = updates.from;
-  if (updates.to !== undefined) updateData.to_node = updates.to;
-  if (updates.fromHandle !== undefined) updateData.from_handle = updates.fromHandle;
-  if (updates.toHandle !== undefined) updateData.to_handle = updates.toHandle;
-
-  const { data, error } = await supabase
-    .from("edges")
-    .update(updateData)
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return rowToEdge(data);
-}
-
-export async function deleteEdge(id: string): Promise<void> {
-  const { error } = await supabase.from("edges").delete().eq("id", id);
+export async function deleteEdge(edgeId: string): Promise<void> {
+  const { error } = await supabase.from("edges").delete().eq("id", edgeId);
   if (error) throw error;
 }
 
-export async function listAnnotations(projectId: string): Promise<Annotation[]> {
-  const { data, error } = await supabase
-    .from("annotations")
-    .select("*")
-    .eq("project_id", projectId);
-
-  if (error) throw error;
-  return (data ?? []).map(rowToAnnotation);
-}
-
-export async function createAnnotation(
-  projectId: string,
-  annotation: Omit<Annotation, "id" | "projectId" | "createdAt" | "updatedAt">
-): Promise<Annotation> {
-  const { data, error } = await supabase
-    .from("annotations")
-    .insert({
-      project_id: projectId,
-      node_id: annotation.nodeId,
-      author_id: annotation.authorId,
-      author_name: annotation.authorName,
-      body: annotation.body,
-      target: annotation.target,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return rowToAnnotation(data);
-}
-
-export async function deleteAnnotation(id: string): Promise<void> {
-  const { error } = await supabase.from("annotations").delete().eq("id", id);
-  if (error) throw error;
-}
-
-export async function batchCreateEdges(
-  projectId: string,
-  edges: Omit<Edge, "id" | "projectId">[]
-): Promise<Edge[]> {
-  const { data, error } = await supabase
-    .from("edges")
-    .insert(
-      edges.map((e) => ({
-        project_id: projectId,
-        from_node: e.from,
-        to_node: e.to,
-        from_handle: e.fromHandle ?? null,
-        to_handle: e.toHandle ?? null,
-        cardinality: e.cardinality ?? null,
-        from_column: e.fromColumn ?? null,
-        to_column: e.toColumn ?? null,
-      }))
-    )
-    .select();
-
+export async function batchCreateEdges(projectId: string, edges: Partial<EdgeData>[]): Promise<EdgeData[]> {
+  const rows = edges.map((e) => ({
+    project_id: projectId,
+    from_node: e.from,
+    to_node: e.to,
+    from_handle: e.fromHandle,
+    to_handle: e.toHandle,
+    cardinality: e.cardinality,
+    from_column: e.fromColumn,
+    to_column: e.toColumn,
+  }));
+  const { data, error } = await supabase.from("edges").insert(rows).select();
   if (error) throw error;
   return (data ?? []).map(rowToEdge);
 }
 
-// Full project load (nodes + edges)
+// ─── Snapshots ───────────────────────────────────────────────────────────────
 
-export interface FullProject {
-  project: Project;
-  nodes: Node[];
-  edges: Edge[];
+export async function listSnapshots(projectId: string): Promise<Snapshot[]> {
+  const { data, error } = await supabase
+    .from("project_snapshots")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    projectId: r.project_id,
+    name: r.name,
+    description: r.description,
+    nodes: r.nodes ?? [],
+    edges: r.edges ?? [],
+    createdAt: r.created_at,
+  }));
 }
 
-export async function loadFullProject(projectId: string): Promise<FullProject | null> {
-  const project = await getProject(projectId);
-  if (!project) return null;
-
-  const [nodes, edges] = await Promise.all([
-    listNodes(projectId),
-    listEdges(projectId),
-  ]);
-
-  return { project, nodes, edges };
+export async function createSnapshot(projectId: string, name: string, description: string | null, nodes: NodeData[], edges: EdgeData[]): Promise<Snapshot> {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("project_snapshots")
+    .insert({
+      project_id: projectId,
+      name,
+      description,
+      nodes,
+      edges,
+      created_by: user?.id ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    projectId: data.project_id,
+    name: data.name,
+    description: data.description,
+    nodes: data.nodes ?? [],
+    edges: data.edges ?? [],
+    createdAt: data.created_at,
+  };
 }
 
-/**
- * Loads graph data (nodes + edges) from the database for a given project.
- * Returns normalized arrays ready to drop into canvas state.
- */
-export async function loadGraphFromDatabase(
-  projectId: string
-): Promise<{
-  nodes: Node[];
-  edges: Edge[];
-  project: Project | null;
-} | null> {
-  try {
-    const full = await loadFullProject(projectId);
-    if (!full) return null;
-    return {
-      project: full.project,
-      nodes: full.nodes,
-      edges: full.edges,
-    };
-  } catch (err) {
-    console.error("loadGraphFromDatabase error:", err);
-    return null;
-  }
+export async function deleteSnapshot(snapshotId: string): Promise<void> {
+  const { error } = await supabase.from("project_snapshots").delete().eq("id", snapshotId);
+  if (error) throw error;
 }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function rowToProject(r: Record<string, unknown>): Project {
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    description: r.description as string | null,
+    zoom: r.zoom as number,
+    autoLayout: r.auto_layout as boolean,
+    smartRoute: r.smart_route as boolean,
+    workspace: r.workspace as Workspace,
+    schemaSource: r.schema_source as string | null,
+    createdAt: r.created_at as string,
+  };
+}
+
+function rowToNode(r: Record<string, unknown>): NodeData {
+  return {
+    id: r.id as string,
+    label: r.label as string,
+    sub: r.sub as string,
+    shape: r.shape as NodeData["shape"],
+    accent: r.accent as NodeData["accent"],
+    x: r.x as number,
+    y: r.y as number,
+    w: r.w as number | undefined,
+    h: r.h as number | undefined,
+    workspace: r.workspace as Workspace,
+    tableName: r.table_name as string | undefined,
+    columns: r.columns as ColumnDef[] | undefined,
+  };
+}
+
+function rowToEdge(r: Record<string, unknown>): EdgeData {
+  return {
+    id: r.id as string,
+    from: r.from_node as string,
+    to: r.to_node as string,
+    fromHandle: r.from_handle as EdgeData["fromHandle"],
+    toHandle: r.to_handle as EdgeData["toHandle"],
+    cardinality: r.cardinality as string | undefined,
+    fromColumn: r.from_column as string | undefined,
+    toColumn: r.to_column as string | undefined,
+  };
+}
+
+import type { ColumnDef } from "./canvas-geometry";

@@ -1,118 +1,96 @@
-/**
- * SchemaInput — Multi-dialect DDL input
- *
- * A text area that accepts database definition structures from PostgreSQL,
- * MySQL/MariaDB, or SQLite. On submit, the DDL is parsed by the universal
- * tokenizer and the resulting tables/columns/FKs are persisted as ERD
- * nodes + edges.
- */
-
-import { useState, useCallback } from "react";
-import { Database, Loader as Loader2, Sparkles, X } from "lucide-react";
-import { parseDdlLexed } from "@/lib/sql-lexer";
-import { detectDialect, type ParsedTable } from "@/lib/sql-tokenizer";
+import { useState } from "react";
+import { Database, Upload, X, FileText } from "lucide-react";
+import { parseSQL, type ParsedTable } from "@/lib/sql-parser";
 
 interface SchemaInputProps {
+  value: string;
+  onValueChange: (v: string) => void;
   onSubmit: (tables: ParsedTable[], ddl: string) => void;
-  isLoading?: boolean;
-  /** controlled value (for pre-seeding from the project's schema_source) */
-  value?: string;
-  onValueChange?: (v: string) => void;
+  onClose: () => void;
 }
 
-export function SchemaInput({ onSubmit, isLoading, value, onValueChange }: SchemaInputProps) {
-  const [internalValue, setInternalValue] = useState("");
+export function SchemaInput({ value, onValueChange, onSubmit, onClose }: SchemaInputProps) {
   const [error, setError] = useState<string | null>(null);
-  const [showInput, setShowInput] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
 
-  const ddl = value ?? internalValue;
-  const setDdl = (v: string) => {
-    if (onValueChange) onValueChange(v);
-    else setInternalValue(v);
+  const handleSubmit = () => {
+    try {
+      setError(null);
+      if (!value.trim()) { setError("Please paste DDL or upload a .sql file"); return; }
+      const tables = parseSQL(value);
+      if (tables.length === 0) { setError("No CREATE TABLE statements found. The parser handles CREATE TABLE and FOREIGN KEY definitions."); return; }
+      onSubmit(tables, value);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to parse SQL");
+    }
   };
 
-  const dialect = ddl.trim() ? detectDialect(ddl) : null;
-
-  const handleSubmit = useCallback(() => {
-    if (!ddl.trim() || isLoading) return;
-    setError(null);
-    try {
-      const schema = parseDdlLexed(ddl);
-      if (schema.tables.length === 0) {
-        setError("No CREATE TABLE statements found. Paste a valid DDL script.");
-        return;
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const text = ev.target?.result as string;
+        onValueChange(text);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to read file");
       }
-      onSubmit(schema.tables, ddl);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to parse DDL");
-    }
-  }, [ddl, isLoading, onSubmit]);
-
-  if (!showInput) {
-    return (
-      <button
-        onClick={() => setShowInput(true)}
-        className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-all hover:border-teal hover:text-teal"
-      >
-        <Database className="h-3.5 w-3.5" />
-        Import Schema
-      </button>
-    );
-  }
+    };
+    reader.onerror = () => setError("Failed to read file");
+    reader.readAsText(file);
+  };
 
   return (
-    <div className="absolute right-4 top-16 z-30 w-96 rounded-xl border border-border bg-popover/95 p-4 shadow-2xl backdrop-blur animate-slide-up">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Database className="h-4 w-4 text-teal" />
-          <span className="text-sm font-semibold text-foreground">Import DDL Schema</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-2xl rounded-xl border p-6 shadow-2xl animate-in"
+        style={{ background: "var(--popover)", borderColor: "var(--border)" }}>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Database className="h-5 w-5 text-teal" style={{ color: "var(--teal)" }} />
+            <h2 className="text-lg font-semibold" style={{ color: "var(--foreground)" }}>Import DDL Schema</h2>
+          </div>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-accent" style={{ color: "var(--muted-foreground)" }}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <button
-          onClick={() => setShowInput(false)}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
 
-      <p className="mb-2 text-[11px] text-muted-foreground">
-        Paste a CREATE TABLE script. PostgreSQL, MySQL/MariaDB, and SQLite are
-        auto-detected.
-      </p>
-
-      <textarea
-        value={ddl}
-        onChange={(e) => setDdl(e.target.value)}
-        placeholder={`CREATE TABLE users (\n  id SERIAL PRIMARY KEY,\n  email TEXT UNIQUE NOT NULL\n);\n\nCREATE TABLE posts (\n  id SERIAL PRIMARY KEY,\n  user_id INTEGER REFERENCES users(id),\n  title TEXT NOT NULL\n);`}
-        className="h-48 w-full resize-none rounded-lg border border-border bg-background p-3 font-mono text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20"
-        spellCheck={false}
-      />
-
-      {dialect && (
-        <div className="mt-2 flex items-center gap-2 text-[11px]">
-          <span className="text-muted-foreground">Detected:</span>
-          <span className="rounded-full bg-teal/15 px-2 py-0.5 font-medium text-teal">
-            {dialect === "postgresql" ? "PostgreSQL / Supabase" : dialect === "mysql" ? "MySQL / MariaDB" : "SQLite"}
-          </span>
-        </div>
-      )}
-
-      {error && (
-        <p className="mt-2 text-xs text-red-500">{error}</p>
-      )}
-
-      <button
-        onClick={handleSubmit}
-        disabled={isLoading || !ddl.trim()}
-        className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-teal px-4 py-2 text-sm font-medium text-white transition-all hover:bg-teal/90 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Sparkles className="h-4 w-4" />
+        {error && (
+          <div className="mb-4 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "color-mix(in srgb, var(--red) 30%, transparent)", background: "color-mix(in srgb, var(--red) 10%, transparent)", color: "var(--red)" }}>
+            {error}
+          </div>
         )}
-        Parse & Generate ERD
-      </button>
+
+        {/* File uploader */}
+        <div className="mb-4">
+          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed p-4 transition-all hover:border-teal"
+            style={{ borderColor: "var(--border)" }}>
+            <Upload className="h-5 w-5" style={{ color: "var(--muted-foreground)" }} />
+            <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+              {fileName ? <span className="flex items-center gap-1"><FileText className="h-4 w-4" /> {fileName}</span> : "Upload .sql file"}
+            </span>
+            <input type="file" accept=".sql,.txt" onChange={handleFileUpload} className="hidden" />
+          </label>
+        </div>
+
+        {/* DDL textarea */}
+        <textarea
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          placeholder="Paste CREATE TABLE statements here..."
+          className="mb-4 h-48 w-full resize-none rounded-lg border p-3 font-mono text-sm outline-none focus:border-teal"
+          style={{ background: "var(--background)", borderColor: "var(--border)", color: "var(--foreground)" }}
+        />
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-medium transition-all hover:bg-accent"
+            style={{ borderColor: "var(--border)", color: "var(--muted-foreground)" }}>Cancel</button>
+          <button onClick={handleSubmit} className="rounded-lg px-4 py-2 text-sm font-medium text-white transition-all hover:opacity-90"
+            style={{ background: "var(--teal)" }}>Import Schema</button>
+        </div>
+      </div>
     </div>
   );
 }
