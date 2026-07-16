@@ -132,7 +132,7 @@ export function layoutErd(
       const fromAnchor = columnAnchor(fromTable, e.fromColumn, toTable);
       const toAnchor = columnAnchor(toTable, e.toColumn, fromTable);
 
-      const path = orthogonalPath(fromAnchor, toAnchor, fromTable, toTable);
+      const path = smoothstepPath(fromAnchor, toAnchor, fromTable, toTable);
 
       return {
         id: e.id,
@@ -175,77 +175,38 @@ function columnAnchor(
 }
 
 /**
- * Build an orthogonal (Manhattan) SVG path between two points, routing
- * around the source and target table boxes.
- *
- * Strategy: exit the source horizontally, travel to a midpoint column,
- * turn vertically, then enter the target horizontally.
+ * Build a smoothstep (rounded orthogonal) SVG path between two anchor points.
+ * Uses quadratic Bezier curves at corners instead of sharp 90° turns,
+ * which visually separates overlapping lines and makes them easier to follow.
  */
-function orthogonalPath(
-  from: Point,
-  to: Point,
-  fromTable: ErdTableNode,
-  toTable: ErdTableNode
-): string {
-  // If both anchors are on the same side (both left or both right), route
-  // through a midpoint; otherwise use a simple L or Z bend.
+function smoothstepPath(from: Point, to: Point, fromTable: ErdTableNode, toTable: ErdTableNode): string {
   const fromIsRight = from.x > fromTable.x + fromTable.width / 2;
   const toIsRight = to.x > toTable.x + toTable.width / 2;
 
-  const exitGap = 24; // how far the path exits horizontally before turning
-
+  const exitGap = 24;
   const p1x = from.x + (fromIsRight ? exitGap : -exitGap);
   const p2x = to.x + (toIsRight ? exitGap : -exitGap);
-
   const midX = (p1x + p2x) / 2;
 
-  // Build the path: M from -> H p1x -> V midY -> H p2x -> V to.y -> H to.x
-  // But we need to handle the vertical segment at midX.
-  const points: Point[] = [
-    from,
-    { x: p1x, y: from.y },
-    { x: midX, y: from.y },
-    { x: midX, y: to.y },
-    { x: p2x, y: to.y },
-    to,
-  ];
+  const r = Math.min(12, Math.abs(midX - p1x) / 2, Math.abs(p2x - midX) / 2);
+  const fromSx = fromIsRight ? 1 : -1;
+  const toSx = toIsRight ? 1 : -1;
 
-  // Simplify collinear points for cleaner SVG
-  const simplified = simplifyPath(points);
-  return toSvgPath(simplified);
-}
-
-function simplifyPath(points: Point[]): Point[] {
-  if (points.length <= 2) return points;
-  const out: Point[] = [points[0]];
-  for (let i = 1; i < points.length; i++) {
-    const prev = out[out.length - 1];
-    const cur = points[i];
-    const next = points[i + 1];
-    if (next && isCollinear(prev, cur, next)) {
-      // skip cur — it's on the line from prev to next
-      continue;
-    }
-    out.push(cur);
+  const parts: string[] = [`M ${from.x} ${from.y}`];
+  parts.push(`H ${p1x}`);
+  if (Math.abs(midX - p1x) > r * 2) {
+    parts.push(`Q ${p1x + fromSx * r} ${from.y} ${p1x + fromSx * r} ${from.y + Math.sign(to.y - from.y) * r}`);
+    parts.push(`V ${to.y - Math.sign(to.y - from.y) * r}`);
+    parts.push(`Q ${p1x + fromSx * r} ${to.y} ${midX} ${to.y}`);
+    parts.push(`H ${p2x - toSx * r}`);
+    parts.push(`Q ${p2x} ${to.y} ${p2x} ${to.y}`);
+  } else {
+    parts.push(`L ${midX} ${from.y}`);
+    parts.push(`L ${midX} ${to.y}`);
+    parts.push(`L ${p2x} ${to.y}`);
   }
-  return out;
-}
-
-function isCollinear(a: Point, b: Point, c: Point): boolean {
-  // horizontal collinear
-  if (a.y === b.y && b.y === c.y) return true;
-  // vertical collinear
-  if (a.x === b.x && b.x === c.x) return true;
-  return false;
-}
-
-function toSvgPath(points: Point[]): string {
-  if (points.length === 0) return "";
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length; i++) {
-    d += ` L ${points[i].x} ${points[i].y}`;
-  }
-  return d;
+  parts.push(`H ${to.x}`);
+  return parts.join(" ");
 }
 
 /**

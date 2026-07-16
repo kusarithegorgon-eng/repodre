@@ -7,8 +7,8 @@
  * nodes + edges.
  */
 
-import { useState, useCallback } from "react";
-import { Database, Loader as Loader2, Sparkles, X } from "lucide-react";
+import { useState, useCallback, useRef } from "react";
+import { Database, Loader as Loader2, Sparkles, X, Upload } from "lucide-react";
 import { parseDdlLexed } from "@/lib/sql-lexer";
 import { detectDialect, type ParsedTable } from "@/lib/sql-tokenizer";
 
@@ -20,23 +20,40 @@ interface SchemaInputProps {
   onValueChange?: (v: string) => void;
 }
 
+const MAX_FILE_SIZE = 5_000_000;
+
 export function SchemaInput({ onSubmit, isLoading, value, onValueChange }: SchemaInputProps) {
   const [internalValue, setInternalValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showInput, setShowInput] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const ddl = value ?? internalValue;
   const setDdl = (v: string) => {
     if (onValueChange) onValueChange(v);
-    if (file.size > 5_000_000) {
-      setError("File too large. Maximum size is 5 MB.");
-      e.target.value = "";
-      return;
-    }
     else setInternalValue(v);
   };
 
   const dialect = ddl.trim() ? detectDialect(ddl) : null;
+
+  const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > MAX_FILE_SIZE) {
+      setError("File too large. Maximum size is 5 MB.");
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
+      setDdl(text);
+      setError(null);
+    };
+    reader.onerror = () => setError("Failed to read file.");
+    reader.readAsText(file);
+    e.target.value = "";
+  }, []);
 
   const handleSubmit = useCallback(() => {
     if (!ddl.trim() || isLoading) return;
@@ -81,9 +98,26 @@ export function SchemaInput({ onSubmit, isLoading, value, onValueChange }: Schem
       </div>
 
       <p className="mb-2 text-[11px] text-muted-foreground">
-        Paste a CREATE TABLE script. PostgreSQL, MySQL/MariaDB, and SQLite are
-        auto-detected.
+        Paste a CREATE TABLE script or upload a .sql file. PostgreSQL, MySQL/MariaDB, and SQLite are
+        auto-detected. Only CREATE TABLE and FOREIGN KEY statements are processed; all other SQL is ignored.
       </p>
+
+      <div className="mb-2 flex items-center gap-2">
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all hover:border-teal hover:text-teal"
+        >
+          <Upload className="h-3 w-3" />
+          Upload .sql
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".sql,.ddl,.txt"
+          onChange={handleFileImport}
+          className="hidden"
+        />
+      </div>
 
       <textarea
         value={ddl}

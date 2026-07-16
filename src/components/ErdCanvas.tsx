@@ -178,11 +178,34 @@ export function ErdCanvas({
 
   // Tables involved in the selected edge (for dimming)
   const highlightedTableIds = useMemo(() => {
-    if (!selectedEdgeId) return new Set<string>();
-    const srcEdge = edges.find((e) => e.id === selectedEdgeId);
-    if (!srcEdge) return new Set<string>();
-    return new Set([srcEdge.from, srcEdge.to]);
-  }, [selectedEdgeId, edges]);
+    if (selectedEdgeId) {
+      const srcEdge = edges.find((e) => e.id === selectedEdgeId);
+      if (!srcEdge) return new Set<string>();
+      return new Set([srcEdge.from, srcEdge.to]);
+    }
+    // Path lighting: when a node is selected, highlight all nodes connected
+    // to it through any edge (transitive closure via BFS).
+    if (!selected) return new Set<string>();
+    const adj = new Map<string, Set<string>>();
+    for (const e of edges) {
+      if (!adj.has(e.from)) adj.set(e.from, new Set());
+      if (!adj.has(e.to)) adj.set(e.to, new Set());
+      adj.get(e.from)!.add(e.to);
+      adj.get(e.to)!.add(e.from);
+    }
+    const visited = new Set<string>([selected]);
+    const queue = [selected];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      for (const next of adj.get(cur) ?? []) {
+        if (!visited.has(next)) {
+          visited.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    return visited;
+  }, [selectedEdgeId, edges, selected]);
 
   const cardinalityLabel = (c: string) =>
     c === "one-to-one" ? "1:1" : c === "many-to-many" ? "M:N" : "1:N";
@@ -238,9 +261,9 @@ export function ErdCanvas({
               const srcEdge = edgeLookup.get(edge.id);
               const isSelectedEdge = edge.id === selectedEdgeId;
               const isRelated = highlightedTableIds.size > 0 && (
-                highlightedTableIds.has(srcEdge?.from ?? "") || highlightedTableIds.has(srcEdge?.to ?? "")
+                highlightedTableIds.has(srcEdge?.from ?? "") && highlightedTableIds.has(srcEdge?.to ?? "")
               );
-              const isDimmed = selectedEdgeId !== null && !isSelectedEdge && !isRelated;
+              const isDimmed = highlightedTableIds.size > 0 && !isSelectedEdge && !isRelated;
               const { markerStart, markerEnd } = markerForCardinality(edge.cardinality, "erd");
 
               return (
@@ -284,7 +307,7 @@ export function ErdCanvas({
 
           {/* Table entity cards */}
           {laidOut.tables.map((table) => {
-            const isDimmed = selectedEdgeId !== null && !highlightedTableIds.has(table.id);
+            const isDimmed = highlightedTableIds.size > 0 && !highlightedTableIds.has(table.id);
             return (
               <div
                 key={table.id}
