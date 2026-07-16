@@ -318,8 +318,24 @@ export async function analyzeRepository(
           };
         });
 
+      // Filter out convergence edges (select, query, catch error, etc.)
+      // from rendering — they create long crossing lines through nodes.
+      const CONVERGENCE_RENDER = new Set([
+        "select", "call external", "enqueue", "catch error",
+        "check cache", "cache miss", "log",
+        "save project", "save post", "save comment", "save file", "save order",
+        "save data", "store profile", "update record",
+      ]);
+      const isConvergenceEdge = (label: string | undefined): boolean => {
+        if (!label) return false;
+        if (CONVERGENCE_RENDER.has(label)) return true;
+        if (/^(CREATE|READ|UPDATE|DELETE)\s*→/.test(label)) return true;
+        return false;
+      };
+
       graphEdges = journeyGraph.edges
         .filter((e) => {
+          if (isConvergenceEdge(e.label)) return false;
           const fromExists = graphNodes.some((n) => n.id === e.from);
           const toExists = graphNodes.some((n) => n.id === e.to);
           return fromExists && toExists;

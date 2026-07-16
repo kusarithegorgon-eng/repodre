@@ -38,12 +38,12 @@ export interface ElkLayoutOptions {
 
 const DEFAULT_ELK_OPTIONS: ElkLayoutOptions = {
   direction: "DOWN",
-  nodeNodeSpacing: 100,
-  nodeEdgeSpacing: 50,
-  edgeEdgeSpacing: 25,
-  layerSpacing: 340,
-  decisionSpacing: 140,
-  bridgeSpacing: 240,
+  nodeNodeSpacing: 70,
+  nodeEdgeSpacing: 40,
+  edgeEdgeSpacing: 20,
+  layerSpacing: 180,
+  decisionSpacing: 100,
+  bridgeSpacing: 120,
   startX: 120,
   startY: 100,
 };
@@ -142,11 +142,11 @@ export async function layoutJourneyGraphWithElk(
     };
   });
 
-  // Build ELK edges — include ALL edges so convergence targets (DB nodes,
-  // error handlers, external services) are reachable and get positioned by
-  // the layout engine rather than falling into the orphan fallback column.
+  // Build ELK edges — only tree edges (non-convergence) so the layout
+  // produces a clean family-tree hierarchy without long crossing edges.
+  // Reuses the isTreeEdge filter defined above for the children adjacency.
   const elkEdges = graph.edges
-    .filter((edge) => edge.from !== edge.to)
+    .filter((edge) => isTreeEdge(edge.label) && edge.from !== edge.to)
     .map((edge, index) => ({
       id: edge.id || `e${index}`,
       sources: [edge.from],

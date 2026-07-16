@@ -1089,9 +1089,25 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   }
 
   // ── Orphan insurance ─────────────────────────────────────────────────
+  // Only consider tree edges (non-convergence) when checking for orphans,
+  // because convergence edges are filtered out by the ELK layout.
+  const CONVERGENCE_ORPHAN = new Set([
+    "select", "call external", "enqueue", "catch error",
+    "check cache", "cache miss", "log",
+    "save project", "save post", "save comment", "save file", "save order",
+    "save data", "store profile", "update record",
+  ]);
+  const isTreeEdgeOrphan = (label: string | undefined): boolean => {
+    if (!label) return true;
+    if (CONVERGENCE_ORPHAN.has(label)) return false;
+    if (/^(CREATE|READ|UPDATE|DELETE)\s*→/.test(label)) return false;
+    return true;
+  };
+
   const hasIncoming = new Set<string>();
   const hasOutgoing = new Set<string>();
   for (const e of edges) {
+    if (!isTreeEdgeOrphan(e.label)) continue;
     hasOutgoing.add(e.from);
     hasIncoming.add(e.to);
   }
