@@ -244,6 +244,8 @@ export function IconSidebar({
   onImportSchema,
   onExportSchema,
   onToggleErdGuide,
+  aiGuideOpen,
+  onToggleAiGuide,
 }: IconSidebarProps) {
   const wireStyleIcon = {
     curvy: <Spline className="h-4 w-4" />,

@@ -257,7 +257,25 @@ export async function createProject(
     .single();
 
   if (error) throw error;
-  return rowToProject(data);
+  const created = rowToProject(data);
+
+  // Add the creator as ADMIN in project_members so RLS permits node/edge inserts
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    const { error: memberError } = await supabase
+      .from("project_members")
+      .insert({
+        project_id: created.id,
+        user_id: user.id,
+        email: user.email ?? "",
+        role: "ADMIN",
+      });
+    if (memberError) {
+      console.warn("Failed to add project membership:", memberError.message);
+    }
+  }
+
+  return created;
 }
 
 export async function updateProject(
