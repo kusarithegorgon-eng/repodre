@@ -24,6 +24,7 @@ export function RecentProjectsPanel({
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showRefreshHint, setShowRefreshHint] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Show a "taking too long?" hint after 4 seconds of loading
   useEffect(() => {
@@ -37,6 +38,14 @@ export function RecentProjectsPanel({
   }, [isLoading]);
 
   const fetchProjects = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setIsAuthenticated(false);
+      setProjects([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsAuthenticated(true);
     setIsLoading(true);
     setError(null);
     try {
@@ -104,6 +113,23 @@ export function RecentProjectsPanel({
     }
     return project.name;
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden bg-surface">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">Recent Projects</h3>
+          </div>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
+          <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
+          <p className="mt-3 text-sm text-muted-foreground">Sign in to view and manage your saved projects.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-surface">
