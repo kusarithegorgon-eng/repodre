@@ -338,6 +338,13 @@ export function IconSidebar({
               onClick={cycleWireStyle}
             />
 
+            <SidebarButton
+              icon={<ShieldCheck className="h-4 w-4" />}
+              tooltip="AI Interaction Protocols"
+              onClick={onToggleAiGuide}
+              active={aiGuideOpen}
+            />
+
             <IconDivider />
           </>
         )}
@@ -420,6 +427,13 @@ export function IconSidebar({
               onClick={onToggleLiveTraffic}
               active={liveTrafficActive}
               badge={liveTrafficActive}
+            />
+
+            <SidebarButton
+              icon={<ShieldCheck className="h-4 w-4" />}
+              tooltip="AI Interaction Protocols"
+              onClick={onToggleAiGuide}
+              active={aiGuideOpen}
             />
 
             <IconDivider />

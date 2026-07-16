@@ -291,21 +291,22 @@ export async function analyzeRepository(
       percent: 92,
     });
 
-    // ── Layout: swimlane (functional columns) is primary layout ──────────
-    // Places nodes into fixed columns by functional category (Entry, Auth,
-    // Core Logic, Services, Data Layer, Error Handling) — like a cross-
-    // functional flowchart. ELK/tree layout is kept as fallback only.
+    // ── Layout: ELK family-tree (top-to-bottom hierarchy) is primary ────
+    // Uses the Eclipse Layout Kernel layered algorithm with DOWN direction
+    // to produce a "family tree" look where decision nodes branch children
+    // horizontally. The swimlane layout is kept as metadata for fallback.
     const swimlaneLayout = layoutJourneySwimlanes(journeyGraph);
 
     let graphNodes: AnalysisGraph["nodes"];
     let graphEdges: AnalysisGraph["edges"];
 
     if (journeyGraph.nodes.length > 1) {
-      // Primary path: swimlane columnar layout — skip bridge nodes
+      // Primary path: ELK layered tree layout (includes bridge nodes)
+      const elkPositions = await layoutJourneyGraphWithElk(journeyGraph);
+
       graphNodes = journeyGraph.nodes
-        .filter((n) => n.type !== "bridge")
         .map((n) => {
-          const pos = swimlaneLayout.positions.get(n.id);
+          const pos = elkPositions.get(n.id);
           return {
             id: n.id,
             label: n.label,
@@ -317,10 +318,12 @@ export async function analyzeRepository(
           };
         });
 
-      // Filter out edges involving bridge nodes (removed in swimlane layout)
-      const visibleNodeIds = new Set(graphNodes.map((n) => n.id));
       graphEdges = journeyGraph.edges
-        .filter((e) => visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to))
+        .filter((e) => {
+          const fromExists = graphNodes.some((n) => n.id === e.from);
+          const toExists = graphNodes.some((n) => n.id === e.to);
+          return fromExists && toExists;
+        })
         .map((e) => ({
           id: e.id,
           from: e.from,

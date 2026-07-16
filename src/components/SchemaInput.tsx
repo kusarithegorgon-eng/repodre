@@ -18,14 +18,15 @@ interface SchemaInputProps {
   /** controlled value (for pre-seeding from the project's schema_source) */
   value?: string;
   onValueChange?: (v: string) => void;
+  /** optional close handler — when provided, shows a close button in the header */
+  onClose?: () => void;
 }
 
 const MAX_FILE_SIZE = 5_000_000;
 
-export function SchemaInput({ onSubmit, isLoading, value, onValueChange }: SchemaInputProps) {
+export function SchemaInput({ onSubmit, isLoading, value, onValueChange, onClose }: SchemaInputProps) {
   const [internalValue, setInternalValue] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [showInput, setShowInput] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const ddl = value ?? internalValue;
@@ -70,31 +71,21 @@ export function SchemaInput({ onSubmit, isLoading, value, onValueChange }: Schem
     }
   }, [ddl, isLoading, onSubmit]);
 
-  if (!showInput) {
-    return (
-      <button
-        onClick={() => setShowInput(true)}
-        className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-all hover:border-teal hover:text-teal"
-      >
-        <Database className="h-3.5 w-3.5" />
-        Import Schema
-      </button>
-    );
-  }
-
   return (
-    <div className="absolute right-4 top-16 z-30 w-96 rounded-xl border border-border bg-popover/95 p-4 shadow-2xl backdrop-blur animate-slide-up">
+    <div className="w-96 rounded-xl border border-border bg-popover/95 p-4 shadow-2xl backdrop-blur animate-slide-up">
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Database className="h-4 w-4 text-teal" />
           <span className="text-sm font-semibold text-foreground">Import DDL Schema</span>
         </div>
-        <button
-          onClick={() => setShowInput(false)}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       <p className="mb-2 text-[11px] text-muted-foreground">

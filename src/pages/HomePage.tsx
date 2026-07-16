@@ -180,6 +180,7 @@ export function HomePage() {
             }))
           );
 
+          setRefreshKey((k) => k + 1);
           navigate({ to: "/studio", search: { project: project.id } });
         } catch {
           // DB save failed (user not signed in or constraint error) — open in-memory

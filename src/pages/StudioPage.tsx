@@ -1468,6 +1468,7 @@ export async function POST(req: Request) {
               onValueChange={setSchemaSource}
               onSubmit={(tables, ddl) => { handleSchemaImport(tables, ddl); setShowSchemaInput(false); }}
               isLoading={isLoading}
+              onClose={() => setShowSchemaInput(false)}
             />
           </div>
         </div>

@@ -142,9 +142,11 @@ export async function layoutJourneyGraphWithElk(
     };
   });
 
-  // Build ELK edges (using identifiers, not section references)
+  // Build ELK edges — include ALL edges so convergence targets (DB nodes,
+  // error handlers, external services) are reachable and get positioned by
+  // the layout engine rather than falling into the orphan fallback column.
   const elkEdges = graph.edges
-    .filter((edge) => isTreeEdge(edge.label) && edge.from !== edge.to)
+    .filter((edge) => edge.from !== edge.to)
     .map((edge, index) => ({
       id: edge.id || `e${index}`,
       sources: [edge.from],
