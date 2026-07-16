@@ -445,6 +445,13 @@ export function StudioPage() {
     };
   }, []);
 
+  // Project IDs for the two demo workspaces
+  const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
+  const ERD_PROJECT_ID = "00000000-0000-0000-0000-000000000002";
+
+  // Resolve the active project ID from the URL or fall back to the demo workspace ID
+  const activeProjectId = search.project ?? (workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID);
+
   // Load annotations for the active project when it changes.
   useEffect(() => {
     if (isDemoMode || isDraftMode) {
@@ -679,12 +686,7 @@ export async function POST(req: Request) {
     }
   }, [webhookSync.isConnected, webhookSync.triggerMockEvent]);
 
-  // Project IDs for the two demo workspaces
-  const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
-  const ERD_PROJECT_ID = "00000000-0000-0000-0000-000000000002";
 
-  // Resolve the active project ID from the URL or fall back to the demo workspace ID
-  const activeProjectId = search.project ?? (workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID);
 
   // Refresh Canvas: reloads nodes and edges from Supabase for the active project.
   // Called on initial render, on project/workspace change, on realtime updates,
