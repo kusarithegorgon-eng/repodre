@@ -403,6 +403,7 @@ export function StudioPage() {
   const [userRole, setUserRole] = useState<Role>("viewer");
   const [swimlaneLanes, setSwimlaweLanes] = useState<SwimlaneLayout["lanes"] | null>(null);
   const [showSchemaInput, setShowSchemaInput] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const [isResettingLayout, setIsResettingLayout] = useState(false);
   const [selectedAnnotationNode, setSelectedAnnotationNode] = useState<string | null>(null);
@@ -1088,6 +1089,63 @@ export async function POST(req: Request) {
   const handleWorkspaceChange = useCallback(async (ws: Workspace) => {
     setWorkspace(ws);
   }, []);
+
+  // Save draft-mode graph to database as a new project
+  const handleSaveDraft = useCallback(async () => {
+    if (nodes.length === 0) return;
+    setIsSavingDraft(true);
+    try {
+      const draftRaw = sessionStorage.getItem("repodre-draft-graph");
+      const draftName = draftRaw ? (JSON.parse(draftRaw).repoName ?? "Draft Project") : "Draft Project";
+      const newProject = await createProject({
+        name: draftName,
+        description: `Saved from draft mode (${nodes.length} nodes)`,
+        zoom,
+        autoLayout,
+        smartRoute,
+        workspace,
+        schemaSource: null,
+      });
+
+      const savedNodes = await batchCreateNodes(
+        newProject.id,
+        nodes.map((n) => ({
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          accent: n.accent,
+          x: n.x,
+          y: n.y,
+          workspace,
+          columns: n.columns ?? null,
+          tableName: n.tableName ?? null,
+        })),
+      );
+
+      const nodeIdMap = new Map<string, string>();
+      nodes.forEach((n, i) => nodeIdMap.set(n.id, savedNodes[i].id));
+
+      await batchCreateEdges(
+        newProject.id,
+        edges.map((e) => ({
+          from: nodeIdMap.get(e.from) || e.from,
+          to: nodeIdMap.get(e.to) || e.to,
+          fromHandle: e.fromHandle,
+          toHandle: e.toHandle,
+          cardinality: e.cardinality,
+          fromColumn: e.fromColumn,
+          toColumn: e.toColumn,
+        })),
+      );
+
+      sessionStorage.removeItem("repodre-draft-graph");
+      navigate({ to: "/studio", search: { project: newProject.id } });
+    } catch (err) {
+      console.error("Save draft failed:", err);
+    } finally {
+      setIsSavingDraft(false);
+    }
+  }, [nodes, edges, zoom, autoLayout, smartRoute, workspace, navigate]);
 
   // Import a DDL schema into the ERD viewport: create a new ERD project,
   // persist table nodes + FK edges, and swap the active project.
@@ -1943,6 +2001,23 @@ export async function POST(req: Request) {
           onClose={() => setMultiplayerOpen(false)}
           projectId={project?.id ?? activeProjectId}
         />
+      )}
+
+      {/* Save to Workspace button (draft mode only) */}
+      {isDraftMode && nodes.length > 0 && (
+        <button
+          onClick={handleSaveDraft}
+          disabled={isSavingDraft}
+          title="Save this draft to your workspace so it appears in Recent Projects"
+          className="fixed left-1/2 top-16 z-40 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-teal/40 bg-teal/10 px-4 py-2 text-sm font-medium text-teal shadow-lg backdrop-blur transition-all hover:bg-teal/20 disabled:opacity-50"
+        >
+          {isSavingDraft ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Cloud className="h-4 w-4" />
+          )}
+          {isSavingDraft ? "Saving..." : "Save to Workspace"}
+        </button>
       )}
 
       {/* Git PR Diff Overlay (App viewport only) */}

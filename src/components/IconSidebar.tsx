@@ -5,7 +5,7 @@
  * Houses primary canvas controls for both App Journey and Database ERD workspaces.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Chrome as Home, ShieldCheck, MessageCircle } from "lucide-react";
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
@@ -17,9 +17,19 @@ interface TooltipProps {
 
 function Tooltip({ content, children }: TooltipProps) {
   const [show, setShow] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (show && ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setPos({ top: rect.top + rect.height / 2, left: rect.right + 12 });
+    }
+  }, [show]);
 
   return (
     <div
+      ref={ref}
       className="relative"
       onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
@@ -27,15 +37,10 @@ function Tooltip({ content, children }: TooltipProps) {
       {children}
       {show && (
         <div
-          className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 z-[200] whitespace-nowrap rounded-md bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-lg border border-border"
-          style={{ animation: "fadeIn 150ms ease" }}
+          className="pointer-events-none fixed z-[200] whitespace-nowrap rounded-md bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-lg border border-border"
+          style={{ top: pos.top, left: pos.left, transform: "translateY(-50%)" }}
         >
           {content}
-          {/* Arrow pointing left toward the button */}
-          <span
-            className="absolute right-full top-1/2 -translate-y-1/2 border-y-4 border-y-transparent border-r-4 border-r-popover"
-            aria-hidden="true"
-          />
         </div>
       )}
     </div>
@@ -430,7 +435,7 @@ export function IconSidebar({
 
             <SidebarButton
               icon={<Users className="h-4 w-4" />}
-              tooltip={`Multiplayer — ${collaboratorCount} collaborator${collaboratorCount !== 1 ? "s" : ""}`}
+              tooltip={`Collaborators — ${collaboratorCount} member${collaboratorCount !== 1 ? "s" : ""}`}
               onClick={onToggleMultiplayer}
               active={multiplayerOpen}
               badge={multiplayerOpen && collaboratorCount > 0}
