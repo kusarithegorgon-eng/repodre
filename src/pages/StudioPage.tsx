@@ -31,7 +31,7 @@ import {
   SystemInsightsDashboard,
   SystemInsightsToggle,
 } from "@/components/SystemInsightsDashboard";
-import { useCanvasPan, RecenterButton } from "@/hooks/useCanvasPan.tsx";
+import { useCanvasPan } from "@/hooks/useCanvasPan.tsx";
 import { analyzeBottlenecks, type BottleneckWarning } from "@/lib/bottleneck-analyzer";
 import type { DetectedController } from "@/lib/blueprint-analyzer";
 import type { ParsedModule } from "@/lib/ast-parser";
@@ -44,7 +44,7 @@ import { detectAntiPatterns, type AntiPatternWarning, getWarningsForNode, hasVie
 import { scanForEnvVariables, type EnvScanResult, getEnvVarsForNode } from "@/lib/env-scanner";
 import { EnvironmentToggle, useProductionOverlay, type Environment } from "@/components/EnvironmentToggle";
 import { WebhookSyncPanel, WebhookSyncToggle, useWebhookSync } from "@/components/WebhookSyncPanel";
-import { MultiplayerPresence, MultiplayerToggle, GhostCursors, useMultiplayerPresence } from "@/components/MultiplayerPresence";
+import { MultiplayerPresence } from "@/components/MultiplayerPresence";
 import { AnnotationPanel, AnnotationOverlay } from "@/components/AnnotationPanel";
 import { GitDiffOverlay, GitDiffToggle, useGitDiff, getDiffNodeStyles } from "@/components/GitDiffOverlay";
 import { ControllerBadge, isControllerNode, classifyNodeLayer, useSmartLinks, getSmartLinkClasses } from "@/components/Flow";
@@ -665,12 +665,6 @@ export async function POST(req: Request) {
   }, []);
 
   const webhookSync = useWebhookSync(nodes, handleWebhookMutations);
-
-  // Multiplayer presence
-  const {
-    presenceState,
-    toggleConnection: togglePresenceConnection,
-  } = useMultiplayerPresence(canvasRef, zoom, nodes);
 
   // Git diff
   const {
@@ -1355,8 +1349,8 @@ export async function POST(req: Request) {
         webhookSyncConnected={webhookSync.isConnected}
         hasPendingWebhookSync={!!lastWebhookEvent}
         multiplayerOpen={multiplayerOpen}
-        multiplayerConnected={presenceState.isConnected}
-        collaboratorCount={presenceState.collaborators.length}
+        multiplayerConnected={false}
+        collaboratorCount={0}
         gitDiffOpen={gitDiffOpen}
         gitDiffCount={diffResult ? diffResult.addedCount + diffResult.deletedCount + diffResult.modifiedCount + diffResult.conflictCount : 0}
         bottleneckCount={bottleneckWarnings.length}
@@ -1943,19 +1937,12 @@ export async function POST(req: Request) {
       )}
 
       {/* Multiplayer Presence Panel (App viewport only) */}
-      {workspace === "app" && multiplayerOpen && (
+      {multiplayerOpen && (
         <MultiplayerPresence
           isOpen={multiplayerOpen}
           onClose={() => setMultiplayerOpen(false)}
-          canvasRef={canvasRef}
-          zoom={zoom}
-          nodes={nodes}
+          projectId={project?.id ?? activeProjectId}
         />
-      )}
-
-      {/* Ghost Cursors Overlay (App viewport only) */}
-      {workspace === "app" && multiplayerOpen && presenceState.isConnected && (
-        <GhostCursors collaborators={presenceState.collaborators} />
       )}
 
       {/* Git PR Diff Overlay (App viewport only) */}

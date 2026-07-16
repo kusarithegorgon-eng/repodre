@@ -682,3 +682,145 @@ export async function loadGraphFromDatabase(
     return null;
   }
 }
+
+// ─── Collaboration: invitations & members ──────────────────────────────────
+
+export type ProjectRole = "ADMIN" | "EDITOR" | "VIEWER";
+
+export interface ProjectMember {
+  id: string;
+  projectId: string;
+  userId: string;
+  email: string;
+  role: ProjectRole;
+  createdAt: string;
+}
+
+export interface ProjectInvitation {
+  id: string;
+  projectId: string;
+  email: string;
+  role: ProjectRole;
+  status: "pending" | "accepted" | "revoked";
+  createdAt: string;
+  acceptedAt: string | null;
+}
+
+function rowToMember(row: Record<string, unknown>): ProjectMember {
+  return {
+    id: row.id as string,
+    projectId: row.project_id as string,
+    userId: row.user_id as string,
+    email: row.email as string,
+    role: row.role as ProjectRole,
+    createdAt: row.created_at as string,
+  };
+}
+
+function rowToInvitation(row: Record<string, unknown>): ProjectInvitation {
+  return {
+    id: row.id as string,
+    projectId: row.project_id as string,
+    email: row.email as string,
+    role: row.role as ProjectRole,
+    status: row.status as "pending" | "accepted" | "revoked",
+    createdAt: row.created_at as string,
+    acceptedAt: (row.accepted_at as string) ?? null,
+  };
+}
+
+export async function listMembers(projectId: string): Promise<ProjectMember[]> {
+  const { data, error } = await supabase
+    .from("project_members")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(rowToMember);
+}
+
+export async function listInvitations(projectId: string): Promise<ProjectInvitation[]> {
+  const { data, error } = await supabase
+    .from("project_invitations")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToInvitation);
+}
+
+export async function inviteCollaborator(
+  projectId: string,
+  email: string,
+  role: ProjectRole,
+): Promise<ProjectInvitation> {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("project_invitations")
+    .insert({
+      project_id: projectId,
+      email: email.toLowerCase().trim(),
+      role,
+      invited_by: user?.id ?? null,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return rowToInvitation(data);
+}
+
+export async function revokeInvitation(invitationId: string): Promise<void> {
+  const { error } = await supabase
+    .from("project_invitations")
+    .update({ status: "revoked" })
+    .eq("id", invitationId);
+  if (error) throw error;
+}
+
+export async function updateMemberRole(
+  memberId: string,
+  role: ProjectRole,
+): Promise<void> {
+  const { error } = await supabase
+    .from("project_members")
+    .update({ role })
+    .eq("id", memberId);
+  if (error) throw error;
+}
+
+export async function removeMember(memberId: string): Promise<void> {
+  const { error } = await supabase
+    .from("project_members")
+    .delete()
+    .eq("id", memberId);
+  if (error) throw error;
+}
+
+export async function acceptInvitation(invitationId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Must be signed in to accept invitation");
+
+  const { data: invite, error: fetchErr } = await supabase
+    .from("project_invitations")
+    .select("*")
+    .eq("id", invitationId)
+    .single();
+  if (fetchErr || !invite) throw new Error("Invitation not found");
+  if (invite.status !== "pending") throw new Error("Invitation is no longer pending");
+  if (invite.email !== user.email) throw new Error("This invitation is for a different email");
+
+  const { error: memberErr } = await supabase
+    .from("project_members")
+    .insert({
+      project_id: invite.project_id,
+      user_id: user.id,
+      email: user.email ?? "",
+      role: invite.role,
+    });
+  if (memberErr) throw memberErr;
+
+  await supabase
+    .from("project_invitations")
+    .update({ status: "accepted", accepted_at: new Date().toISOString() })
+    .eq("id", invitationId);
+}

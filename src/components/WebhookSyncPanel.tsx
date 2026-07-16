@@ -210,6 +210,7 @@ export function WebhookSyncToggle({
   return (
     <button
       onClick={onClick}
+      title="Webhook sync — connect external repo updates"
       className={`relative flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-all ${
         isActive
           ? "border-teal/50 bg-teal/10 text-teal"

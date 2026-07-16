@@ -63,6 +63,7 @@ export function CanvasExportButton({
       <button
         onClick={() => setIsOpen((v) => !v)}
         disabled={disabled || isExporting}
+        title="Download canvas as PNG or SVG"
         className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground transition-all hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-40"
       >
         {isExporting ? (
