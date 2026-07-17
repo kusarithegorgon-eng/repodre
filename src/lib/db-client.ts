@@ -731,6 +731,11 @@ function rowToMember(row: Record<string, unknown>): ProjectMember {
   };
 }
 
+function isValidEmail(email: string): boolean {
+  const normalized = email.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+}
+
 function rowToInvitation(row: Record<string, unknown>): ProjectInvitation {
   return {
     id: row.id as string,
@@ -746,20 +751,52 @@ function rowToInvitation(row: Record<string, unknown>): ProjectInvitation {
 export async function listMembers(projectId: string): Promise<ProjectMember[]> {
   const { data, error } = await supabase
     .from("project_members")
-    .select("*")
+    .select("id, project_id, user_id, email, role, invited_by, created_at")
     .eq("project_id", projectId)
     .order("created_at", { ascending: true });
-  if (error) throw error;
+  if (error) {
+    console.error("listMembers error:", { projectId, error });
+    throw error;
+  }
   return (data ?? []).map(rowToMember);
 }
 
 export async function listInvitations(projectId: string): Promise<ProjectInvitation[]> {
   const { data, error } = await supabase
     .from("project_invitations")
-    .select("*")
+    .select("id, project_id, email, role, status, invited_by, accepted_at, created_at")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
-  if (error) throw error;
+  if (error) {
+    console.error("listInvitations error:", { projectId, error });
+    throw error;
+  }
+  return (data ?? []).map(rowToInvitation);
+}
+
+export async function listInvitationsForCurrentUser(): Promise<ProjectInvitation[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !user.email) {
+    throw new Error("Must be signed in to view invitations");
+  }
+
+  const email = user.email.toLowerCase().trim();
+  if (!isValidEmail(email)) {
+    throw new Error("Signed-in user has an invalid email address");
+  }
+
+  const { data, error } = await supabase
+    .from("project_invitations")
+    .select("id, project_id, email, role, status, invited_by, accepted_at, created_at")
+    .eq("email", email)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("listInvitationsForCurrentUser error:", { email, error });
+    throw error;
+  }
+
   return (data ?? []).map(rowToInvitation);
 }
 
@@ -768,12 +805,42 @@ export async function inviteCollaborator(
   email: string,
   role: ProjectRole,
 ): Promise<ProjectInvitation> {
+  const trimmedEmail = email.toLowerCase().trim();
+  if (!isValidEmail(trimmedEmail)) {
+    throw new Error("Please enter a valid email address to invite.");
+  }
+
+  const { data: existingMember, error: memberErr } = await supabase
+    .from("project_members")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("email", trimmedEmail)
+    .maybeSingle();
+  if (memberErr) throw memberErr;
+  if (existingMember) {
+    throw new Error("This user is already a member of the project.");
+  }
+
+  const { data: existingInvitation, error: inviteErr } = await supabase
+    .from("project_invitations")
+    .select("id, status")
+    .eq("project_id", projectId)
+    .eq("email", trimmedEmail)
+    .maybeSingle();
+  if (inviteErr) throw inviteErr;
+  if (existingInvitation?.status === "pending") {
+    throw new Error("An invitation for this email is already pending.");
+  }
+  if (existingInvitation?.status === "accepted") {
+    throw new Error("This email has already accepted an invitation to the project.");
+  }
+
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from("project_invitations")
     .insert({
       project_id: projectId,
-      email: email.toLowerCase().trim(),
+      email: trimmedEmail,
       role,
       invited_by: user?.id ?? null,
     })
