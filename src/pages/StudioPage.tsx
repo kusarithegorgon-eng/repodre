@@ -486,7 +486,7 @@ export function StudioPage() {
   const handleHomeClick = useCallback(() => {
     setProject(null);
     setWorkspace("app");
-    navigate({ to: "/dashboard", search: {} });
+    navigate({ to: "/dashboard", search: {}, replace: true });
   }, [navigate]);
 
 
