@@ -126,7 +126,7 @@ export function LandingPage() {
       <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            <RepodreLogo />
+            <RepodreLogo width={36} height={36} />
             <span className="text-lg font-semibold">Repodre</span>
           </div>
           <nav className="hidden items-center gap-8 md:flex">
@@ -255,7 +255,7 @@ export function LandingPage() {
         <footer className="mx-auto max-w-6xl px-6 py-14">
           <div className="flex flex-col gap-10 md:flex-row md:justify-between">
             <div className="flex items-center gap-3">
-              <RepodreLogo />
+              <RepodreLogo width={36} height={36} />
               <span className="font-semibold">Repodre</span>
             </div>
             <div className="flex gap-16">
