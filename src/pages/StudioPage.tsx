@@ -1476,7 +1476,6 @@ export async function POST(req: Request) {
   }
 
   return (
-    <AuthGate>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
 
       {/* Icon Sidebar */}
@@ -2098,7 +2097,6 @@ export async function POST(req: Request) {
         onClose={nodeSpawner.closeSpawner}
       />
       </div>
-    </AuthGate>
   );
 }
 
