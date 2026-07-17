@@ -1459,7 +1459,7 @@ export async function POST(req: Request) {
         </aside>
         <div className="flex min-h-full flex-1 flex-col md:ml-72">
           <DashboardNavbar onHome={handleHomeClick} />
-          <main className="flex min-h-0 flex-1">
+          <main className="flex min-h-0 flex-1 items-center justify-center">
             <DashboardHome />
           </main>
         </div>
