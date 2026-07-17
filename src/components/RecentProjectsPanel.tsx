@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { Clock, GitBranch, ArrowRight, FolderOpen, Loader as Loader2, CircleAlert as AlertCircle, RefreshCw, Trash2 } from "lucide-react";
+import { Clock, GitBranch, FolderOpen, Loader as Loader2, CircleAlert as AlertCircle, RefreshCw, Trash2 } from "lucide-react";
 import { listProjects, deleteProject, type Project } from "@/lib/db-client";
 import { supabase } from "@/lib/supabase";
 import { getGitHubAccessToken } from "@/lib/github-auth";
@@ -286,72 +286,3 @@ export function RecentProjectsPanel({
   );
 }
 
-/**
- * Getting Started Overlay
- * Shows when canvas is empty with step-by-step instructions.
- */
-export function GettingStartedOverlay() {
-  const steps = [
-    {
-      step: 1,
-      title: "Connect",
-      description: "Paste a GitHub repository URL to establish a secure, read-only link.",
-      icon: GitBranch,
-    },
-    {
-      step: 2,
-      title: "Parse",
-      description: "We automatically scan for routes, controllers, and database schemas.",
-      icon: FolderOpen,
-    },
-    {
-      step: 3,
-      title: "Sync",
-      description: "Save your map to your private workspace for later access.",
-      icon: RefreshCw,
-    },
-    {
-      step: 4,
-      title: "Explore",
-      description: "Click nodes to inspect code logic and trace data flow.",
-      icon: ArrowRight,
-    },
-  ];
-
-  return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="mx-4 max-w-md rounded-2xl border border-border bg-surface p-6 shadow-xl">
-        <div className="mb-4 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-teal/10 text-teal">
-            <GitBranch className="h-6 w-6" />
-          </div>
-          <h2 className="text-lg font-semibold text-foreground">Getting Started</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Visualize your codebase in 4 simple steps
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          {steps.map((s) => (
-            <div
-              key={s.step}
-              className="flex items-start gap-3 rounded-lg border border-border bg-background/50 px-4 py-3"
-            >
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal/10 text-xs font-bold text-teal">
-                {s.step}
-              </span>
-              <div className="flex-1">
-                <h3 className="text-sm font-medium text-foreground">{s.title}</h3>
-                <p className="text-xs text-muted-foreground">{s.description}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          Enter a repository URL on the right to begin
-        </p>
-      </div>
-    </div>
-  );
-}

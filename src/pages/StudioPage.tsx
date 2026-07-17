@@ -13,7 +13,8 @@ import { PrivacyShield } from "@/components/PrivacyShield";
 import { ApiTestExportButton } from "@/components/ApiTestExportButton";
 import { GuideModal, GuideToggle } from "@/components/GuideModal";
 import { AiGuideModal, AiGuideToggle } from "@/components/AiGuideModal";
-import { GettingStartedOverlay } from "@/components/RecentProjectsPanel";
+import { RecentProjectsPanel } from "@/components/RecentProjectsPanel";
+import { DashboardHome } from "@/components/DashboardHome";
 import { CodePreviewPanel, CodePreviewToggle } from "@/components/CodePreviewPanel";
 import { BottleneckBadge } from "@/components/BottleneckBadge";
 import { EditableLabel } from "@/components/InlineLabelEditor";
@@ -363,7 +364,7 @@ function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
 // ─── Studio page ────────────────────────────────────────────────────────────
 
 export function StudioPage() {
-  const search = useSearch({ strict: false }) as { demo?: boolean; draft?: boolean; project?: string };
+  const search = useSearch({ strict: false }) as { demo?: boolean; draft?: boolean; project?: string; repo_id?: string; session_key?: string };
   const navigate = useNavigate();
   const isDemoMode = search?.demo === true;
   const isDraftMode = search?.draft === true;
@@ -452,9 +453,10 @@ export function StudioPage() {
   const APP_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
   const ERD_PROJECT_ID = "00000000-0000-0000-0000-000000000002";
 
-  // Resolve the active project ID from the URL or fall back to the demo workspace ID
+  // Resolve the active project ID from the URL.
   // Only set an active project ID if explicitly provided via URL (auth-first).
   const activeProjectId = (search.project as string) ?? (search.repo_id as string) ?? (search.session_key as string) ?? null;
+  const showDashboardHome = !activeProjectId && !isDemoMode && !isDraftMode;
 
   // Load annotations for the active project when it changes.
   useEffect(() => {
@@ -1414,6 +1416,24 @@ export async function POST(req: Request) {
     );
   }
 
+  if (showDashboardHome) {
+    return (
+      <AuthGate>
+        <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+          <aside className="hidden md:block absolute inset-y-0 left-0 w-72 shrink-0 border-r border-border bg-surface">
+            <RecentProjectsPanel
+              onSelectProject={(projectId) => navigate({ to: "/dashboard", search: { project: projectId } })}
+              refreshKey={0}
+            />
+          </aside>
+          <main className="flex min-h-full flex-1 md:ml-72">
+            <DashboardHome />
+          </main>
+        </div>
+      </AuthGate>
+    );
+  }
+
   return (
     <AuthGate>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -1727,7 +1747,12 @@ export async function POST(req: Request) {
 
                   {/* Node layer */}
                   {nodes.length === 0 && !isLoading && !isDemoMode && !isDraftMode && (
-                    <GettingStartedOverlay />
+                    <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                      <div className="rounded-3xl border border-border bg-background/90 p-6 text-center shadow-xl">
+                        <p>No project content to display yet.</p>
+                        <p className="mt-2 text-xs text-muted-foreground">Select a recent project or paste a repository URL.</p>
+                      </div>
+                    </div>
                   )}
                   {nodes.map((n) => (
                     <CanvasNode
