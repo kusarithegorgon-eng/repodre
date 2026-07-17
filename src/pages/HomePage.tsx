@@ -185,8 +185,10 @@ export function HomePage() {
 
           setRefreshKey((k) => k + 1);
           navigate({ to: "/studio", search: { project: project.id } });
-        } catch {
-          // DB save failed (user not signed in or constraint error) — open in-memory
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error("Database save failed, falling back to draft:", err);
+          showToast(`Database save failed: ${message}`, "error");
           sessionStorage.setItem("repodre-draft-graph", JSON.stringify({
             nodes: analysisResult.graph.nodes,
             edges: analysisResult.graph.edges,

@@ -260,7 +260,7 @@ export async function createProject(
     effectiveUserId = user?.id ?? null;
   }
 
-  if (effectiveUserId !== undefined) {
+  if (effectiveUserId !== undefined && effectiveUserId !== null) {
     insertData.user_id = effectiveUserId;
   }
 
@@ -334,7 +334,7 @@ export async function createNode(
     columns: node.columns ?? null,
     table_name: node.tableName ?? null,
   };
-  if (node.userId !== undefined) {
+  if (node.userId !== undefined && node.userId !== null) {
     insertData.user_id = node.userId;
   }
 
@@ -404,7 +404,7 @@ export async function batchCreateNodes(
           columns: n.columns ?? null,
           table_name: n.tableName ?? null,
         };
-        if (n.userId !== undefined) {
+        if (n.userId !== undefined && n.userId !== null) {
           insertData.user_id = n.userId;
         }
         return insertData;
@@ -468,20 +468,26 @@ export async function syncRepoToSupabase(
     const { data, error } = await supabase
       .from("nodes")
       .upsert(
-        nodes.map((n) => ({
-          project_id: projectId,
-          label: n.label,
-          sub: n.sub,
-          shape: n.shape,
-          accent: n.accent,
-          x: n.x,
-          y: n.y,
-          w: null,
-          h: null,
-          workspace: n.workspace,
-          columns: null,
-          table_name: null,
-        })),
+        nodes.map((n) => {
+          const insertData: Record<string, unknown> = {
+            project_id: projectId,
+            label: n.label,
+            sub: n.sub,
+            shape: n.shape,
+            accent: n.accent,
+            x: n.x,
+            y: n.y,
+            w: null,
+            h: null,
+            workspace: n.workspace,
+            columns: null,
+            table_name: null,
+          };
+          if (userId !== undefined && userId !== null) {
+            insertData.user_id = userId;
+          }
+          return insertData;
+        }),
         {
           onConflict: "project_id,label",
           ignoreDuplicates: false,
