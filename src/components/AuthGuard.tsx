@@ -13,24 +13,31 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   useEffect(() => {
     let mounted = true;
-    let initialSessionHandled = false;
+    let sawInitialEvent = false;
+    let sawGetSession = false;
 
     const handleSession = (event: string, session: any) => {
       if (!mounted) return;
+
       if (event === "INITIAL_SESSION") {
-        initialSessionHandled = true;
-        if (!session || !session.user) {
-          navigate({ to: "/" });
+        sawInitialEvent = true;
+        if (session?.user) {
+          setChecking(false);
           return;
         }
+        if (sawGetSession) {
+          navigate({ to: "/" });
+        }
+        return;
+      }
+
+      if (event === "SIGNED_IN") {
         setChecking(false);
         return;
       }
 
-      if (!session || !session.user) {
+      if (event === "SIGNED_OUT") {
         navigate({ to: "/" });
-      } else {
-        setChecking(false);
       }
     };
 
@@ -40,9 +47,13 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
-      if (initialSessionHandled) return;
-      if (session && session.user) {
+      sawGetSession = true;
+      if (session?.user) {
         setChecking(false);
+        return;
+      }
+      if (sawInitialEvent) {
+        navigate({ to: "/" });
       }
     });
 
