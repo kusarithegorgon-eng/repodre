@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { RepoInput } from "@/components/RepoInput";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
@@ -137,27 +137,23 @@ export function DashboardHome() {
   const isProgress = progress && progress.phase !== "complete" && progress.phase !== "error";
 
   return (
-    <div className="flex min-h-full items-center justify-center px-6 py-16">
-      <div className="w-full max-w-4xl space-y-10 text-center">
-        <div className="space-y-4">
-          <div className="mx-auto flex items-center justify-center gap-2 rounded-full border border-teal/20 bg-teal/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal">
-            <Sparkles className="h-4 w-4" />
-            Repo Paste Home
-          </div>
+    <div className="flex min-h-[80vh] flex-col items-center justify-center px-6 py-16">
+      <div className="w-full max-w-2xl space-y-6 text-center">
+        <div className="space-y-6">
           <div>
             <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
               Visualize Your Codebase
             </h1>
-            <p className="mt-2 text-4xl font-semibold text-teal sm:text-5xl">
+            <p className="mt-3 text-4xl font-semibold text-teal sm:text-5xl">
               Execution Architecture
             </p>
-            <p className="mx-auto mt-4 max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-7 text-muted-foreground sm:text-base">
               Paste any GitHub repository URL and instantly generate an interactive execution flow diagram and database ERD blueprint.
             </p>
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-3xl space-y-4">
+        <div className="mx-auto w-full max-w-2xl space-y-6">
           <RepoInput
             value={repoUrl}
             onChange={setRepoUrl}
@@ -174,26 +170,26 @@ export function DashboardHome() {
             className="h-12 w-full rounded-2xl border border-border bg-background/80 px-4 text-sm text-foreground outline-none transition focus:border-teal"
           />
 
-          <div className="flex flex-col items-center justify-center gap-3 sm:flex-row sm:justify-center">
+          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
             <button
               type="button"
               onClick={handleAnalyze}
               disabled={isAnalyzing || !repoUrl.trim()}
-              className="inline-flex items-center justify-center rounded-2xl bg-teal px-6 py-3 text-sm font-semibold text-teal-foreground transition hover:bg-teal/90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-w-[11rem] items-center justify-center rounded-2xl bg-teal px-6 py-3 text-sm font-semibold text-teal-foreground transition hover:bg-teal/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isAnalyzing ? "Analyzing…" : "Start analysis"}
             </button>
             <button
               type="button"
               onClick={() => navigate({ to: "/dashboard", search: { demo: true } })}
-              className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
+              className="inline-flex min-w-[11rem] items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
             >
               View Demo Project
             </button>
             <button
               type="button"
               onClick={handleSyncToDatabase}
-              className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
+              className="inline-flex min-w-[11rem] items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
             >
               Sync to Database
             </button>
