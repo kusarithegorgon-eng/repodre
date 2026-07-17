@@ -13,25 +13,43 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   useEffect(() => {
     let mounted = true;
-    (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+    let initialSessionHandled = false;
+
+    const handleSession = (event: string, session: any) => {
       if (!mounted) return;
-      if (!session || !session.user) {
-        navigate({ to: "/" });
+      if (event === "INITIAL_SESSION") {
+        initialSessionHandled = true;
+        if (!session || !session.user) {
+          navigate({ to: "/" });
+          return;
+        }
+        setChecking(false);
         return;
       }
-      setChecking(false);
-    })();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session || !session.user) {
         navigate({ to: "/" });
       } else {
         setChecking(false);
       }
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      handleSession(event, session);
     });
 
-    return () => subscription.unsubscribe();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      if (initialSessionHandled) return;
+      if (session && session.user) {
+        setChecking(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [navigate]);
 
   if (checking) {
