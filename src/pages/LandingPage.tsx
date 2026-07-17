@@ -1,6 +1,7 @@
 import { GitBranch, Database, ShieldCheck, ArrowRight, ArrowDown } from "lucide-react";
 import { signInWithGitHub } from "@/lib/github-auth";
 import { RepodreLogo } from "@/components/RepodreLogo";
+import { Hero3D } from "@/components/Hero3D";
 
 const FEATURES = [
   {
@@ -182,7 +183,7 @@ export function LandingPage() {
               </p>
             </div>
 
-            <HeroDiagram />
+            <Hero3D />
           </div>
         </section>
 
