@@ -1,6 +1,9 @@
 import { Outlet } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { onAuthStateChange, type GitHubAuthState } from "@/lib/github-auth";
+import { supabase } from "@/lib/supabase";
+
+const CANVAS_STORAGE_KEY = "repodre-canvas-v1";
 
 export function RootPage() {
   const [mounted, setMounted] = useState(false);
@@ -18,10 +21,25 @@ export function RootPage() {
       );
     });
 
-    (window as unknown as { authListener?: () => void }).authListener = cleanup;
+    // Also listen directly to supabase auth events to clear active-project state
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN") {
+        try {
+          localStorage.removeItem(CANVAS_STORAGE_KEY);
+          sessionStorage.removeItem("repodre-draft-graph");
+        } catch {}
+      }
+    });
+
+    const combinedCleanup = () => {
+      cleanup();
+      subscription.unsubscribe();
+    };
+
+    (window as unknown as { authListener?: () => void }).authListener = combinedCleanup;
 
     return () => {
-      cleanup();
+      combinedCleanup();
     };
   }, []);
 

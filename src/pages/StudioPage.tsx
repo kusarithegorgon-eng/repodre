@@ -370,8 +370,8 @@ export function StudioPage() {
   const [isLoading, setIsLoading] = useState(!isDemoMode);
   const [project, setProject] = useState<Project | null>(null);
   const [workspace, setWorkspace] = useState<Workspace>("app");
-  const [nodes, setNodes] = useState<NodeData[]>(INITIAL_NODES);
-  const [edges, setEdges] = useState<EdgeData[]>(INITIAL_EDGES);
+  const [nodes, setNodes] = useState<NodeData[]>(() => (isDemoMode || isDraftMode ? INITIAL_NODES : []));
+  const [edges, setEdges] = useState<EdgeData[]>(() => (isDemoMode || isDraftMode ? INITIAL_EDGES : []));
   const [selected, setSelected] = useState<string | null>("n1");
   const [autoLayout, setAutoLayout] = useState(true);
   const [smartRoute, setSmartRoute] = useState(true);
@@ -453,11 +453,12 @@ export function StudioPage() {
   const ERD_PROJECT_ID = "00000000-0000-0000-0000-000000000002";
 
   // Resolve the active project ID from the URL or fall back to the demo workspace ID
-  const activeProjectId = search.project ?? (workspace === "app" ? APP_PROJECT_ID : ERD_PROJECT_ID);
+  // Only set an active project ID if explicitly provided via URL (auth-first).
+  const activeProjectId = (search.project as string) ?? (search.repo_id as string) ?? (search.session_key as string) ?? null;
 
   // Load annotations for the active project when it changes.
   useEffect(() => {
-    if (isDemoMode || isDraftMode) {
+    if (isDemoMode || isDraftMode || !activeProjectId) {
       setAnnotations([]);
       return;
     }
@@ -777,6 +778,15 @@ export async function POST(req: Request) {
       return;
     }
 
+    // If no explicit project id in URL, do not auto-load from DB — show empty dashboard
+    if (!activeProjectId) {
+      setProject(null);
+      setNodes((prev) => (prev.length ? [] : prev));
+      setEdges((prev) => (prev.length ? [] : prev));
+      setIsLoading(false);
+      return;
+    }
+
     refreshCanvas();
   }, [workspace, APP_PROJECT_ID, ERD_PROJECT_ID, isDemoMode, isDraftMode, search.project, refreshCanvas]);
 
@@ -793,7 +803,7 @@ export async function POST(req: Request) {
 
   // Auto-refresh canvas when the nodes or edges table updates in Supabase (realtime)
   useEffect(() => {
-    if (isDemoMode || isDraftMode) return;
+    if (isDemoMode || isDraftMode || !activeProjectId) return;
 
     const channel = supabase
       .channel(`canvas-${activeProjectId}`)
@@ -1147,7 +1157,7 @@ export async function POST(req: Request) {
       );
 
       sessionStorage.removeItem("repodre-draft-graph");
-      navigate({ to: "/studio", search: { project: newProject.id } });
+      navigate({ to: "/dashboard", search: { project: newProject.id } });
     } catch (err) {
       console.error("Save draft failed:", err);
     } finally {

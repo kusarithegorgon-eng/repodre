@@ -7,19 +7,30 @@ export function TermsPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <header className="flex h-14 items-center justify-between border-b border-border px-6">
-        <Link to="/" className="flex items-center gap-2.5">
+        <button
+          onClick={async (e) => {
+            e.preventDefault();
+            const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession();
+            if (session?.user) window.location.pathname = "/dashboard"; else window.location.pathname = "/";
+          }}
+          className="flex items-center gap-2.5"
+        >
           <RepodreLogo className="h-8 w-8" />
           <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
-        </Link>
+        </button>
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Link
-            to="/"
+          <button
+            onClick={async (e) => {
+              e.preventDefault();
+              const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession();
+              if (session?.user) window.location.pathname = "/dashboard"; else window.location.pathname = "/";
+            }}
             className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-xs font-medium hover:border-teal hover:text-teal"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back
-          </Link>
+          </button>
         </div>
       </header>
 

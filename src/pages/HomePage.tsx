@@ -38,7 +38,7 @@ export function HomePage() {
   }, []);
 
   const handleSelectProject = useCallback((projectId: string) => {
-    navigate({ to: "/studio", search: { project: projectId } });
+    navigate({ to: "/dashboard", search: { project: projectId } });
   }, [navigate]);
 
   // Test function for github-parser
@@ -97,7 +97,7 @@ export function HomePage() {
         console.log(`Sync complete: ${syncResult.count} nodes pushed to database`);
 
         // Auto-navigate to the studio page with the newly synced project
-        navigate({ to: "/studio", search: { project: project.id } });
+          navigate({ to: "/dashboard", search: { project: project.id } });
       } else {
         setSyncStatus(`Sync failed: ${syncResult.error}`);
         console.error("Sync failed:", syncResult.error);
@@ -185,7 +185,7 @@ export function HomePage() {
           );
 
           setRefreshKey((k) => k + 1);
-          navigate({ to: "/studio", search: { project: project.id } });
+          navigate({ to: "/dashboard", search: { project: project.id } });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           console.error("Database save failed, falling back to draft:", err);
@@ -195,7 +195,7 @@ export function HomePage() {
             edges: analysisResult.graph.edges,
             repoName: analysisResult.repo?.name || "Analysis Result",
           }));
-          navigate({ to: "/studio", search: { draft: true } });
+          navigate({ to: "/dashboard", search: { draft: true } });
         }
       } else if (!analysisResult.success) {
         if (analysisResult.accessIssue) {
@@ -233,10 +233,21 @@ export function HomePage() {
           >
             <Menu className="h-5 w-5" />
           </button>
-          <Link to="/" className="flex items-center gap-2.5">
-            <RepodreLogo className="h-8 w-8" />
-            <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
-          </Link>
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                (async () => {
+                  const { data: { session } } = await supabase.auth.getSession();
+                  if (session?.user) navigate({ to: "/dashboard" }); else navigate({ to: "/" });
+                })();
+              }}
+              className="flex items-center gap-2.5"
+            >
+              <RepodreLogo className="h-8 w-8" />
+              <span className="font-display text-sm font-semibold tracking-tight">Repodre</span>
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <AiDisclosureBadge />
@@ -413,7 +424,8 @@ export function HomePage() {
           </p>
           <div className="flex flex-col items-center gap-3">
             <Link
-              to="/studio"
+              to="/dashboard"
+              search={{ demo: true }}
               className="inline-flex items-center gap-2 rounded-lg bg-surface border border-border px-4 py-2 text-sm font-medium text-foreground transition-all duration-200 hover:border-teal hover:text-teal"
             >
               View Demo Project
