@@ -12,6 +12,8 @@ import { PrivacyShield } from "@/components/PrivacyShield";
 import { ApiTestExportButton } from "@/components/ApiTestExportButton";
 import { GuideModal, GuideToggle } from "@/components/GuideModal";
 import { AiGuideModal, AiGuideToggle } from "@/components/AiGuideModal";
+import { AiDisclosureBadge } from "@/components/AiDisclosureBadge";
+import { AuthButton } from "@/components/AuthButton";
 import { RecentProjectsPanel } from "@/components/RecentProjectsPanel";
 import { DashboardHome } from "@/components/DashboardHome";
 import { CodePreviewPanel, CodePreviewToggle } from "@/components/CodePreviewPanel";
@@ -36,7 +38,6 @@ import { analyzeBottlenecks, type BottleneckWarning } from "@/lib/bottleneck-ana
 import type { DetectedController } from "@/lib/blueprint-analyzer";
 import type { ParsedModule } from "@/lib/ast-parser";
 import { AstTokenizerInspector, AstTokenizerToggle } from "@/components/AstTokenizerInspector";
-import { signOut } from "@/lib/github-auth";
 import { TimeTravelTracer } from "@/components/TimeTravelTracer";
 import { calculateComplexityForNode, getComplexityColor, getComplexityBg, type ComplexityResult } from "@/lib/cyclomatic-complexity";
 import { buildCrossReferences, type CrossReferenceLink } from "@/lib/cross-reference-engine";
@@ -364,28 +365,25 @@ function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
 
 interface DashboardNavbarProps {
   onHome: () => void;
-  onLogout: () => void;
 }
 
-function DashboardNavbar({ onHome, onLogout }: DashboardNavbarProps) {
+function DashboardNavbar({ onHome }: Omit<DashboardNavbarProps, "onLogout">) {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur-sm">
       <button
         onClick={onHome}
-        className="inline-flex items-center gap-2 text-sm font-semibold text-foreground transition hover:text-teal"
+        className="inline-flex items-center gap-3 text-sm font-semibold text-foreground transition hover:text-teal"
         aria-label="Go to dashboard home"
       >
-        <Home className="h-4 w-4" />
-        <span>Dashboard</span>
+        <RepodreLogo className="h-8 w-8" />
+        <span>Repodre</span>
       </button>
 
-      <button
-        onClick={onLogout}
-        className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
-      >
-        <LogOut className="h-4 w-4" />
-        Log Out
-      </button>
+      <div className="flex items-center gap-3">
+        <AiDisclosureBadge />
+        <ThemeToggle />
+        <AuthButton />
+      </div>
     </header>
   );
 }
@@ -486,17 +484,11 @@ export function StudioPage() {
   const showDashboardHome = !activeProjectId && !isDemoMode && !isDraftMode;
 
   const handleHomeClick = useCallback(() => {
-    navigate({ to: "/dashboard" });
+    setProject(null);
+    setWorkspace("app");
+    navigate({ to: "/dashboard", search: {} });
   }, [navigate]);
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await signOut();
-      navigate({ to: "/" });
-    } catch (error) {
-      console.error("Logout failed:", error);
-    }
-  }, [navigate]);
 
   // Load annotations for the active project when it changes.
   useEffect(() => {
@@ -1466,7 +1458,7 @@ export async function POST(req: Request) {
           />
         </aside>
         <div className="flex min-h-full flex-1 flex-col md:ml-72">
-          <DashboardNavbar onHome={handleHomeClick} onLogout={handleLogout} />
+          <DashboardNavbar onHome={handleHomeClick} />
           <main className="flex min-h-0 flex-1">
             <DashboardHome />
           </main>
@@ -1578,7 +1570,7 @@ export async function POST(req: Request) {
 
       {/* Main content area (accounting for fixed sidebar) */}
       <div className="relative flex flex-col flex-1 ml-14">
-        <DashboardNavbar onHome={handleHomeClick} onLogout={handleLogout} />
+        <DashboardNavbar onHome={handleHomeClick} />
       {/* Privacy Shield banner */}
         <PrivacyShield />
 
