@@ -123,9 +123,13 @@ export function RecentProjectsPanel({
     };
   }, [fetchProjects]);
 
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | string | number | null | undefined) => {
+    if (!date) return "Unknown";
+    const parsedDate = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(parsedDate.getTime())) return "Unknown";
+
     const now = new Date();
-    const diff = now.getTime() - date.getTime();
+    const diff = now.getTime() - parsedDate.getTime();
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor(diff / (1000 * 60));
@@ -134,7 +138,7 @@ export function RecentProjectsPanel({
     if (minutes < 60) return `${minutes}m ago`;
     if (hours < 24) return `${hours}h ago`;
     if (days < 7) return `${days}d ago`;
-    return date.toLocaleDateString();
+    return parsedDate.toLocaleDateString();
   };
 
   const handleDelete = async (e: React.MouseEvent, projectId: string) => {
