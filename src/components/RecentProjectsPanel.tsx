@@ -38,19 +38,13 @@ export function RecentProjectsPanel({
   }, [isLoading]);
 
   const fetchProjects = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      setIsAuthenticated(false);
-      setProjects([]);
-      setIsLoading(false);
-      return;
-    }
-    setIsAuthenticated(true);
     setIsLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsAuthenticated(Boolean(user));
       const data = await listProjects();
-      // Filter out demo projects (those with specific IDs) and show only user-created ones
+      // Filter out demo projects (those with specific IDs)
       const userProjects = data.filter(
         (p) => !p.id.startsWith("00000000-0000-0000-0000-00000000000")
       );
@@ -114,30 +108,21 @@ export function RecentProjectsPanel({
     return project.name;
   };
 
-  if (!isAuthenticated) {
-    return (
-      <div className="flex h-full flex-col overflow-hidden bg-surface">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-foreground">Recent Projects</h3>
-          </div>
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
-          <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
-          <p className="mt-3 text-sm text-muted-foreground">Sign in to view and manage your saved projects.</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-surface">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold text-foreground">Recent Projects</h3>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">Recent Projects</h3>
+          </div>
+          {!isAuthenticated && (
+            <p className="text-[10px] text-muted-foreground">
+              Sign in to manage your workspace, or browse saved projects in shared mode.
+            </p>
+          )}
         </div>
         <button
           onClick={fetchProjects}

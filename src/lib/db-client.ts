@@ -240,19 +240,33 @@ export async function getProject(id: string): Promise<Project | null> {
 }
 
 export async function createProject(
-  project: Omit<Project, "id" | "createdAt" | "updatedAt">
+  project: Omit<Project, "id" | "createdAt" | "updatedAt"> & { userId?: string | null }
 ): Promise<Project> {
+  const insertData: Record<string, unknown> = {
+    name: project.name,
+    description: project.description,
+    zoom: project.zoom,
+    auto_layout: project.autoLayout,
+    smart_route: project.smartRoute,
+    workspace: project.workspace,
+    schema_source: project.schemaSource,
+  };
+
+  let effectiveUserId = project.userId;
+  if (effectiveUserId === undefined) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    effectiveUserId = user?.id ?? null;
+  }
+
+  if (effectiveUserId !== undefined) {
+    insertData.user_id = effectiveUserId;
+  }
+
   const { data, error } = await supabase
     .from("projects")
-    .insert({
-      name: project.name,
-      description: project.description,
-      zoom: project.zoom,
-      auto_layout: project.autoLayout,
-      smart_route: project.smartRoute,
-      workspace: project.workspace,
-      schema_source: project.schemaSource,
-    })
+    .insert(insertData)
     .select()
     .single();
 
@@ -304,24 +318,29 @@ export async function listNodes(projectId: string): Promise<Node[]> {
 
 export async function createNode(
   projectId: string,
-  node: Omit<Node, "id" | "projectId">
+  node: Omit<Node, "id" | "projectId"> & { userId?: string | null }
 ): Promise<Node> {
+  const insertData: Record<string, unknown> = {
+    project_id: projectId,
+    label: node.label,
+    sub: node.sub,
+    shape: node.shape,
+    accent: node.accent,
+    x: node.x,
+    y: node.y,
+    w: node.w ?? null,
+    h: node.h ?? null,
+    workspace: node.workspace,
+    columns: node.columns ?? null,
+    table_name: node.tableName ?? null,
+  };
+  if (node.userId !== undefined) {
+    insertData.user_id = node.userId;
+  }
+
   const { data, error } = await supabase
     .from("nodes")
-    .insert({
-      project_id: projectId,
-      label: node.label,
-      sub: node.sub,
-      shape: node.shape,
-      accent: node.accent,
-      x: node.x,
-      y: node.y,
-      w: node.w ?? null,
-      h: node.h ?? null,
-      workspace: node.workspace,
-      columns: node.columns ?? null,
-      table_name: node.tableName ?? null,
-    })
+    .insert(insertData)
     .select()
     .single();
 
@@ -365,25 +384,31 @@ export async function deleteNode(id: string): Promise<void> {
 
 export async function batchCreateNodes(
   projectId: string,
-  nodes: Omit<Node, "id" | "projectId">[]
+  nodes: (Omit<Node, "id" | "projectId"> & { userId?: string | null })[]
 ): Promise<Node[]> {
   const { data, error } = await supabase
     .from("nodes")
     .insert(
-      nodes.map((n) => ({
-        project_id: projectId,
-        label: n.label,
-        sub: n.sub,
-        shape: n.shape,
-        accent: n.accent,
-        x: n.x,
-        y: n.y,
-        w: n.w ?? null,
-        h: n.h ?? null,
-        workspace: n.workspace,
-        columns: n.columns ?? null,
-        table_name: n.tableName ?? null,
-      }))
+      nodes.map((n) => {
+        const insertData: Record<string, unknown> = {
+          project_id: projectId,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          accent: n.accent,
+          x: n.x,
+          y: n.y,
+          w: n.w ?? null,
+          h: n.h ?? null,
+          workspace: n.workspace,
+          columns: n.columns ?? null,
+          table_name: n.tableName ?? null,
+        };
+        if (n.userId !== undefined) {
+          insertData.user_id = n.userId;
+        }
+        return insertData;
+      })
     )
     .select();
 
@@ -419,7 +444,8 @@ export async function batchUpdateNodePositions(
  */
 export async function syncRepoToSupabase(
   projectId: string,
-  files: Array<{ id: string; name: string }>
+  files: Array<{ id: string; name: string }>,
+  userId?: string | null,
 ): Promise<{ success: boolean; count: number; error?: string }> {
   if (!files.length) {
     return { success: true, count: 0 };

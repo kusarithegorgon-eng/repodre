@@ -1097,6 +1097,9 @@ export async function POST(req: Request) {
     if (nodes.length === 0) return;
     setIsSavingDraft(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id ?? null;
+
       const draftRaw = sessionStorage.getItem("repodre-draft-graph");
       const draftName = draftRaw ? (JSON.parse(draftRaw).repoName ?? "Draft Project") : "Draft Project";
       const newProject = await createProject({
@@ -1107,6 +1110,7 @@ export async function POST(req: Request) {
         smartRoute,
         workspace,
         schemaSource: null,
+        userId,
       });
 
       const savedNodes = await batchCreateNodes(
@@ -1121,6 +1125,7 @@ export async function POST(req: Request) {
           workspace,
           columns: n.columns ?? null,
           tableName: n.tableName ?? null,
+          userId,
         })),
       );
 
@@ -1155,6 +1160,9 @@ export async function POST(req: Request) {
     async (tables: ParsedTable[], ddl: string) => {
       try {
         setIsLoading(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        const userId = user?.id ?? null;
+
         const newProject = await createProject({
           name: "imported-schema.erd",
           description: `Database ERD imported from pasted DDL (${tables.length} tables)`,
@@ -1163,6 +1171,7 @@ export async function POST(req: Request) {
           smartRoute: true,
           workspace: "erd",
           schemaSource: ddl,
+          userId,
         });
 
         // Create table nodes
@@ -1183,6 +1192,7 @@ export async function POST(req: Request) {
             nullable: c.nullable,
           })),
           tableName: t.name,
+          userId,
         }));
         const savedNodes = await batchCreateNodes(newProject.id, tableNodes);
 

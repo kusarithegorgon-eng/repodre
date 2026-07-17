@@ -13,6 +13,7 @@ import { RecentProjectsPanel } from "@/components/RecentProjectsPanel";
 import { analyzeRepository, type AnalysisResult, type AnalysisProgress as AnalysisProgressType } from "@/lib/repository-analyzer";
 import { signInWithGitHub } from "@/lib/github-auth";
 import { createProject, batchCreateNodes, batchCreateEdges, syncRepoToSupabase } from "@/lib/db-client";
+import { supabase } from "@/lib/supabase";
 import type { HandleSegment } from "@/lib/canvas-geometry";
 import { parseRepository } from "@/utils/github-parser";
 import { parseGitHubUrl } from "@/lib/github-api";
@@ -71,6 +72,9 @@ export function HomePage() {
 
     try {
       // Create a new project for the sync
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id ?? null;
+
       const project = await createProject({
         name: "next.js",
         description: `Synced from ${sampleUrl}`,
@@ -79,12 +83,13 @@ export function HomePage() {
         smartRoute: true,
         workspace: "app",
         schemaSource: null,
+        userId,
       });
 
       setSyncStatus(`Syncing ${parseResult.files.length} files to database...`);
 
       // Sync files to Supabase
-      const syncResult = await syncRepoToSupabase(project.id, parseResult.files);
+      const syncResult = await syncRepoToSupabase(project.id, parseResult.files, userId);
 
       if (syncResult.success) {
         setSyncStatus(`Success! ${syncResult.count} nodes synced. Loading canvas...`);
@@ -130,6 +135,9 @@ export function HomePage() {
       if (analysisResult.success && analysisResult.graph) {
         try {
           // Save the project to the database
+          const { data: { user } } = await supabase.auth.getUser();
+          const userId = user?.id ?? null;
+
           const project = await createProject({
             name: analysisResult.repo?.name || "Untitled Project",
             description: `Dependency graph for ${analysisResult.repo?.full_name || trimmedUrl}`,
@@ -138,6 +146,7 @@ export function HomePage() {
             smartRoute: true,
             workspace: "app",
             schemaSource: null,
+            userId,
           });
 
           // Save nodes — include all required fields with explicit defaults
@@ -153,6 +162,7 @@ export function HomePage() {
               workspace: "app" as const,
               columns: null,
               tableName: null,
+              userId,
             }))
           );
 
