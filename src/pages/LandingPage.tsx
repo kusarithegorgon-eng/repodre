@@ -60,8 +60,8 @@ function HeroDiagram() {
   ];
 
   return (
-    <div className="grid-canvas relative overflow-hidden rounded-2xl border border-border p-6">
-      <svg viewBox="0 0 320 280" className="w-full" role="img" aria-label="Preview of a Repodre execution-flow diagram">
+    <div className="grid-canvas relative overflow-hidden rounded-2xl border border-border p-6 mx-auto max-w-[420px]">
+      <svg viewBox="0 0 320 280" className="w-full h-auto max-h-[320px]" role="img" aria-label="Preview of a Repodre execution-flow diagram">
         {rows.slice(0, -1).map((row, i) => {
           const next = rows[i + 1];
           const midY = (row.y + nodeH + next.y) / 2;
