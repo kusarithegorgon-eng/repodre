@@ -1,8 +1,7 @@
 import { Link, useSearch, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Magnet, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw, GitBranch } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Home, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw, GitBranch, LogOut } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
-import { AuthButton } from "@/components/AuthButton";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { ErdCanvas } from "@/components/ErdCanvas";
@@ -37,6 +36,7 @@ import { analyzeBottlenecks, type BottleneckWarning } from "@/lib/bottleneck-ana
 import type { DetectedController } from "@/lib/blueprint-analyzer";
 import type { ParsedModule } from "@/lib/ast-parser";
 import { AstTokenizerInspector, AstTokenizerToggle } from "@/components/AstTokenizerInspector";
+import { signOut } from "@/lib/github-auth";
 import { TimeTravelTracer } from "@/components/TimeTravelTracer";
 import { calculateComplexityForNode, getComplexityColor, getComplexityBg, type ComplexityResult } from "@/lib/cyclomatic-complexity";
 import { buildCrossReferences, type CrossReferenceLink } from "@/lib/cross-reference-engine";
@@ -363,6 +363,34 @@ function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
 
 // ─── Studio page ────────────────────────────────────────────────────────────
 
+interface DashboardNavbarProps {
+  onHome: () => void;
+  onLogout: () => void;
+}
+
+function DashboardNavbar({ onHome, onLogout }: DashboardNavbarProps) {
+  return (
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur-sm">
+      <button
+        onClick={onHome}
+        className="inline-flex items-center gap-2 text-sm font-semibold text-foreground transition hover:text-teal"
+        aria-label="Go to dashboard home"
+      >
+        <Home className="h-4 w-4" />
+        <span>Dashboard</span>
+      </button>
+
+      <button
+        onClick={onLogout}
+        className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
+      >
+        <LogOut className="h-4 w-4" />
+        Log Out
+      </button>
+    </header>
+  );
+}
+
 export function StudioPage() {
   const search = useSearch({ strict: false }) as { demo?: boolean; draft?: boolean; project?: string; repo_id?: string; session_key?: string };
   const navigate = useNavigate();
@@ -457,6 +485,19 @@ export function StudioPage() {
   // Only set an active project ID if explicitly provided via URL (auth-first).
   const activeProjectId = (search.project as string) ?? (search.repo_id as string) ?? (search.session_key as string) ?? null;
   const showDashboardHome = !activeProjectId && !isDemoMode && !isDraftMode;
+
+  const handleHomeClick = useCallback(() => {
+    navigate({ to: "/dashboard" });
+  }, [navigate]);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await signOut();
+      navigate({ to: "/" });
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  }, [navigate]);
 
   // Load annotations for the active project when it changes.
   useEffect(() => {
@@ -1426,9 +1467,12 @@ export async function POST(req: Request) {
               refreshKey={0}
             />
           </aside>
-          <main className="flex min-h-full flex-1 md:ml-72">
-            <DashboardHome />
-          </main>
+          <div className="flex min-h-full flex-1 flex-col md:ml-72">
+            <DashboardNavbar onHome={handleHomeClick} onLogout={handleLogout} />
+            <main className="flex min-h-0 flex-1">
+              <DashboardHome />
+            </main>
+          </div>
         </div>
       </AuthGate>
     );
@@ -1538,7 +1582,8 @@ export async function POST(req: Request) {
 
       {/* Main content area (accounting for fixed sidebar) */}
       <div className="relative flex flex-col flex-1 ml-14">
-        {/* Privacy Shield banner */}
+        <DashboardNavbar onHome={handleHomeClick} onLogout={handleLogout} />
+      {/* Privacy Shield banner */}
         <PrivacyShield />
 
         {/* ── Body ─────────────────────────────────────────────────────────── */}

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ArrowRight, Database, GitBranch, Shield, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { RepoInput } from "@/components/RepoInput";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
@@ -13,7 +13,6 @@ import type { HandleSegment } from "@/lib/canvas-geometry";
 export function DashboardHome() {
   const navigate = useNavigate();
   const [repoUrl, setRepoUrl] = useState("");
-  const [patToken, setPatToken] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progress, setProgress] = useState<AnalysisProgressType | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -130,30 +129,40 @@ export function DashboardHome() {
     }
   }, [repoUrl, isAnalyzing, navigate, showToast]);
 
+  const handleSyncToDatabase = useCallback(() => {
+    showToast("Sync to Database is available after analysis.", "info");
+  }, [showToast]);
+
   const isProgress = progress && progress.phase !== "complete" && progress.phase !== "error";
 
   return (
-    <div className="flex min-h-full items-center justify-center px-6 py-12">
-      <div className="w-full max-w-4xl rounded-[2rem] border border-border bg-background/90 p-8 shadow-2xl shadow-black/5 sm:p-12">
-        <div className="grid gap-8 lg:grid-cols-[2fr_1fr] items-start">
-          <section className="space-y-6">
-            <div className="space-y-4">
-              <div className="inline-flex items-center gap-2 rounded-full border border-teal/20 bg-teal/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal">
-                <Sparkles className="h-4 w-4" />
-                Repo Paste Home
-              </div>
-              <div>
-                <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-                  Paste a GitHub repo URL and launch your workspace.
-                </h1>
-                <p className="mt-4 text-sm leading-6 text-muted-foreground sm:text-base">
-                  Start by connecting a public or private repository, then visualize its execution architecture and database model instantly.
+    <div className="flex min-h-full items-center justify-center px-6 py-16">
+      <div className="w-full max-w-2xl rounded-[2rem] border border-border bg-background/90 p-10 shadow-2xl shadow-black/5">
+        <div className="space-y-10 text-center">
+          <div className="space-y-4">
+            <div className="inline-flex items-center gap-2 rounded-full border border-teal/20 bg-teal/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal">
+              <Sparkles className="h-4 w-4" />
+              Repo Paste Home
+            </div>
+            <div>
+              <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+                Visualize Your Codebase Execution Architecture
+              </h1>
+              <p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+                Paste any GitHub repository URL and instantly generate an interactive execution flow diagram and database ERD blueprint.
+              </p>
+            </div>
+          </div>
+
+          <div className="mx-auto w-full max-w-xl rounded-[2rem] border border-border bg-surface p-8 shadow-sm">
+            <div className="space-y-6">
+              <div className="space-y-3 text-left">
+                <p className="text-sm font-semibold text-foreground">Analyze a repository</p>
+                <p className="text-sm text-muted-foreground">
+                  Enter a GitHub repo URL below to begin mapping execution architecture immediately.
                 </p>
               </div>
-            </div>
 
-            <div className="space-y-4 rounded-3xl border border-border bg-surface p-6">
-              <div className="text-sm font-semibold text-foreground">Analyze a repository</div>
               <RepoInput
                 value={repoUrl}
                 onChange={setRepoUrl}
@@ -161,35 +170,30 @@ export function DashboardHome() {
                 isLoading={isAnalyzing}
                 error={error ?? undefined}
               />
-              <div className="space-y-3">
-                <input
-                  type="password"
-                  placeholder="GitHub Personal Access Token (Optional)"
-                  value={patToken}
-                  onChange={(e) => setPatToken(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal focus:outline-none focus:ring-1 focus:ring-teal/30"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Required for private repositories. Needs the <span className="font-semibold">repo</span> scope.
-                </p>
-              </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
                 <button
                   type="button"
                   onClick={handleAnalyze}
                   disabled={isAnalyzing || !repoUrl.trim()}
-                  className="inline-flex items-center justify-center rounded-2xl bg-teal px-4 py-3 text-sm font-semibold text-teal-foreground transition hover:bg-teal/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center justify-center rounded-2xl bg-teal px-6 py-3 text-sm font-semibold text-teal-foreground transition hover:bg-teal/90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isAnalyzing ? "Analyzing…" : "Start analysis"}
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate({ to: "/dashboard", search: { demo: true } })}
-                  className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
+                  className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
                 >
                   View demo project
                   <ArrowRight className="ml-2 h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSyncToDatabase}
+                  className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
+                >
+                  Sync to Database
                 </button>
               </div>
 
@@ -207,52 +211,7 @@ export function DashboardHome() {
                 />
               )}
             </div>
-          </section>
-
-          <aside className="space-y-5 rounded-3xl border border-border bg-surface p-6">
-            <div className="space-y-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-teal/10 text-teal">
-                <GitBranch className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">Quick start</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Paste any GitHub repo URL, hit the button, and we’ll map the execution flow.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-4 rounded-3xl border border-border bg-background p-4">
-              <div className="flex items-center gap-3 text-sm font-semibold text-foreground">
-                <Database className="h-4 w-4 text-teal" />
-                Workspaces saved automatically
-              </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                Projects are stored securely in your workspace and appear in Recent Projects on the left.
-              </p>
-            </div>
-
-            <div className="space-y-4 rounded-3xl border border-border bg-background p-4">
-              <div className="flex items-center gap-3 text-sm font-semibold text-foreground">
-                <Shield className="h-4 w-4 text-teal" />
-                Private by default
-              </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                Analysis happens locally and only saved data is stored in your workspace.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                <p className="font-semibold text-foreground">Try</p>
-                <p className="mt-2">vercel/next.js</p>
-              </div>
-              <div className="rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                <p className="font-semibold text-foreground">Or</p>
-                <p className="mt-2">supabase/supabase</p>
-              </div>
-            </div>
-          </aside>
+          </div>
         </div>
 
         {toast && (
