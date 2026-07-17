@@ -13,6 +13,7 @@ import type { HandleSegment } from "@/lib/canvas-geometry";
 export function DashboardHome() {
   const navigate = useNavigate();
   const [repoUrl, setRepoUrl] = useState("");
+  const [patToken, setPatToken] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progress, setProgress] = useState<AnalysisProgressType | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -137,81 +138,80 @@ export function DashboardHome() {
 
   return (
     <div className="flex min-h-full items-center justify-center px-6 py-16">
-      <div className="w-full max-w-2xl rounded-[2rem] border border-border bg-background/90 p-10 shadow-2xl shadow-black/5">
-        <div className="space-y-10 text-center">
-          <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full border border-teal/20 bg-teal/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal">
-              <Sparkles className="h-4 w-4" />
-              Repo Paste Home
-            </div>
-            <div>
-              <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-                Visualize Your Codebase Execution Architecture
-              </h1>
-              <p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                Paste any GitHub repository URL and instantly generate an interactive execution flow diagram and database ERD blueprint.
-              </p>
-            </div>
+      <div className="w-full max-w-4xl space-y-10 text-center">
+        <div className="space-y-4">
+          <div className="mx-auto flex items-center justify-center gap-2 rounded-full border border-teal/20 bg-teal/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal">
+            <Sparkles className="h-4 w-4" />
+            Repo Paste Home
+          </div>
+          <div>
+            <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+              Visualize Your Codebase
+            </h1>
+            <p className="mt-2 text-4xl font-semibold text-teal sm:text-5xl">
+              Execution Architecture
+            </p>
+            <p className="mx-auto mt-4 max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
+              Paste any GitHub repository URL and instantly generate an interactive execution flow diagram and database ERD blueprint.
+            </p>
+          </div>
+        </div>
+
+        <div className="mx-auto w-full max-w-3xl space-y-4">
+          <RepoInput
+            value={repoUrl}
+            onChange={setRepoUrl}
+            onSubmit={handleAnalyze}
+            isLoading={isAnalyzing}
+            error={error ?? undefined}
+          />
+
+          <input
+            type="text"
+            value={patToken}
+            onChange={(e) => setPatToken(e.target.value)}
+            placeholder="Enter GitHub Personal Access Token (Optional)"
+            className="h-12 w-full rounded-2xl border border-border bg-background/80 px-4 text-sm text-foreground outline-none transition focus:border-teal"
+          />
+
+          <div className="flex flex-col items-center justify-center gap-3 sm:flex-row sm:justify-center">
+            <button
+              type="button"
+              onClick={handleAnalyze}
+              disabled={isAnalyzing || !repoUrl.trim()}
+              className="inline-flex items-center justify-center rounded-2xl bg-teal px-6 py-3 text-sm font-semibold text-teal-foreground transition hover:bg-teal/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isAnalyzing ? "Analyzing…" : "Start analysis"}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate({ to: "/dashboard", search: { demo: true } })}
+              className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
+            >
+              View Demo Project
+            </button>
+            <button
+              type="button"
+              onClick={handleSyncToDatabase}
+              className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
+            >
+              Sync to Database
+            </button>
           </div>
 
-          <div className="mx-auto w-full max-w-xl rounded-[2rem] border border-border bg-surface p-8 shadow-sm">
-            <div className="space-y-6">
-              <div className="space-y-3 text-left">
-                <p className="text-sm font-semibold text-foreground">Analyze a repository</p>
-                <p className="text-sm text-muted-foreground">
-                  Enter a GitHub repo URL below to begin mapping execution architecture immediately.
-                </p>
-              </div>
-
-              <RepoInput
-                value={repoUrl}
-                onChange={setRepoUrl}
-                onSubmit={handleAnalyze}
-                isLoading={isAnalyzing}
-                error={error ?? undefined}
-              />
-
-              <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-                <button
-                  type="button"
-                  onClick={handleAnalyze}
-                  disabled={isAnalyzing || !repoUrl.trim()}
-                  className="inline-flex items-center justify-center rounded-2xl bg-teal px-6 py-3 text-sm font-semibold text-teal-foreground transition hover:bg-teal/90 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isAnalyzing ? "Analyzing…" : "Start analysis"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate({ to: "/dashboard", search: { demo: true } })}
-                  className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
-                >
-                  View demo project
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSyncToDatabase}
-                  className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-6 py-3 text-sm font-semibold text-foreground transition hover:border-teal hover:text-teal"
-                >
-                  Sync to Database
-                </button>
-              </div>
-
-              {isProgress && progress && (
-                <div className="rounded-2xl bg-background/70 p-4">
-                  <AnalysisProgress progress={progress} />
-                </div>
-              )}
-
-              {result?.accessIssue && !result.success && (
-                <AccessRestrictedState
-                  accessCheck={result.accessIssue}
-                  onRetry={handleAnalyze}
-                  onSignIn={() => navigate({ to: "/dashboard" })}
-                />
-              )}
+          {isProgress && progress && (
+            <div className="rounded-2xl bg-background/70 p-4">
+              <AnalysisProgress progress={progress} />
             </div>
-          </div>
+          )}
+
+          {result?.accessIssue && !result.success && (
+            <AccessRestrictedState
+              accessCheck={result.accessIssue}
+              onRetry={handleAnalyze}
+              onSignIn={() => navigate({ to: "/dashboard" })}
+            />
+          )}
         </div>
 
         {toast && (
