@@ -101,7 +101,6 @@ import { useEdgeSnap } from "@/hooks/useEdgeSnap";
 import { supabase } from "@/lib/supabase";
 import { can, getRoleFromUser, type Role } from "@/lib/rbac";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
-import { AuthGate } from "@/components/AuthGate";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -1459,22 +1458,20 @@ export async function POST(req: Request) {
 
   if (showDashboardHome) {
     return (
-      <AuthGate>
-        <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-          <aside className="hidden md:block absolute inset-y-0 left-0 w-72 shrink-0 border-r border-border bg-surface">
-            <RecentProjectsPanel
-              onSelectProject={(projectId) => navigate({ to: "/dashboard", search: { project: projectId } })}
-              refreshKey={0}
-            />
-          </aside>
-          <div className="flex min-h-full flex-1 flex-col md:ml-72">
-            <DashboardNavbar onHome={handleHomeClick} onLogout={handleLogout} />
-            <main className="flex min-h-0 flex-1">
-              <DashboardHome />
-            </main>
-          </div>
+      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <aside className="hidden md:block absolute inset-y-0 left-0 w-72 shrink-0 border-r border-border bg-surface">
+          <RecentProjectsPanel
+            onSelectProject={(projectId) => navigate({ to: "/dashboard", search: { project: projectId } })}
+            refreshKey={0}
+          />
+        </aside>
+        <div className="flex min-h-full flex-1 flex-col md:ml-72">
+          <DashboardNavbar onHome={handleHomeClick} onLogout={handleLogout} />
+          <main className="flex min-h-0 flex-1">
+            <DashboardHome />
+          </main>
         </div>
-      </AuthGate>
+      </div>
     );
   }
 
