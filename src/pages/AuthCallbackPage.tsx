@@ -24,35 +24,59 @@ export function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(oauthError);
 
   useEffect(() => {
-    // If Supabase redirected back with an error, nothing to exchange — show error immediately
     if (oauthError) return;
 
-    // detectSessionInUrl:true already exchanges the code on Supabase client init.
-    // We just need to wait for the SIGNED_IN event to fire.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN") {
-        setStatus("success");
-        subscription.unsubscribe();
-        navigate({ to: "/dashboard" });
-      }
-    });
+    let mounted = true;
+    let redirected = false;
+    let subscription: { unsubscribe: () => void } | null = null;
 
-    // Fallback: if the URL has no code, or something goes wrong, timeout after 8s
-    const timeout = setTimeout(async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
+    const handleRedirect = (session: any) => {
+      if (!mounted || redirected) return;
+      if (session?.user) {
+        redirected = true;
         setStatus("success");
-        navigate({ to: "/dashboard" });
+        navigate({ to: "/dashboard", replace: true });
+      }
+    };
+
+    const watchSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+      handleRedirect(session);
+
+      if (!redirected) {
+        subscription = supabase.auth.onAuthStateChange((event, session) => {
+          if (event === "SIGNED_IN") {
+            handleRedirect(session);
+          }
+          if (event === "SIGNED_OUT") {
+            if (!redirected) {
+              setStatus("error");
+              setError("Authentication failed. Please try signing in again.");
+            }
+          }
+        }).data.subscription;
+      }
+    };
+
+    watchSession();
+
+    const timeout = window.setTimeout(async () => {
+      if (!mounted || redirected) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+      if (session?.user) {
+        handleRedirect(session);
       } else {
         setStatus("error");
-        setError("Sign in timed out. Please try again.");
+        setError("Sign in timed out. Please return to login and try again.");
       }
-      subscription.unsubscribe();
-    }, 8000);
+    }, 5000);
 
     return () => {
+      mounted = false;
       clearTimeout(timeout);
-      subscription.unsubscribe();
+      subscription?.unsubscribe();
     };
   }, [navigate, oauthError]);
 
@@ -89,7 +113,7 @@ export function AuthCallbackPage() {
                 onClick={() => navigate({ to: "/" })}
                 className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-teal hover:text-foreground"
               >
-                Go back
+                Return to Login
               </button>
             </div>
           </>
