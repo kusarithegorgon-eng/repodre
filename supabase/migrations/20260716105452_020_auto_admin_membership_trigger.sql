@@ -9,15 +9,15 @@ node/edge inserts fail the `can_edit_project()` RLS check, and the user sees
 an empty project in Recents.
 
 ## Solution
-Add a `BEFORE INSERT` trigger on `projects` that automatically inserts an ADMIN
+Add an `AFTER INSERT` trigger on `projects` that automatically inserts an ADMIN
 membership row for the project creator (`auth.uid()`). This guarantees the
-membership exists before any node/edge insert is attempted, eliminating the
-race condition.
+project exists before the membership insert runs, avoiding the foreign key
+constraint failure.
 
 ## Changes
 1. Create function `auto_create_admin_membership()` that inserts into
    `project_members` with role 'ADMIN' for the new project's creator.
-2. Create trigger `trg_auto_admin_membership` on `projects` BEFORE INSERT.
+2. Create trigger `trg_auto_admin_membership` on `projects` AFTER INSERT.
 3. The trigger runs with SECURITY DEFINER (definer = owner, typically postgres)
    so it can insert into `project_members` regardless of the caller's RLS.
 */
@@ -48,6 +48,6 @@ $$;
 
 DROP TRIGGER IF EXISTS trg_auto_admin_membership ON public.projects;
 CREATE TRIGGER trg_auto_admin_membership
-  BEFORE INSERT ON public.projects
+  AFTER INSERT ON public.projects
   FOR EACH ROW
   EXECUTE FUNCTION public.auto_create_admin_membership();
