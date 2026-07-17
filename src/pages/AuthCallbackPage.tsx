@@ -33,7 +33,7 @@ export function AuthCallbackPage() {
       if (event === "SIGNED_IN") {
         setStatus("success");
         subscription.unsubscribe();
-        navigate({ to: "/" });
+        navigate({ to: "/dashboard" });
       }
     });
 
@@ -42,7 +42,7 @@ export function AuthCallbackPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         setStatus("success");
-        navigate({ to: "/" });
+        navigate({ to: "/dashboard" });
       } else {
         setStatus("error");
         setError("Sign in timed out. Please try again.");

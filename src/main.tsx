@@ -3,7 +3,8 @@ import ReactDOM from "react-dom/client";
 import { RouterProvider, createRouter, createRoute, createRootRoute } from "@tanstack/react-router";
 import "./index.css";
 import { RootPage } from "./pages/RootPage";
-import { HomePage } from "./pages/HomePage";
+import { LandingPage } from "./pages/LandingPage";
+import { DashboardPage } from "./pages/DashboardPage";
 import { StudioPage } from "./pages/StudioPage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { PrivacyPage } from "./pages/PrivacyPage";
@@ -17,13 +18,13 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: HomePage,
+  component: LandingPage,
 });
 
 const studioRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/studio",
-  component: StudioPage,
+  path: "/dashboard",
+  component: DashboardPage,
 });
 
 const authCallbackRoute = createRoute({

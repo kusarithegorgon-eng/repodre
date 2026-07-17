@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, useCallback } from "react";
 import { GitBranch, Sparkles, Zap, Shield, Globe, ArrowRight, Database, CircleAlert as AlertCircle, X, Menu, FolderOpen } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
+import { AuthGate } from "@/components/AuthGate";
 import { AuthButton } from "@/components/AuthButton";
 import { RepoInput } from "@/components/RepoInput";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
@@ -219,7 +220,8 @@ export function HomePage() {
   const isProgress = progress && progress.phase !== "complete" && progress.phase !== "error";
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <AuthGate>
+      <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* Header */}
       <header className="flex h-14 items-center justify-between border-b border-border px-4 md:px-6">
         <div className="flex items-center gap-2">
@@ -276,8 +278,8 @@ export function HomePage() {
               />
             </div>
           </div>
-        </div>
-      )}
+        </AuthGate>
+      );
 
       {/* Toast notification */}
       {toast && (
@@ -298,12 +300,14 @@ export function HomePage() {
 
       {/* Main Content with Sidebar */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {/* Recent Projects Sidebar — fixed width on desktop, hidden on mobile */}
+        {/* Recent Projects Sidebar — only render when authenticated (Auth-First) */}
         <aside className="hidden md:block absolute inset-y-0 left-0 w-72 shrink-0 border-r border-border bg-surface">
-          <RecentProjectsPanel
-            onSelectProject={handleSelectProject}
-            refreshKey={refreshKey}
-          />
+          <AuthGate>
+            <RecentProjectsPanel
+              onSelectProject={handleSelectProject}
+              refreshKey={refreshKey}
+            />
+          </AuthGate>
         </aside>
 
         {/* Hero — centered regardless of sidebar content */}
@@ -328,16 +332,17 @@ export function HomePage() {
             notation, multi-engine SQL export, and a FigJam-inspired canvas.
           </p>
 
-          {/* Repository Input */}
-          {!isProgress && !result?.accessIssue && (
-            <div className="mx-auto mb-8 max-w-md">
-              <RepoInput
-                value={repoUrl}
-                onChange={setRepoUrl}
-                onSubmit={handleAnalyze}
-                isLoading={isAnalyzing}
-                error={error ?? undefined}
-              />
+          {/* Repository Input — only available after authentication */}
+          <AuthGate>
+            {!isProgress && !result?.accessIssue && (
+              <div className="mx-auto mb-8 max-w-md">
+                <RepoInput
+                  value={repoUrl}
+                  onChange={setRepoUrl}
+                  onSubmit={handleAnalyze}
+                  isLoading={isAnalyzing}
+                  error={error ?? undefined}
+                />
 
               {/* PAT Input */}
               <div className="mt-3">
@@ -434,7 +439,8 @@ export function HomePage() {
             </button>
             {syncStatus && (
               <p className="text-xs text-muted-foreground">{syncStatus}</p>
-            )}
+              )}
+          </AuthGate>
             <p className="text-xs text-muted-foreground">
               Click to sync repository files to Supabase database (check console for output)
             </p>

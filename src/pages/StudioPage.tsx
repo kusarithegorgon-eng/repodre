@@ -100,6 +100,7 @@ import { useEdgeSnap } from "@/hooks/useEdgeSnap";
 import { supabase } from "@/lib/supabase";
 import { can, getRoleFromUser, type Role } from "@/lib/rbac";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
+import { AuthGate } from "@/components/AuthGate";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -1404,7 +1405,8 @@ export async function POST(req: Request) {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+    <AuthGate>
+      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
 
       {/* Icon Sidebar */}
       <IconSidebar
@@ -2018,7 +2020,8 @@ export async function POST(req: Request) {
         onSelect={nodeSpawner.handleSelect}
         onClose={nodeSpawner.closeSpawner}
       />
-    </div>
+      </div>
+    </AuthGate>
   );
 }
 

@@ -2,6 +2,7 @@ import { LogIn, LogOut, User } from "lucide-react";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { signInWithGitHub, signOut } from "@/lib/github-auth";
+import { securityCleanup, clearUserSessionData } from "@/lib/security-cleanup";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 interface GitHubMeta {
@@ -56,6 +57,16 @@ export function AuthButton() {
 
   const handleSignOut = async () => {
     try {
+      // Clear per-user session data first (best-effort), then sign out.
+      try {
+        if (user?.id) await clearUserSessionData(user.id);
+      } catch (err) {
+        console.warn("user session cleanup failed:", err);
+      }
+      // Keep a broader fallback full-clean just in case
+      try {
+        await securityCleanup();
+      } catch {}
       await signOut();
       setIsOpen(false);
     } catch (err) {

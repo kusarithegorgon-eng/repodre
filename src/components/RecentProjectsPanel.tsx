@@ -9,6 +9,12 @@ import { useState, useEffect, useCallback } from "react";
 import { Clock, GitBranch, ArrowRight, FolderOpen, Loader as Loader2, CircleAlert as AlertCircle, RefreshCw, Trash2 } from "lucide-react";
 import { listProjects, deleteProject, type Project } from "@/lib/db-client";
 import { supabase } from "@/lib/supabase";
+import { getGitHubAccessToken } from "@/lib/github-auth";
+import {
+  encryptForSession,
+  decryptForSession,
+  clearEncryptedRecentProjects,
+} from "@/lib/secure-storage";
 
 interface RecentProjectsPanelProps {
   onSelectProject: (projectId: string) => void;
@@ -25,6 +31,7 @@ export function RecentProjectsPanel({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showRefreshHint, setShowRefreshHint] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   // Show a "taking too long?" hint after 4 seconds of loading
   useEffect(() => {
@@ -43,12 +50,41 @@ export function RecentProjectsPanel({
     try {
       const { data: { user } } = await supabase.auth.getUser();
       setIsAuthenticated(Boolean(user));
+
+      // If unauthenticated, ensure we do not show recent projects and
+      // clear any encrypted cache that might be present.
+      if (!user) {
+        setProjects([]);
+        try {
+          clearEncryptedRecentProjects();
+        } catch {}
+        return;
+      }
+
+      // Try to read encrypted cached projects (fast) while we fetch fresh
+      const token = await getGitHubAccessToken();
+      if (token && user?.id) {
+        try {
+          const cached = await decryptForSession(token, user.id);
+          if (Array.isArray(cached) && cached.length > 0) {
+            setProjects(cached as Project[]);
+          }
+        } catch {}
+      }
+
       const data = await listProjects();
       // Filter out demo projects (those with specific IDs)
       const userProjects = data.filter(
         (p) => !p.id.startsWith("00000000-0000-0000-0000-00000000000")
       );
       setProjects(userProjects);
+
+      // Persist encrypted cache for quick rehydration next time (user-scoped)
+      try {
+        if (token && user?.id) await encryptForSession(token, user.id, userProjects);
+      } catch (err) {
+        // ignore encryption/storage failures
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load projects");
     } finally {
@@ -69,6 +105,22 @@ export function RecentProjectsPanel({
       }
     });
     return () => subscription.unsubscribe();
+  }, [fetchProjects]);
+
+  // Ensure we check auth on mount and prevent UI flash before auth is known
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!mounted) return;
+      setIsAuthenticated(Boolean(user));
+      setAuthChecked(true);
+      // If authenticated, kick off a fetch for projects
+      if (user) fetchProjects();
+    })();
+    return () => {
+      mounted = false;
+    };
   }, [fetchProjects]);
 
   const formatDate = (date: Date) => {
@@ -108,6 +160,9 @@ export function RecentProjectsPanel({
     return project.name;
   };
 
+
+  // Hide entire panel until we verified auth state and ensured authentication
+  if (!authChecked || !isAuthenticated) return null;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-surface">
