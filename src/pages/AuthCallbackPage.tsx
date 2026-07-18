@@ -35,18 +35,23 @@ export function AuthCallbackPage() {
       if (session?.user) {
         redirected = true;
         setStatus("success");
+        // replace: true so the browser back button does not return to the
+        // OAuth callback URL and re-trigger the handshake.
         navigate({ to: "/dashboard", replace: true });
       }
     };
 
     const watchSession = async () => {
+      // Fast path: if a session already exists (e.g. user navigated back
+      // to /auth/callback after a successful sign-in), redirect immediately
+      // without waiting for another SIGNED_IN event.
       const { data: { session } } = await supabase.auth.getSession();
       if (!mounted) return;
       handleRedirect(session);
 
       if (!redirected) {
         subscription = supabase.auth.onAuthStateChange((event, session) => {
-          if (event === "SIGNED_IN") {
+          if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
             handleRedirect(session);
           }
           if (event === "SIGNED_OUT") {

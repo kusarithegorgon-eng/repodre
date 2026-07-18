@@ -126,37 +126,15 @@ export function onAuthStateChange(
 ): () => void {
   let mounted = true;
 
-  // Initial state fetch
+  // Initial state fetch — emit immediately without waiting on GitHub API.
+  // Repo-scope verification is deferred so the UI and navigation are not
+  // blocked by a network round-trip during the OAuth callback.
   (async () => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    const hasRepoScope = session ? await verifyRepoScope() : false;
-
-    if (mounted) {
-      callback({
-        user,
-        session,
-        isLoading: false,
-        error: null,
-        hasRepoScope,
-      });
-    }
-  })();
-
-  const {
-    data: { subscription },
-  } = supabase.auth.onAuthStateChange(async (event, session) => {
     if (!mounted) return;
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    // Emit immediately so the UI doesn't wait on a GitHub API round-trip
+    const user = session?.user ?? null;
     callback({
       user,
       session,
@@ -165,17 +143,36 @@ export function onAuthStateChange(
       hasRepoScope: false,
     });
 
-    // Verify repo scope asynchronously, then patch the state
+    // Verify repo scope asynchronously without blocking the initial emit.
     if (session) {
       verifyRepoScope().then((hasRepoScope) => {
         if (mounted && hasRepoScope) {
-          callback({
-            user,
-            session,
-            isLoading: false,
-            error: null,
-            hasRepoScope,
-          });
+          callback({ user, session, isLoading: false, error: null, hasRepoScope });
+        }
+      });
+    }
+  })();
+
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((event, session) => {
+    if (!mounted) return;
+    const user = session?.user ?? null;
+
+    // Emit immediately — never block navigation on a GitHub API call.
+    callback({
+      user,
+      session,
+      isLoading: false,
+      error: null,
+      hasRepoScope: false,
+    });
+
+    // Verify repo scope asynchronously, then patch the state.
+    if (session && (event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
+      verifyRepoScope().then((hasRepoScope) => {
+        if (mounted && hasRepoScope) {
+          callback({ user, session, isLoading: false, error: null, hasRepoScope });
         }
       });
     }
