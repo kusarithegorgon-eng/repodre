@@ -6,6 +6,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Chrome as Home, ShieldCheck, MessageCircle } from "lucide-react";
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
@@ -252,6 +253,14 @@ export function IconSidebar({
   aiGuideOpen,
   onToggleAiGuide,
 }: IconSidebarProps) {
+  const navigate = useNavigate();
+
+  const handleHome = useCallback(() => {
+    // Stay inside the authenticated workspace — never hard-navigate to the
+    // landing page, which would reset the SPA and force a new OAuth handshake.
+    navigate({ to: "/dashboard", search: {}, replace: true });
+  }, [navigate]);
+
   const wireStyleIcon = {
     curvy: <Spline className="h-4 w-4" />,
     straight: <Minus className="h-4 w-4" />,
@@ -274,13 +283,14 @@ export function IconSidebar({
     <aside className="fixed left-0 top-0 z-50 flex h-full w-14 flex-col items-center border-r border-border bg-surface">
       {/* ─── Logo ── (non-scrolling) */}
       <div className="flex shrink-0 flex-col items-center gap-2 border-b border-border pt-3 pb-2 w-full">
-        <Tooltip content="Home">
-          <a
-            href="/"
+        <Tooltip content="Dashboard Home">
+          <button
+            type="button"
+            onClick={handleHome}
             className="flex h-10 w-10 items-center justify-center rounded-lg text-foreground transition-all duration-200 hover:bg-accent hover:text-teal hover:shadow-sm"
           >
             <Zap className="h-5 w-5" />
-          </a>
+          </button>
         </Tooltip>
         <WorkspacePill workspace={workspace} onChangeWorkspace={onChangeWorkspace} />
       </div>
