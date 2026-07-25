@@ -1,6 +1,6 @@
 import { Link, useSearch, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Home, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw, GitBranch, LogOut } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Home, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw, GitBranch, LogOut, Undo2, Redo2 } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
@@ -99,6 +99,8 @@ import {
 } from "@/lib/db-client";
 import { detectCardinality, type ParsedTable } from "@/lib/sql-tokenizer";
 import { useEdgeSnap } from "@/hooks/useEdgeSnap";
+import { useGraphHistory, type GraphSnapshot } from "@/hooks/useGraphHistory";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { supabase } from "@/lib/supabase";
 import { can, getRoleFromUser, type Role } from "@/lib/rbac";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
@@ -555,6 +557,35 @@ export function StudioPage() {
   const [nodeIdCounter, setNodeIdCounter] = useState(1000);
   const [edgeIdCounter, setEdgeIdCounter] = useState(1000);
 
+  // Track which edge is selected in the ERD canvas (for keyboard delete)
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+
+  // Undo/redo history stack
+  const history = useGraphHistory<NodeData, EdgeData>({
+    nodes: INITIAL_NODES,
+    edges: INITIAL_EDGES,
+    selected: null,
+  });
+
+  // Commit a snapshot to history after a mutation completes.
+  const commitHistory = useCallback(() => {
+    history.commit({ nodes, edges, selected });
+  }, [history, nodes, edges, selected]);
+
+  // Restore a history snapshot to both React state and the database.
+  const restoreSnapshot = useCallback((snap: GraphSnapshot<NodeData, EdgeData>) => {
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    setSelected(snap.selected);
+    // Best-effort DB sync: persist position/label changes for existing nodes.
+    // Full graph re-sync is handled by realtime subscription.
+    if (!isDemoMode && !isDraftMode && project) {
+      batchUpdateNodePositions(
+        snap.nodes.map((n) => ({ id: n.id, x: n.x, y: n.y }))
+      ).catch(() => {});
+    }
+  }, [isDemoMode, isDraftMode, project]);
+
   // Drag-to-connect hook
   const dragToConnect = useDragToConnect({
     nodes: nodes.map((n) => ({ ...n, w: n.w ?? NODE_W, h: n.h ?? NODE_H })),
@@ -888,6 +919,8 @@ export async function POST(req: Request) {
   // are instantly purged from local state AND the database, preventing
   // layout rendering exceptions from orphaned edge endpoints.
   const handleDeleteNode = useCallback(async (id: string) => {
+    // Push to history before mutation
+    history.commit({ nodes, edges, selected });
     // 1. Cascade-filter: remove all edges pointing to this node
     const orphanedEdges = edges.filter((e) => e.from === id || e.to === id);
     setEdges((prev) => prev.filter((e) => e.from !== id && e.to !== id));
@@ -903,13 +936,15 @@ export async function POST(req: Request) {
       await deleteNode(id);
       await Promise.all(orphanedEdges.map((e) => deleteEdge(e.id)));
     } catch { /* ignore — local state is already clean */ }
-  }, [edges]);
+  }, [edges, history, selected]);
 
   // Delete a single edge (used by the edge cleanup loop and manual deletion)
   const handleDeleteEdge = useCallback(async (id: string) => {
+    history.commit({ nodes, edges, selected });
     setEdges((prev) => prev.filter((e) => e.id !== id));
+    if (selectedEdgeId === id) setSelectedEdgeId(null);
     try { await deleteEdge(id); } catch { /* ignore */ }
-  }, []);
+  }, [history, nodes, edges, selected, selectedEdgeId]);
 
   // ─── Reset to Auto-Layout (ELK) ─────────────────────────────────────────────
   // Re-runs the ELK layered algorithm on the current nodes/edges and persists
@@ -972,7 +1007,7 @@ export async function POST(req: Request) {
     } finally {
       setIsResettingLayout(false);
     }
-  }, [nodes, edges, isDemoMode, isDraftMode]);
+  }, [nodes, edges, isDemoMode, isDraftMode, history, selected]);
 
   // ─── localStorage auto-save ───────────────────────────────────────────────
   useEffect(() => {
@@ -1038,6 +1073,7 @@ export async function POST(req: Request) {
 
   // ─── Child node spawn ─────────────────────────────────────────────────────
   const handleSpawnChild = useCallback((parentId: string) => {
+    history.commit({ nodes, edges, selected });
     const parent = nodes.find((n) => n.id === parentId);
     if (!parent) return;
     const childX = snapToGrid(parent.x + (parent.w ?? NODE_W) + 60);
@@ -1068,7 +1104,7 @@ export async function POST(req: Request) {
     setNodeIdCounter((c) => c + 1);
     createNode(project?.id ?? "demo", newNode).catch(() => {});
     createEdge(project?.id ?? "demo", newEdge).catch(() => {});
-  }, [nodes, workspace, project?.id]);
+  }, [nodes, workspace, project?.id, history, edges, selected]);
 
   // ─── Apply layout directives ──────────────────────────────────────────────
   const handleApplyLayout = useCallback(() => {
@@ -1111,6 +1147,47 @@ export async function POST(req: Request) {
 
     setShowLayoutPopover(false);
   }, [layoutDirectives, edges]);
+
+  // ─── Keyboard shortcuts (Delete, Escape, Undo, Redo) ──────────────────────
+  const handleKeyboardDelete = useCallback(() => {
+    if (selectedEdgeId) {
+      handleDeleteEdge(selectedEdgeId);
+    } else if (selected) {
+      handleDeleteNode(selected);
+    }
+  }, [selectedEdgeId, selected, handleDeleteEdge, handleDeleteNode]);
+
+  const handleUndo = useCallback(() => {
+    const snap = history.undo();
+    if (snap) restoreSnapshot(snap);
+  }, [history, restoreSnapshot]);
+
+  const handleRedo = useCallback(() => {
+    const snap = history.redo();
+    if (snap) restoreSnapshot(snap);
+  }, [history, restoreSnapshot]);
+
+  useKeyboardShortcuts({
+    onDelete: handleKeyboardDelete,
+    onEscape: () => { setSelected(null); setSelectedEdgeId(null); },
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+  });
+
+  // ─── ERD edge creation from drag-to-connect ────────────────────────────────
+  const handleCreateErdEdge = useCallback((fromId: string, fromHandle: HandleSegment, toId: string, toHandle: HandleSegment) => {
+    history.commit({ nodes, edges, selected });
+    const newEdge: EdgeData = {
+      id: `edge_${edgeIdCounter}`,
+      from: fromId,
+      to: toId,
+      fromHandle,
+      toHandle,
+    };
+    setEdges((prev) => [...prev, newEdge]);
+    setEdgeIdCounter((c) => c + 1);
+    createEdge(project?.id ?? "demo", newEdge).catch(() => {});
+  }, [history, nodes, edges, selected, edgeIdCounter, project?.id]);
 
   const setSub = useCallback(async (id: string, sub: string) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, sub } : n)));
@@ -1941,6 +2018,9 @@ export async function POST(req: Request) {
               onSelect={setSelected}
               onDragEnd={setPosition}
               onDeleteNode={handleDeleteNode}
+              onDeleteEdge={handleDeleteEdge}
+              onCreateEdge={handleCreateErdEdge}
+              onEdgeSelect={setSelectedEdgeId}
               zoom={zoom}
               panX={canvasPan.panX}
               panY={canvasPan.panY}
@@ -2077,6 +2157,26 @@ export async function POST(req: Request) {
           }}
         />
       )}
+
+      {/* Undo / Redo floating buttons */}
+      <div className="fixed bottom-4 right-4 z-40 flex items-center gap-1.5">
+        <button
+          onClick={handleUndo}
+          disabled={!history.canUndo}
+          title="Undo (Ctrl+Z)"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface/90 text-foreground shadow-lg backdrop-blur transition-all hover:bg-surface disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Undo2 className="h-4 w-4" />
+        </button>
+        <button
+          onClick={handleRedo}
+          disabled={!history.canRedo}
+          title="Redo (Ctrl+Shift+Z)"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface/90 text-foreground shadow-lg backdrop-blur transition-all hover:bg-surface disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Redo2 className="h-4 w-4" />
+        </button>
+      </div>
 
       {/* Guide Modal */}
       <GuideModal isOpen={guideOpen} onClose={() => setGuideOpen(false)} />

@@ -15,13 +15,19 @@ import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { EntityCard } from "./EntityCard";
 import { CrowsFootMarker, markerForCardinality } from "./CrowsFootMarker";
 import {
+  DragToConnectHandle,
+  LiveEdgeDrawing,
+  useDragToConnect,
+} from "./DragToConnectHandles";
+import {
   layoutErd,
   type ErdTableNode,
   type ErdEdge,
   type LaidOutErd,
 } from "@/lib/erd-layout";
 import type { Node, Edge } from "@/lib/db-client";
-import { X } from "lucide-react";
+import type { HandleSegment } from "@/lib/canvas-geometry";
+import { X, Trash2 } from "lucide-react";
 
 interface ErdCanvasProps {
   nodes: Node[];
@@ -30,6 +36,11 @@ interface ErdCanvasProps {
   onSelect: (id: string | null) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onDeleteNode?: (id: string) => void;
+  onDeleteEdge?: (id: string) => void;
+  /** Called when the user drags a connection from one table to another. */
+  onCreateEdge?: (fromId: string, fromHandle: HandleSegment, toId: string, toHandle: HandleSegment) => void;
+  /** Notifies parent when an edge is selected (so keyboard delete works). */
+  onEdgeSelect?: (edgeId: string | null) => void;
   zoom: number;
   panX?: number;
   panY?: number;
@@ -48,6 +59,9 @@ export function ErdCanvas({
   onSelect,
   onDragEnd,
   onDeleteNode,
+  onDeleteEdge,
+  onCreateEdge,
+  onEdgeSelect,
   zoom,
   panX = 0,
   panY = 0,
@@ -59,8 +73,36 @@ export function ErdCanvas({
   // Filter to ERD table nodes only
   const tableNodes = nodes.filter((n) => n.workspace === "erd" && n.columns);
 
-  // Selected edge for relationship highlight
+  // Selected edge for relationship highlight + deletion
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+
+  // Canvas ref for drag-to-connect coordinate math
+  const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Drag-to-connect hook (same mechanism as the App workspace)
+  const dragToConnect = useDragToConnect({
+    nodes: tableNodes.map((n) => ({
+      id: n.id,
+      shape: n.shape,
+      x: n.x,
+      y: n.y,
+      w: n.w ?? 220,
+      h: n.h ?? 160,
+    })),
+    zoom: zoom / 100,
+    canvasRef,
+    onConnect: useCallback(
+      (fromId: string, fromHandle: HandleSegment, toId: string, toHandle: HandleSegment) => {
+        onCreateEdge?.(fromId, fromHandle, toId, toHandle);
+      },
+      [onCreateEdge]
+    ),
+  });
+
+  // Sync selected edge id upward so the keyboard shortcut can delete it
+  useEffect(() => {
+    onEdgeSelect?.(selectedEdgeId);
+  }, [selectedEdgeId, onEdgeSelect]);
   // Constraint tooltip state
   const [constraintTooltip, setConstraintTooltip] = useState<{
     edgeId: string;
@@ -300,10 +342,57 @@ export function ErdCanvas({
                   />
                   {/* Cardinality label at midpoint */}
                   <EdgeLabel edge={edge} dimmed={isDimmed} selected={isSelectedEdge} />
+                  {/* Delete button on selected edge */}
+                  {isSelectedEdge && onDeleteEdge && (() => {
+                    const midX = (edge.fromMarker.x + edge.toMarker.x) / 2;
+                    const midY = (edge.fromMarker.y + edge.toMarker.y) / 2;
+                    return (
+                      <g style={{ pointerEvents: "all" }}>
+                        <circle cx={midX} cy={midY - 22} r={10} fill="var(--surface)" stroke="var(--teal)" strokeWidth={1.5} />
+                        <text
+                          x={midX}
+                          y={midY - 18}
+                          textAnchor="middle"
+                          fontFamily="ui-monospace, monospace"
+                          fontSize={11}
+                          fontWeight={700}
+                          fill="var(--teal)"
+                          style={{ pointerEvents: "none", cursor: "pointer" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteEdge(edge.id);
+                            setSelectedEdgeId(null);
+                            setConstraintTooltip(null);
+                          }}
+                        >
+                          ×
+                        </text>
+                      </g>
+                    );
+                  })()}
                 </g>
               );
             })}
           </svg>
+
+          {/* Live edge drawing preview (drag-to-connect) */}
+          <LiveEdgeDrawing
+            isActive={dragToConnect.state.isDragging}
+            startNode={
+              dragToConnect.state.fromNodeId
+                ? (() => {
+                    const n = tableNodes.find((t) => t.id === dragToConnect.state.fromNodeId);
+                    return n
+                      ? { id: n.id, shape: n.shape, x: n.x, y: n.y, w: n.width, h: n.height }
+                      : null;
+                  })()
+                : null
+            }
+            startHandle={dragToConnect.state.fromHandle}
+            currentMousePos={dragToConnect.state.mousePos}
+            zoom={zoom / 100}
+            accentColor="var(--teal)"
+          />
 
           {/* Table entity cards */}
           {laidOut.tables.map((table) => {
@@ -329,6 +418,20 @@ export function ErdCanvas({
                   onDelete={onDeleteNode ? () => onDeleteNode(table.id) : undefined}
                   onRenameColumn={onRenameColumn ? (oldName, newName) => onRenameColumn(table.id, oldName, newName) : undefined}
                   onRenameTable={onRenameTable ? (newName) => onRenameTable(table.id, newName) : undefined}
+                />
+                {/* Drag-to-connect handles (visible on hover) */}
+                <DragToConnectHandle
+                  shape={table.shape}
+                  x={table.x}
+                  y={table.y}
+                  w={table.width}
+                  h={table.height}
+                  accentColor="var(--teal)"
+                  accentGlow="var(--teal)"
+                  visible={selected === table.id}
+                  onStartDrag={(handleId, startPos) => {
+                    dragToConnect.startDrag(table.id, handleId, startPos);
+                  }}
                 />
               </div>
             );
