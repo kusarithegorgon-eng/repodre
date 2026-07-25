@@ -8,6 +8,7 @@
 import type { Parser, ParserFactory, SourceLanguage, ParsedModule } from "./types";
 import { TypeScriptParser } from "./typescript-parser";
 import { PythonParser } from "./python-parser";
+import { PhpParser } from "./php-parser";
 
 class ParserFactoryImpl implements ParserFactory {
   private parsers = new Map<SourceLanguage, Parser>();
@@ -16,6 +17,7 @@ class ParserFactoryImpl implements ParserFactory {
     // Register default parsers
     this.register(new TypeScriptParser());
     this.register(new PythonParser());
+    this.register(new PhpParser());
   }
 
   getParser(language: SourceLanguage): Parser {
@@ -52,6 +54,8 @@ class ParserFactoryImpl implements ParserFactory {
         return "javascript";
       case "py":
         return "python";
+      case "php":
+        return "php";
       case "go":
         return "go";
       case "rs":

@@ -8,7 +8,7 @@
 /**
  * Supported source languages for parsing.
  */
-export type SourceLanguage = "typescript" | "tsx" | "javascript" | "python" | "go" | "rust";
+export type SourceLanguage = "typescript" | "tsx" | "javascript" | "python" | "php" | "go" | "rust";
 
 /**
  * Universal AST Node - normalized representation across languages.
@@ -69,6 +69,12 @@ export type NodeKind =
   | "return_statement"
   | "throw_statement"
   | "await_expression"
+  | "php_class"
+  | "php_method"
+  | "php_function"
+  | "php_route"
+  | "php_call"
+  | "php_eloquent_model"
   | "unhandled";
 
 /**

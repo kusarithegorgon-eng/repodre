@@ -9,3 +9,4 @@ export * from "./types";
 export { parserFactory, parseSource, parseSources } from "./parser-factory";
 export { TypeScriptParser } from "./typescript-parser";
 export { PythonParser } from "./python-parser";
+export { PhpParser } from "./php-parser";
