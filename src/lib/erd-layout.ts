@@ -43,6 +43,7 @@ export interface ErdTableNode {
   y: number;
   width: number;
   height: number;
+  accent?: string;
 }
 
 export interface ErdEdge {
@@ -90,6 +91,7 @@ export function layoutErd(
     columns: ErdColumnRow[];
     x?: number;
     y?: number;
+    accent?: string;
   }>,
   edges: Array<{
     id: string;
@@ -117,6 +119,7 @@ export function layoutErd(
       y: t.y ?? ERD_START_Y + row * (height + ERD_GRID_GAP_Y),
       width,
       height,
+      accent: t.accent,
     };
   });
 

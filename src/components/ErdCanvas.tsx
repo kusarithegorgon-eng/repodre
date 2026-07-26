@@ -159,6 +159,7 @@ export function ErdCanvas({
       })),
       x: n.x,
       y: n.y,
+      accent: n.accent,
     }));
 
     const erdEdges = edges
@@ -301,6 +302,22 @@ export function ErdCanvas({
       </div>
     );
   }
+
+  // Build FK reference map: for each table, map FK column name → "TargetTable.targetColumn"
+  const fkRefMaps = useMemo(() => {
+    const maps = new Map<string, Map<string, string>>();
+    for (const e of edges) {
+      if (!e.fromColumn || !e.toColumn || !e.cardinality) continue;
+      const fromTable = tableNodes.find((n) => n.id === e.from);
+      const toTable = tableNodes.find((n) => n.id === e.to);
+      if (!fromTable || !toTable) continue;
+      const toTableName = toTable.tableName ?? toTable.label;
+      const ref = `${toTableName}.${e.toColumn}`;
+      if (!maps.has(e.from)) maps.set(e.from, new Map());
+      maps.get(e.from)!.set(e.fromColumn, ref);
+    }
+    return maps;
+  }, [edges, tableNodes]);
 
   // Build edge lookup for click handler
   const edgeLookup = new Map(
@@ -476,6 +493,7 @@ export function ErdCanvas({
                 <EntityCard
                   table={table}
                   selected={selected === table.id}
+                  fkReferences={fkRefMaps.get(table.id)}
                   onSelect={(e) => {
                     e.stopPropagation();
                     setSelectedEdgeId(null);

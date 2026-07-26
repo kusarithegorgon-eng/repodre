@@ -8,7 +8,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Key, Link2, Shield, Trash2, Pencil } from "lucide-react";
-import type { ErdTableNode } from "@/lib/erd-layout";
+import type { ErdTableNode, ErdColumnRow } from "@/lib/erd-layout";
 import { ERD_HEADER_HEIGHT, ERD_ROW_HEIGHT } from "@/lib/erd-layout";
 
 interface EntityCardProps {
@@ -19,7 +19,27 @@ interface EntityCardProps {
   onDelete?: () => void;
   onRenameColumn?: (oldName: string, newName: string) => void;
   onRenameTable?: (newName: string) => void;
+  /** FK reference targets: maps column name → "Table.column" for FK rows */
+  fkReferences?: Map<string, string>;
 }
+
+const ACCENT_TINTS: Record<string, string> = {
+  blue:   "color-mix(in oklab, var(--neon-blue) 12%, var(--surface-raised))",
+  green:  "color-mix(in oklab, var(--neon-green) 12%, var(--surface-raised))",
+  teal:   "color-mix(in oklab, var(--teal) 12%, var(--surface-raised))",
+  orange: "color-mix(in oklab, var(--neon-orange) 12%, var(--surface-raised))",
+  red:    "color-mix(in oklab, var(--neon-red) 12%, var(--surface-raised))",
+  purple: "color-mix(in oklab, var(--neon-purple) 12%, var(--surface-raised))",
+};
+
+const ACCENT_ICON_TINTS: Record<string, string> = {
+  blue:   "var(--neon-blue)",
+  green:  "var(--neon-green)",
+  teal:   "var(--teal)",
+  orange: "var(--neon-orange)",
+  red:    "var(--neon-red)",
+  purple: "var(--neon-purple)",
+};
 
 // ─── Inline editable field ────────────────────────────────────────────────────
 
@@ -84,7 +104,14 @@ function InlineEdit({ value, onSave, className = "", style }: InlineEditProps) {
 
 // ─── EntityCard ───────────────────────────────────────────────────────────────
 
-export function EntityCard({ table, selected, highlightedColumn, onSelect, onDelete, onRenameColumn, onRenameTable }: EntityCardProps) {
+export function EntityCard({ table, selected, highlightedColumn, onSelect, onDelete, onRenameColumn, onRenameTable, fkReferences }: EntityCardProps) {
+  const accentKey = table.accent ?? "blue";
+  const headerTint = selected
+    ? "color-mix(in oklab, var(--teal) 12%, var(--surface-raised))"
+    : ACCENT_TINTS[accentKey] ?? ACCENT_TINTS.blue;
+  const iconTint = ACCENT_ICON_TINTS[accentKey] ?? ACCENT_ICON_TINTS.blue;
+  const iconBg = `color-mix(in oklab, ${iconTint} 20%, transparent)`;
+
   return (
     <div
       className="group absolute rounded-xl border bg-surface-raised shadow-lg transition-all duration-200"
@@ -108,16 +135,14 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect, onDel
         style={{
           height: ERD_HEADER_HEIGHT,
           borderColor: "var(--border)",
-          background: selected
-            ? "color-mix(in oklab, var(--teal) 12%, var(--surface-raised))"
-            : "color-mix(in oklab, var(--neon-blue) 10%, var(--surface-raised))",
+          background: headerTint,
         }}
       >
-        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-neon-blue/20">
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded" style={{ background: iconBg }}>
           <svg viewBox="0 0 14 16" fill="none" className="h-3.5 w-3.5">
-            <rect x="1" y="3" width="12" height="10" stroke="var(--neon-blue)" strokeWidth="1.2" />
-            <ellipse cx="7" cy="3" rx="6" ry="2.5" stroke="var(--neon-blue)" strokeWidth="1.2" />
-            <ellipse cx="7" cy="13" rx="6" ry="2.5" stroke="var(--neon-blue)" strokeWidth="1.2" />
+            <rect x="1" y="3" width="12" height="10" stroke={iconTint} strokeWidth="1.2" />
+            <ellipse cx="7" cy="3" rx="6" ry="2.5" stroke={iconTint} strokeWidth="1.2" />
+            <ellipse cx="7" cy="13" rx="6" ry="2.5" stroke={iconTint} strokeWidth="1.2" />
           </svg>
         </div>
 
@@ -152,6 +177,8 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect, onDel
       <div className="flex flex-col">
         {table.columns.map((col, i) => {
           const isHighlighted = highlightedColumn === col.name;
+          const isAltRow = i % 2 === 1;
+          const fkRef = col.fk ? fkReferences?.get(col.name) : undefined;
           return (
             <div
               key={col.name}
@@ -161,6 +188,8 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect, onDel
                 height: ERD_ROW_HEIGHT,
                 background: isHighlighted
                   ? "color-mix(in oklab, var(--teal) 16%, transparent)"
+                  : isAltRow
+                  ? "color-mix(in oklab, var(--border) 22%, transparent)"
                   : undefined,
                 borderBottom: i < table.columns.length - 1 ? "1px solid var(--border)" : "none",
               }}
@@ -170,7 +199,7 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect, onDel
                 {col.pk ? (
                   <Key className="h-3 w-3 text-yellow-400" title="Primary Key" />
                 ) : col.fk ? (
-                  <Link2 className="h-3 w-3 text-neon-purple" title="Foreign Key" />
+                  <Link2 className="h-3 w-3 text-neon-purple" title={fkRef ? `FK → ${fkRef}` : "Foreign Key"} />
                 ) : (
                   <span className="h-3 w-3" />
                 )}
@@ -192,6 +221,13 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect, onDel
                   }`}
                 >
                   {col.name}
+                </span>
+              )}
+
+              {/* FK reference target (e.g. "users.id") */}
+              {fkRef && (
+                <span className="ml-1 font-mono text-[9px] text-neon-purple/60 truncate hidden group-hover/row:inline" title={`References ${fkRef}`}>
+                  → {fkRef}
                 </span>
               )}
 
