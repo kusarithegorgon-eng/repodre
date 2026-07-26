@@ -305,7 +305,7 @@ export function generateNodeLabel(path: string): string {
   const filename = path.split("/").pop() || path;
 
   // Remove common extensions
-  const withoutExt = filename.replace(/\.(ts|tsx|js|jsx|py|go|rs)$/, "");
+  const withoutExt = filename.replace(/\.(ts|tsx|js|jsx|py|go|rs|java|c|cpp|cc|cxx|hpp|hh|hxx|cs|h)$/, "");
 
   // Convert kebab/snake to space-separated
   const spaced = withoutExt.replace(/[-_]/g, " ");

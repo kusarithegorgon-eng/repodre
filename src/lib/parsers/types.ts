@@ -8,7 +8,7 @@
 /**
  * Supported source languages for parsing.
  */
-export type SourceLanguage = "typescript" | "tsx" | "javascript" | "python" | "php" | "go" | "rust" | "java";
+export type SourceLanguage = "typescript" | "tsx" | "javascript" | "python" | "php" | "go" | "rust" | "java" | "c" | "cpp" | "csharp";
 
 /**
  * Universal AST Node - normalized representation across languages.
@@ -81,6 +81,18 @@ export type NodeKind =
   | "go_interface"
   | "go_func"
   | "go_method"
+  | "c_struct"
+  | "c_function"
+  | "c_macro"
+  | "cpp_class"
+  | "cpp_method"
+  | "cpp_namespace"
+  | "cpp_template"
+  | "csharp_class"
+  | "csharp_interface"
+  | "csharp_method"
+  | "csharp_property"
+  | "csharp_namespace"
   | "unhandled";
 
 /**

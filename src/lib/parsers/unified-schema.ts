@@ -99,6 +99,7 @@ function extractInheritanceEdges(ast: UniversalNode, edges: UnifiedEdge[]): void
       node.kind === "php_class" ||
       node.kind === "php_eloquent_model"
     ) {
+      // Single parent (Java, Go, PHP, TS)
       const parent = node.meta?.parent as string | undefined;
       if (parent) {
         edges.push({
@@ -106,6 +107,17 @@ function extractInheritanceEdges(ast: UniversalNode, edges: UnifiedEdge[]): void
           target: `class:${parent}`,
           type: "inherit",
         });
+      }
+      // Multiple parents (C++, C#)
+      const parents = node.meta?.parents as string[] | undefined;
+      if (parents && Array.isArray(parents)) {
+        for (const p of parents) {
+          edges.push({
+            source: node.id,
+            target: `class:${p}`,
+            type: "inherit",
+          });
+        }
       }
     }
     for (const child of node.children) {
@@ -122,6 +134,16 @@ function extractRouteEdges(ast: UniversalNode, edges: UnifiedEdge[]): void {
       edges.push({ source: edge.source, target: edge.target, type: "route" });
     }
     if (node.kind === "decorator" && node.meta?.route) {
+      const route = node.meta.route as string;
+      const verb = node.meta.verb as string;
+      edges.push({
+        source: `route:${verb}:${route}`,
+        target: node.parentId ?? "",
+        type: "route",
+      });
+    }
+    // C# route attributes are stored on method nodes directly
+    if (node.kind === "method_definition" && node.meta?.route) {
       const route = node.meta.route as string;
       const verb = node.meta.verb as string;
       edges.push({

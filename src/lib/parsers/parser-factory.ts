@@ -11,6 +11,9 @@ import { PythonParser } from "./python-parser";
 import { PhpParser } from "./php-parser";
 import { JavaParser } from "./java-parser";
 import { GoParser } from "./go-parser";
+import { CParser } from "./c-parser";
+import { CppParser } from "./cpp-parser";
+import { CSharpParser } from "./csharp-parser";
 
 class ParserFactoryImpl implements ParserFactory {
   private parsers = new Map<SourceLanguage, Parser>();
@@ -22,6 +25,9 @@ class ParserFactoryImpl implements ParserFactory {
     this.register(new PhpParser());
     this.register(new JavaParser());
     this.register(new GoParser());
+    this.register(new CParser());
+    this.register(new CppParser());
+    this.register(new CSharpParser());
   }
 
   getParser(language: SourceLanguage): Parser {
@@ -66,6 +72,18 @@ class ParserFactoryImpl implements ParserFactory {
         return "go";
       case "rs":
         return "rust";
+      case "c":
+      case "h":
+        return "c";
+      case "cpp":
+      case "cc":
+      case "cxx":
+      case "hpp":
+      case "hh":
+      case "hxx":
+        return "cpp";
+      case "cs":
+        return "csharp";
       default:
         return null;
     }

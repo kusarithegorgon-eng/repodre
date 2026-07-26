@@ -269,7 +269,8 @@ export function filterSourceFiles(tree: GitHubTree): string[] {
   const parseableExtensions = new Set([
     ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
     ".py", ".rb", ".go", ".rs", ".java", ".kt",
-    ".vue", ".svelte", ". astro",
+    ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx", ".cs",
+    ".vue", ".svelte", ".astro",
     ".json", ".yaml", ".yml",
     ".md", ".mdx",
   ]);
