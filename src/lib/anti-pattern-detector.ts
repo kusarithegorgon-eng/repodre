@@ -7,7 +7,7 @@
 
 export interface AntiPatternWarning {
   id: string;
-  type: "view-to-db-bypass" | "missing-validation" | "orphaned-node" | "circular-dependency";
+  type: "view-to-db-bypass" | "missing-validation" | "orphaned-node" | "circular-dependency" | "god-class" | "oversized-file";
   severity: "critical" | "high" | "medium" | "low";
   nodeId: string;
   nodeLabel: string;
@@ -21,6 +21,8 @@ export interface AntiPatternResult {
   viewToDbBypassCount: number;
   missingValidationCount: number;
   orphanedNodesCount: number;
+  godClassCount: number;
+  oversizedFileCount: number;
 }
 
 export type NodeType = "view" | "validation" | "controller" | "database" | "gateway" | "error";
@@ -346,12 +348,16 @@ export function detectAntiPatterns(
   const orphanedWarnings = detectOrphanedNodes(nodeInfos, edgeInfos);
   const missingValidationWarnings = detectMissingValidation(nodeInfos, edgeInfos);
   const circularWarnings = detectCircularDependencies(nodeInfos, edgeInfos);
+  const godClassWarnings = detectGodClasses(nodeInfos, edgeInfos);
+  const oversizedWarnings = detectOversizedFiles(nodeInfos, edgeInfos);
 
   const allWarnings = [
     ...viewToDbWarnings,
     ...orphanedWarnings,
     ...missingValidationWarnings,
     ...circularWarnings,
+    ...godClassWarnings,
+    ...oversizedWarnings,
   ];
 
   return {
@@ -359,6 +365,8 @@ export function detectAntiPatterns(
     viewToDbBypassCount: viewToDbWarnings.length,
     missingValidationCount: missingValidationWarnings.length,
     orphanedNodesCount: orphanedWarnings.length,
+    godClassCount: godClassWarnings.length,
+    oversizedFileCount: oversizedWarnings.length,
   };
 }
 
@@ -395,6 +403,92 @@ function inferTypeFromShape(
       }
       return "controller";
   }
+}
+
+/**
+ * Detects God-class anti-pattern: a controller node with an excessive number
+ * of outgoing connections (high fan-out), indicating it handles too many
+ * responsibilities and should be split into smaller controllers.
+ */
+function detectGodClasses(
+  nodes: NodeInfo[],
+  edges: EdgeInfo[]
+): AntiPatternWarning[] {
+  const warnings: AntiPatternWarning[] = [];
+
+  // Count outgoing edges per node
+  const outCount = new Map<string, number>();
+  for (const edge of edges) {
+    outCount.set(edge.from, (outCount.get(edge.from) ?? 0) + 1);
+  }
+
+  // God-class threshold: a controller with 6+ outgoing dependencies
+  const GOD_CLASS_THRESHOLD = 6;
+
+  for (const node of nodes) {
+    if (node.type !== "controller" && node.shape !== "rectangle") continue;
+    const fanOut = outCount.get(node.id) ?? 0;
+    if (fanOut >= GOD_CLASS_THRESHOLD) {
+      const impacted = edges
+        .filter((e) => e.from === node.id)
+        .map((e) => e.to);
+      warnings.push({
+        id: `anti-pattern_god-class_${node.id}`,
+        type: "god-class",
+        severity: fanOut >= 10 ? "high" : "medium",
+        nodeId: node.id,
+        nodeLabel: node.label,
+        description: `Controller "${node.label}" has ${fanOut} outgoing dependencies (God-class). It handles too many responsibilities and should be split.`,
+        impactedNodes: [node.id, ...impacted],
+        recommendation: `Split "${node.label}" into ${Math.ceil(fanOut / 3)} smaller controllers, each handling a single resource domain.`,
+      });
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Detects oversized-file anti-pattern: a node that is the target of an
+ * excessive number of incoming edges (high fan-in), suggesting it is a
+ * catch-all module that should be decomposed.
+ */
+function detectOversizedFiles(
+  nodes: NodeInfo[],
+  edges: EdgeInfo[]
+): AntiPatternWarning[] {
+  const warnings: AntiPatternWarning[] = [];
+
+  // Count incoming edges per node
+  const inCount = new Map<string, number>();
+  for (const edge of edges) {
+    inCount.set(edge.to, (inCount.get(edge.to) ?? 0) + 1);
+  }
+
+  // Oversized-file threshold: 8+ incoming dependencies (excluding databases)
+  const OVERSIZED_THRESHOLD = 8;
+
+  for (const node of nodes) {
+    if (node.type === "database" || node.shape === "cylinder") continue;
+    const fanIn = inCount.get(node.id) ?? 0;
+    if (fanIn >= OVERSIZED_THRESHOLD) {
+      const impacted = edges
+        .filter((e) => e.to === node.id)
+        .map((e) => e.from);
+      warnings.push({
+        id: `anti-pattern_oversized_${node.id}`,
+        type: "oversized-file",
+        severity: fanIn >= 12 ? "high" : "medium",
+        nodeId: node.id,
+        nodeLabel: node.label,
+        description: `"${node.label}" is referenced by ${fanIn} other components (oversized module). It likely contains too much logic in a single file.`,
+        impactedNodes: [node.id, ...impacted],
+        recommendation: `Decompose "${node.label}" into smaller, focused modules. Each module should have a single responsibility and fewer than ${OVERSIZED_THRESHOLD} consumers.`,
+      });
+    }
+  }
+
+  return warnings;
 }
 
 /**

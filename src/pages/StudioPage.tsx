@@ -47,6 +47,10 @@ import { scanForEnvVariables, type EnvScanResult, getEnvVarsForNode } from "@/li
 import { EnvironmentToggle, useProductionOverlay, type Environment } from "@/components/EnvironmentToggle";
 import { WebhookSyncPanel, WebhookSyncToggle, useWebhookSync } from "@/components/WebhookSyncPanel";
 import { MultiplayerPresence } from "@/components/MultiplayerPresence";
+import { useLiveCursors, RemoteCursorLayer } from "@/components/LiveCursors";
+import { BlastRadiusOverlay, BlastRadiusToggle } from "@/components/BlastRadiusOverlay";
+import { CodeSyncPanel, CodeSyncToggle } from "@/components/CodeSyncPanel";
+import { generateCodeSuggestions, type CodeChange, type CanvasMutation } from "@/lib/code-sync-engine";
 import { AnnotationPanel, AnnotationOverlay } from "@/components/AnnotationPanel";
 import { GitDiffOverlay, GitDiffToggle, useGitDiff, getDiffNodeStyles } from "@/components/GitDiffOverlay";
 import { ControllerBadge, isControllerNode, classifyNodeLayer, useSmartLinks, getSmartLinkClasses } from "@/components/Flow";
@@ -367,9 +371,15 @@ function endpointFor(node: NodeData, other: NodeData, handle?: HandleSegment) {
 
 interface DashboardNavbarProps {
   onHome: () => void;
+  onToggleBlastRadius?: () => void;
+  onToggleCodeSync?: () => void;
+  blastRadiusActive?: boolean;
+  codeSyncActive?: boolean;
+  codeSyncPending?: number;
+  hasSelection?: boolean;
 }
 
-function DashboardNavbar({ onHome }: Omit<DashboardNavbarProps, "onLogout">) {
+function DashboardNavbar({ onHome, onToggleBlastRadius, onToggleCodeSync, blastRadiusActive, codeSyncActive, codeSyncPending, hasSelection }: Omit<DashboardNavbarProps, "onLogout">) {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur-sm">
       <button
@@ -381,7 +391,21 @@ function DashboardNavbar({ onHome }: Omit<DashboardNavbarProps, "onLogout">) {
         <span>Repodre</span>
       </button>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        {onToggleBlastRadius && (
+          <BlastRadiusToggle
+            isActive={!!blastRadiusActive}
+            onClick={onToggleBlastRadius}
+            disabled={!hasSelection}
+          />
+        )}
+        {onToggleCodeSync && (
+          <CodeSyncToggle
+            isActive={!!codeSyncActive}
+            onClick={onToggleCodeSync}
+            pendingCount={codeSyncPending ?? 0}
+          />
+        )}
         <AiDisclosureBadge />
         <ThemeToggle />
         <AuthButton />
@@ -437,6 +461,11 @@ export function StudioPage() {
   const [lastWebhookEvent, setLastWebhookEvent] = useState<WebhookEvent | null>(null);
   const [isResettingLayout, setIsResettingLayout] = useState(false);
   const [selectedAnnotationNode, setSelectedAnnotationNode] = useState<string | null>(null);
+  const [blastRadiusOpen, setBlastRadiusOpen] = useState(false);
+  const [dimmedNodeIds, setDimmedNodeIds] = useState<Set<string>>(new Set());
+  const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set());
+  const [codeSyncOpen, setCodeSyncOpen] = useState(false);
+  const [pendingCodeChanges, setPendingCodeChanges] = useState<CodeChange[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canComment = can(userRole, "create", "annotation");
@@ -552,8 +581,17 @@ export function StudioPage() {
     enableMiddleMouse: true,
   });
 
-  // ─── 30% Manual Override: Canvas interaction state ───────────────────────
+  // ─── Live Collaborative Cursors (Supabase Realtime broadcast) ──────────
   const canvasRef = useRef<HTMLDivElement>(null);
+  const { remoteCursors, isConnected: cursorsConnected } = useLiveCursors({
+    projectId: activeProjectId,
+    zoom,
+    panX: canvasPan.panX,
+    panY: canvasPan.panY,
+    canvasRef,
+  });
+
+  // ─── 30% Manual Override: Canvas interaction state ───────────────────────
   const [nodeIdCounter, setNodeIdCounter] = useState(1000);
   const [edgeIdCounter, setEdgeIdCounter] = useState(1000);
 
@@ -603,6 +641,16 @@ export function StudioPage() {
       setEdgeIdCounter((c) => c + 1);
       // Persist to DB (fire-and-forget)
       createEdge(project?.id ?? "demo", newEdge).catch(() => {});
+      // Two-way code sync: generate code-change suggestion
+      const suggestions = generateCodeSuggestions({
+        kind: "edge-add",
+        edgeId: newEdge.id,
+        fromId,
+        toId,
+      });
+      if (suggestions.length > 0) {
+        setPendingCodeChanges((prev) => [...prev, ...suggestions]);
+      }
     }, [edgeIdCounter, project?.id]),
   });
 
@@ -627,6 +675,16 @@ export function StudioPage() {
       setSelected(newNode.id);
       // Persist to DB (fire-and-forget)
       createNode(project?.id ?? "demo", newNode).catch(() => {});
+      // Two-way code sync: generate code-change suggestion
+      const suggestions = generateCodeSuggestions({
+        kind: "node-add",
+        nodeId: newNode.id,
+        newLabel: newNode.label,
+        shape: newNode.shape,
+      });
+      if (suggestions.length > 0) {
+        setPendingCodeChanges((prev) => [...prev, ...suggestions]);
+      }
     }, [nodeIdCounter, workspace, project?.id]),
   });
 
@@ -1535,7 +1593,15 @@ export async function POST(req: Request) {
           />
         </aside>
         <div className="flex min-h-full flex-1 flex-col md:ml-72">
-          <DashboardNavbar onHome={handleHomeClick} />
+          <DashboardNavbar
+            onHome={handleHomeClick}
+            onToggleBlastRadius={() => setBlastRadiusOpen(!blastRadiusOpen)}
+            onToggleCodeSync={() => setCodeSyncOpen(!codeSyncOpen)}
+            blastRadiusActive={blastRadiusOpen}
+            codeSyncActive={codeSyncOpen}
+            codeSyncPending={pendingCodeChanges.length}
+            hasSelection={!!selected}
+          />
           <main className="flex min-h-0 flex-1 items-center justify-center">
             <DashboardHome />
           </main>
@@ -1864,9 +1930,20 @@ export async function POST(req: Request) {
                       </div>
                     </div>
                   )}
-                  {nodes.map((n) => (
-                    <CanvasNode
+                  {nodes.map((n) => {
+                    const isDimmed = blastRadiusOpen && dimmedNodeIds.has(n.id);
+                    const isHighlighted = blastRadiusOpen && highlightedNodeIds.has(n.id);
+                    return (
+                    <div
                       key={n.id}
+                      style={{
+                        opacity: isDimmed ? 0.2 : 1,
+                        transition: "opacity 200ms ease",
+                        boxShadow: isHighlighted ? "0 0 0 3px var(--orange), 0 0 20px rgba(234,88,12,0.3)" : undefined,
+                        borderRadius: isHighlighted ? "12px" : undefined,
+                      }}
+                    >
+                    <CanvasNode
                       node={n}
                       zoom={zoom / 100}
                       selected={selected === n.id}
@@ -1889,7 +1966,12 @@ export async function POST(req: Request) {
                       envVars={getEnvVarsForNode(n.label, new Map([[mockModules[0]?.path?.split('/').pop()?.replace(/\.(ts|tsx)$/, '') || 'route', scanForEnvVariables(mockModules[0]?.source || '')]]))}
                       diffStatus={gitDiffOpen ? getNodeDiffStatus(n.id, diffResult) : undefined}
                     />
-                  ))}
+                    </div>
+                    );
+                  })}
+
+                  {/* Live remote cursors (multiplayer) */}
+                  <RemoteCursorLayer cursors={remoteCursors} />
 
                   {/* Production overlay nodes (read replicas, firewall gates) */}
                   {productionOverlayNodes.map((n) => (
@@ -2124,6 +2206,40 @@ export async function POST(req: Request) {
           projectId={project?.id ?? activeProjectId}
         />
       )}
+
+      {/* Blast-Radius Impact Analysis Overlay */}
+      <BlastRadiusOverlay
+        isOpen={blastRadiusOpen}
+        onClose={() => {
+          setBlastRadiusOpen(false);
+          setDimmedNodeIds(new Set());
+          setHighlightedNodeIds(new Set());
+        }}
+        originId={selected}
+        nodes={nodes.filter((n) => n.shape !== "circle").map((n) => ({
+          id: n.id,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          x: n.x,
+          y: n.y,
+        }))}
+        edges={edges.filter((e) => {
+          const from = nodes.find((n) => n.id === e.from);
+          const to = nodes.find((n) => n.id === e.to);
+          return from?.shape !== "circle" && to?.shape !== "circle";
+        }).map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+        onDimNodes={setDimmedNodeIds}
+        onHighlightNodes={setHighlightedNodeIds}
+      />
+
+      {/* Two-Way Code Sync Panel */}
+      <CodeSyncPanel
+        isOpen={codeSyncOpen}
+        onClose={() => setCodeSyncOpen(false)}
+        changes={pendingCodeChanges}
+        onClear={() => setPendingCodeChanges([])}
+      />
 
       {/* Save to Workspace button (draft mode only) */}
       {isDraftMode && nodes.length > 0 && (
