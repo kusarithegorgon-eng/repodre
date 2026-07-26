@@ -8,7 +8,7 @@
 /**
  * Supported source languages for parsing.
  */
-export type SourceLanguage = "typescript" | "tsx" | "javascript" | "python" | "php" | "go" | "rust";
+export type SourceLanguage = "typescript" | "tsx" | "javascript" | "python" | "php" | "go" | "rust" | "java";
 
 /**
  * Universal AST Node - normalized representation across languages.
@@ -75,6 +75,12 @@ export type NodeKind =
   | "php_route"
   | "php_call"
   | "php_eloquent_model"
+  | "java_class"
+  | "java_method"
+  | "go_struct"
+  | "go_interface"
+  | "go_func"
+  | "go_method"
   | "unhandled";
 
 /**
@@ -114,11 +120,13 @@ export interface SymbolTable {
   variables: Symbol[];
   /** React components (TSX/JSX) */
   components: Symbol[];
+  /** Routes (HTTP endpoints) */
+  routes: Symbol[];
 }
 
 export interface Symbol {
   name: string;
-  kind: "function" | "class" | "variable" | "component" | "constant";
+  kind: "function" | "class" | "variable" | "component" | "constant" | "route" | "model" | "controller" | "service" | "repository";
   nodeId: string;
   exported: boolean;
   async?: boolean;

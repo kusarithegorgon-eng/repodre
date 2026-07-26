@@ -25,6 +25,7 @@ export class TypeScriptParser implements Parser {
       classes: [],
       variables: [],
       components: [],
+      routes: [],
     };
 
     try {

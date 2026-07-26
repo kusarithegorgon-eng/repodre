@@ -9,6 +9,8 @@ import type { Parser, ParserFactory, SourceLanguage, ParsedModule } from "./type
 import { TypeScriptParser } from "./typescript-parser";
 import { PythonParser } from "./python-parser";
 import { PhpParser } from "./php-parser";
+import { JavaParser } from "./java-parser";
+import { GoParser } from "./go-parser";
 
 class ParserFactoryImpl implements ParserFactory {
   private parsers = new Map<SourceLanguage, Parser>();
@@ -18,6 +20,8 @@ class ParserFactoryImpl implements ParserFactory {
     this.register(new TypeScriptParser());
     this.register(new PythonParser());
     this.register(new PhpParser());
+    this.register(new JavaParser());
+    this.register(new GoParser());
   }
 
   getParser(language: SourceLanguage): Parser {
@@ -56,6 +60,8 @@ class ParserFactoryImpl implements ParserFactory {
         return "python";
       case "php":
         return "php";
+      case "java":
+        return "java";
       case "go":
         return "go";
       case "rs":
@@ -96,6 +102,7 @@ export function parseSource(source: string, path: string): ParsedModule {
         classes: [],
         variables: [],
         components: [],
+        routes: [],
       },
     };
   }

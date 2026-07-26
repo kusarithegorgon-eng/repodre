@@ -172,6 +172,7 @@ export class PythonParser implements Parser {
       classes: [],
       variables: [],
       components: [],
+      routes: [],
     };
 
     const traverse = (node: UniversalNode) => {

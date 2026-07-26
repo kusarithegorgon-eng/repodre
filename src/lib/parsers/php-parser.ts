@@ -36,6 +36,7 @@ export class PhpParser implements Parser {
       classes: [],
       variables: [],
       components: [],
+      routes: [],
     };
 
     try {
