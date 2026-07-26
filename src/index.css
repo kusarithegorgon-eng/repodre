@@ -20,8 +20,8 @@
   --surface: #ffffff;              /* pure white cards */
   --surface-raised: #ffffff;       /* raised surfaces */
   --border: #334155;               /* slate-700: strong visible borders */
-  --muted: #64748b;                /* slate-500 */
-  --muted-foreground: #475569;     /* slate-600 */
+  --muted: #475569;                /* slate-600: darker for contrast */
+  --muted-foreground: #334155;     /* slate-700: meets 4.5:1 on white */
   --accent: #f1f5f9;               /* slate-100 */
   --popover: #ffffff;
 
@@ -354,6 +354,40 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
+}
+
+/* ─── Interactive element base states ─────────────────────────────────── */
+a {
+  transition: color 0.15s ease;
+}
+
+/* Primary teal button hover / active helpers used via @apply or class */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--teal);
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.35);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  cursor: pointer;
+  border: none;
+}
+
+.btn-primary:hover {
+  background: #0b7c72;    /* teal-700: passes 3:1 against white */
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  background: #0a6b62;    /* teal-800: active press state */
+  box-shadow: 0 1px 4px rgba(13, 148, 136, 0.3);
+  transform: translateY(0);
 }
 
 /* ─── Focus Styles ─────────────────────────────────────────────────────── */

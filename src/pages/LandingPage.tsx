@@ -125,22 +125,22 @@ export function LandingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
             <RepodreLogo width={36} height={36} />
             <span className="text-lg font-semibold">Repodre</span>
           </div>
           <nav className="hidden items-center gap-8 md:flex">
-            <a href="#features" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <a href="#features" className="text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground active:text-teal">
               Features
             </a>
-            <a href="#how-it-works" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <a href="#how-it-works" className="text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground active:text-teal">
               How it works
             </a>
           </nav>
           <button
             onClick={() => signInWithGitHub()}
-            className="rounded-md bg-teal px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+            className="btn-primary !px-4 !py-2 !text-sm"
           >
             Sign in
           </button>
@@ -149,30 +149,30 @@ export function LandingPage() {
 
       <main>
         {/* Hero */}
-        <section className="mx-auto max-w-6xl px-6 pb-20 pt-20 md:pt-28">
-          <div className="grid grid-cols-1 items-center gap-16 md:grid-cols-2">
+        <section className="mx-auto max-w-6xl px-4 pb-20 pt-16 sm:px-6 sm:pt-20 md:pt-28">
+          <div className="grid grid-cols-1 items-center gap-12 md:grid-cols-2 md:gap-16">
             <div className="max-w-xl">
               <p className="font-mono text-xs uppercase tracking-widest text-teal">
                 GitHub repository visualizer
               </p>
-              <h1 className="mt-4 text-4xl font-extrabold leading-[1.1] tracking-tight md:text-5xl">
+              <h1 className="mt-4 text-3xl font-extrabold leading-[1.15] tracking-tight sm:text-4xl md:text-5xl">
                 See the architecture GitHub won&apos;t show you.
               </h1>
-              <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
+              <p className="mt-6 text-base leading-relaxed text-muted-foreground sm:text-lg">
                 Point Repodre at a repository and it traces execution flow and maps your
                 database schema, rendered as a diagram — parsed entirely in your browser.
               </p>
-              <div className="mt-10 flex flex-wrap items-center gap-4">
+              <div className="mt-8 flex flex-wrap items-center gap-4 sm:mt-10">
                 <button
                   onClick={() => signInWithGitHub()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-teal px-6 py-3 text-base font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+                  className="btn-primary text-base"
                 >
                   Get started with GitHub
                   <ArrowRight className="h-4 w-4" />
                 </button>
                 <a
                   href="#how-it-works"
-                  className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground active:text-teal"
                 >
                   See how it works
                   <ArrowDown className="h-3.5 w-3.5" />
@@ -189,20 +189,20 @@ export function LandingPage() {
 
         {/* Features */}
         <section id="features" className="border-t border-border bg-surface">
-          <div className="mx-auto max-w-6xl px-6 py-20">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
             <h2 className="text-2xl font-bold md:text-3xl">Built for reading code, not just storing it</h2>
             <p className="mt-3 max-w-2xl text-muted-foreground">
               Three views into a repository that would otherwise take an afternoon of
               file-hopping to piece together.
             </p>
 
-            <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
+            <div className="mt-10 grid grid-cols-1 gap-6 sm:mt-12 md:grid-cols-3">
               {FEATURES.map(({ icon: Icon, node, title, body }) => {
                 const style = NODE_STYLES[node];
                 return (
                   <div
                     key={title}
-                    className="rounded-xl border border-border bg-background p-6"
+                    className="rounded-xl border border-border bg-background p-5 transition-shadow duration-200 hover:shadow-lg sm:p-6"
                     style={{ borderLeft: `3px solid ${style.stroke}` }}
                   >
                     <div
@@ -221,10 +221,10 @@ export function LandingPage() {
         </section>
 
         {/* How it works */}
-        <section id="how-it-works" className="mx-auto max-w-6xl px-6 py-20">
+        <section id="how-it-works" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
           <h2 className="text-2xl font-bold md:text-3xl">From URL to diagram in three steps</h2>
 
-          <div className="mt-12 grid grid-cols-1 gap-10 md:grid-cols-3">
+          <div className="mt-10 grid grid-cols-1 gap-8 sm:mt-12 sm:gap-10 md:grid-cols-3">
             {STEPS.map((step) => (
               <div key={step.n}>
                 <span className="font-mono text-sm font-semibold text-teal">{step.n}</span>
@@ -237,14 +237,14 @@ export function LandingPage() {
 
         {/* CTA band */}
         <section className="border-y border-border bg-surface">
-          <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-6 py-14 md:flex-row md:items-center">
+          <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-4 py-12 sm:px-6 sm:py-14 md:flex-row md:items-center">
             <div>
-              <h2 className="text-2xl font-bold">Ready to see your own repository mapped out?</h2>
+              <h2 className="text-2xl font-bold sm:text-2xl">Ready to see your own repository mapped out?</h2>
               <p className="mt-2 text-muted-foreground">Sign in with GitHub — it takes about a minute.</p>
             </div>
             <button
               onClick={() => signInWithGitHub()}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-teal px-6 py-3 text-base font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+              className="btn-primary w-full justify-center text-base sm:w-auto"
             >
               Get started with GitHub
               <ArrowRight className="h-4 w-4" />
@@ -253,25 +253,25 @@ export function LandingPage() {
         </section>
 
         {/* Footer */}
-        <footer className="mx-auto max-w-6xl px-6 py-14">
+        <footer className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
           <div className="flex flex-col gap-10 md:flex-row md:justify-between">
             <div className="flex items-center gap-3">
               <RepodreLogo width={36} height={36} />
               <span className="font-semibold">Repodre</span>
             </div>
-            <div className="flex gap-16">
+            <div className="flex flex-col gap-8 sm:flex-row sm:gap-16">
               <div>
                 <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Product</p>
                 <ul className="mt-3 space-y-2 text-sm">
-                  <li><a href="#features" className="text-muted-foreground hover:text-foreground">Features</a></li>
-                  <li><a href="#how-it-works" className="text-muted-foreground hover:text-foreground">How it works</a></li>
+                  <li><a href="#features" className="text-muted-foreground transition-colors duration-150 hover:text-foreground active:text-teal">Features</a></li>
+                  <li><a href="#how-it-works" className="text-muted-foreground transition-colors duration-150 hover:text-foreground active:text-teal">How it works</a></li>
                 </ul>
               </div>
               <div>
                 <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Legal</p>
                 <ul className="mt-3 space-y-2 text-sm">
-                  <li><a href="/privacy" className="text-muted-foreground hover:text-foreground">Privacy Policy</a></li>
-                  <li><a href="/terms" className="text-muted-foreground hover:text-foreground">Terms of Service</a></li>
+                  <li><a href="/privacy" className="text-muted-foreground transition-colors duration-150 hover:text-foreground active:text-teal">Privacy Policy</a></li>
+                  <li><a href="/terms" className="text-muted-foreground transition-colors duration-150 hover:text-foreground active:text-teal">Terms of Service</a></li>
                 </ul>
               </div>
             </div>
