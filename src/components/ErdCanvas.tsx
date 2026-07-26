@@ -29,6 +29,32 @@ import type { Node, Edge } from "@/lib/db-client";
 import type { HandleSegment } from "@/lib/canvas-geometry";
 import { X, Trash2 } from "lucide-react";
 
+function sectionColorHex(color: string): string {
+  const map: Record<string, string> = {
+    blue: "rgba(59, 130, 246, 0.06)",
+    green: "rgba(34, 197, 94, 0.06)",
+    teal: "rgba(20, 184, 166, 0.06)",
+    orange: "rgba(249, 115, 22, 0.06)",
+    red: "rgba(239, 68, 68, 0.06)",
+    purple: "rgba(168, 85, 247, 0.06)",
+    slate: "rgba(100, 116, 139, 0.06)",
+  };
+  return map[color] ?? map.blue;
+}
+
+function sectionBorderHex(color: string): string {
+  const map: Record<string, string> = {
+    blue: "rgba(59, 130, 246, 0.35)",
+    green: "rgba(34, 197, 94, 0.35)",
+    teal: "rgba(20, 184, 166, 0.35)",
+    orange: "rgba(249, 115, 22, 0.35)",
+    red: "rgba(239, 68, 68, 0.35)",
+    purple: "rgba(168, 85, 247, 0.35)",
+    slate: "rgba(100, 116, 139, 0.35)",
+  };
+  return map[color] ?? map.blue;
+}
+
 interface ErdCanvasProps {
   nodes: Node[];
   edges: Edge[];
@@ -50,6 +76,8 @@ interface ErdCanvasProps {
   onRenameColumn?: (nodeId: string, oldName: string, newName: string) => void;
   /** Called when user renames a table */
   onRenameTable?: (nodeId: string, newName: string) => void;
+  /** Section containers to render behind ERD tables */
+  sections?: Array<{ id: string; label: string; color: string; x: number; y: number; w: number; h: number; devStatus: string }>;
 }
 
 export function ErdCanvas({
@@ -69,6 +97,7 @@ export function ErdCanvas({
   cursor,
   onRenameColumn,
   onRenameTable,
+  sections = [],
 }: ErdCanvasProps) {
   // Filter to ERD table nodes only
   const tableNodes = nodes.filter((n) => n.workspace === "erd" && n.columns);
@@ -292,6 +321,44 @@ export function ErdCanvas({
           className="relative h-full w-full origin-top-left"
           style={{ transform: `translate3d(${panX}px, ${panY}px, 0) scale(${zoom / 100})` }}
         >
+          {/* Section containers (behind ERD tables) */}
+          {sections.map((s) => {
+            const isReady = s.devStatus === "ready";
+            const colorHex = isReady ? "rgba(34, 197, 94, 0.06)" : sectionColorHex(s.color);
+            const borderColor = isReady ? "rgba(34, 197, 94, 0.35)" : sectionBorderHex(s.color);
+            return (
+              <div
+                key={s.id}
+                className="absolute rounded-2xl pointer-events-none"
+                style={{
+                  left: s.x,
+                  top: s.y,
+                  width: s.w,
+                  height: s.h,
+                  zIndex: 0,
+                  background: colorHex,
+                  border: `2px dashed ${borderColor}`,
+                }}
+              >
+                <div
+                  className="absolute top-0 left-0 right-0 flex items-center px-3 rounded-t-2xl"
+                  style={{
+                    height: 36,
+                    background: isReady ? "rgba(34, 197, 94, 0.12)" : sectionBorderHex(s.color),
+                    borderBottom: `1px solid ${borderColor}`,
+                  }}
+                >
+                  <span className="text-sm font-semibold text-foreground/80 truncate">{s.label}</span>
+                  {isReady && (
+                    <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-bold text-green-600" style={{ background: "rgba(34,197,94,0.15)" }}>
+                      Ready for Dev
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
           {/* Edge SVG layer with Crow's Foot markers */}
           <svg
             data-testid="erd-edge-layer"

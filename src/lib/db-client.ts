@@ -52,6 +52,25 @@ export interface NodeRow {
   workspace: Workspace;
   columns: ErdColumnRow[] | null;
   table_name: string | null;
+  section_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SectionColor = "blue" | "green" | "teal" | "orange" | "red" | "purple" | "slate";
+export type DevStatus = "draft" | "ready" | "in_progress" | "done";
+
+export interface SectionRow {
+  id: string;
+  project_id: string;
+  label: string;
+  color: SectionColor;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  dev_status: DevStatus;
+  workspace: Workspace;
   created_at: string;
   updated_at: string;
 }
@@ -106,6 +125,20 @@ export interface Node extends PositionedNode {
   workspace: Workspace;
   columns: ErdColumnRow[] | null;
   tableName: string | null;
+  sectionId: string | null;
+}
+
+export interface Section {
+  id: string;
+  projectId: string;
+  label: string;
+  color: SectionColor;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  devStatus: DevStatus;
+  workspace: Workspace;
 }
 
 export interface Edge {
@@ -174,6 +207,22 @@ function rowToNode(row: NodeRow): Node {
     workspace: row.workspace,
     columns: row.columns ?? null,
     tableName: row.table_name ?? null,
+    sectionId: row.section_id ?? null,
+  };
+}
+
+function rowToSection(row: SectionRow): Section {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    label: row.label,
+    color: row.color,
+    x: row.x,
+    y: row.y,
+    w: row.w,
+    h: row.h,
+    devStatus: row.dev_status,
+    workspace: row.workspace,
   };
 }
 
@@ -333,6 +382,7 @@ export async function createNode(
     workspace: node.workspace,
     columns: node.columns ?? null,
     table_name: node.tableName ?? null,
+    section_id: node.sectionId ?? null,
   };
   if (node.userId !== undefined && node.userId !== null) {
     insertData.user_id = node.userId;
@@ -350,7 +400,7 @@ export async function createNode(
 
 export async function updateNode(
   id: string,
-  updates: Partial<Pick<Node, "label" | "sub" | "shape" | "accent" | "x" | "y" | "w" | "h" | "workspace" | "columns" | "tableName">>
+  updates: Partial<Pick<Node, "label" | "sub" | "shape" | "accent" | "x" | "y" | "w" | "h" | "workspace" | "columns" | "tableName" | "sectionId">>
 ): Promise<Node> {
   const updateData: Record<string, unknown> = {};
 
@@ -365,6 +415,7 @@ export async function updateNode(
   if (updates.workspace !== undefined) updateData.workspace = updates.workspace;
   if (updates.columns !== undefined) updateData.columns = updates.columns;
   if (updates.tableName !== undefined) updateData.table_name = updates.tableName;
+  if (updates.sectionId !== undefined) updateData.section_id = updates.sectionId;
 
   const { data, error } = await supabase
     .from("nodes")
@@ -403,6 +454,7 @@ export async function batchCreateNodes(
           workspace: n.workspace,
           columns: n.columns ?? null,
           table_name: n.tableName ?? null,
+          section_id: n.sectionId ?? null,
         };
         if (n.userId !== undefined && n.userId !== null) {
           insertData.user_id = n.userId;
@@ -658,18 +710,20 @@ export interface FullProject {
   project: Project;
   nodes: Node[];
   edges: Edge[];
+  sections: Section[];
 }
 
 export async function loadFullProject(projectId: string): Promise<FullProject | null> {
   const project = await getProject(projectId);
   if (!project) return null;
 
-  const [nodes, edges] = await Promise.all([
+  const [nodes, edges, sections] = await Promise.all([
     listNodes(projectId),
     listEdges(projectId),
+    listSections(projectId),
   ]);
 
-  return { project, nodes, edges };
+  return { project, nodes, edges, sections };
 }
 
 /**
@@ -681,6 +735,7 @@ export async function loadGraphFromDatabase(
 ): Promise<{
   nodes: Node[];
   edges: Edge[];
+  sections: Section[];
   project: Project | null;
 } | null> {
   try {
@@ -690,6 +745,7 @@ export async function loadGraphFromDatabase(
       project: full.project,
       nodes: full.nodes,
       edges: full.edges,
+      sections: full.sections,
     };
   } catch (err) {
     console.error("loadGraphFromDatabase error:", err);
@@ -874,6 +930,72 @@ export async function removeMember(memberId: string): Promise<void> {
     .from("project_members")
     .delete()
     .eq("id", memberId);
+  if (error) throw error;
+}
+
+// ─── Sections ─────────────────────────────────────────────────────────────
+
+export async function listSections(projectId: string): Promise<Section[]> {
+  const { data, error } = await supabase
+    .from("sections")
+    .select("*")
+    .eq("project_id", projectId);
+
+  if (error) throw error;
+  return (data ?? []).map(rowToSection);
+}
+
+export async function createSection(
+  projectId: string,
+  section: Omit<Section, "id" | "projectId">
+): Promise<Section> {
+  const { data, error } = await supabase
+    .from("sections")
+    .insert({
+      project_id: projectId,
+      label: section.label,
+      color: section.color,
+      x: section.x,
+      y: section.y,
+      w: section.w,
+      h: section.h,
+      dev_status: section.devStatus,
+      workspace: section.workspace,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return rowToSection(data);
+}
+
+export async function updateSection(
+  id: string,
+  updates: Partial<Pick<Section, "label" | "color" | "x" | "y" | "w" | "h" | "devStatus">>
+): Promise<Section> {
+  const updateData: Record<string, unknown> = {};
+
+  if (updates.label !== undefined) updateData.label = updates.label;
+  if (updates.color !== undefined) updateData.color = updates.color;
+  if (updates.x !== undefined) updateData.x = updates.x;
+  if (updates.y !== undefined) updateData.y = updates.y;
+  if (updates.w !== undefined) updateData.w = updates.w;
+  if (updates.h !== undefined) updateData.h = updates.h;
+  if (updates.devStatus !== undefined) updateData.dev_status = updates.devStatus;
+
+  const { data, error } = await supabase
+    .from("sections")
+    .update(updateData)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return rowToSection(data);
+}
+
+export async function deleteSection(id: string): Promise<void> {
+  const { error } = await supabase.from("sections").delete().eq("id", id);
   if (error) throw error;
 }
 

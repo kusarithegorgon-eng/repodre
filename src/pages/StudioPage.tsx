@@ -1,6 +1,6 @@
 import { Link, useSearch, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Home, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw, GitBranch, LogOut, Undo2, Redo2 } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Chrome as Home, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw, GitBranch, LogOut, Undo2, Redo2 } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
@@ -96,11 +96,18 @@ import {
   batchCreateNodes,
   batchCreateEdges,
   batchUpdateNodePositions,
+  createSection,
+  updateSection,
+  deleteSection,
   type Project,
   type Workspace,
   type Edge,
   type Annotation,
+  type Section,
+  type SectionColor,
+  type DevStatus,
 } from "@/lib/db-client";
+import { SectionContainer, findSectionForNode } from "@/components/SectionContainer";
 import { detectCardinality, type ParsedTable } from "@/lib/sql-tokenizer";
 import { useEdgeSnap } from "@/hooks/useEdgeSnap";
 import { useGraphHistory, type GraphSnapshot } from "@/hooks/useGraphHistory";
@@ -124,8 +131,21 @@ interface NodeData extends PositionedNode {
   workspace: Workspace;
   columns?: import("@/lib/db-client").ErdColumnRow[] | null;
   tableName?: string | null;
+  sectionId?: string | null;
   isManuallyPositioned?: boolean;
   parseError?: string | null;
+}
+
+interface SectionData {
+  id: string;
+  label: string;
+  color: SectionColor;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  devStatus: DevStatus;
+  workspace: Workspace;
 }
 
 type WireStyle = "curvy" | "straight" | "orthogonal";
@@ -466,6 +486,8 @@ export function StudioPage() {
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set());
   const [codeSyncOpen, setCodeSyncOpen] = useState(false);
   const [pendingCodeChanges, setPendingCodeChanges] = useState<CodeChange[]>([]);
+  const [sections, setSections] = useState<SectionData[]>([]);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canComment = can(userRole, "create", "annotation");
@@ -834,6 +856,7 @@ export async function POST(req: Request) {
             workspace: n.workspace,
             columns: n.columns,
             tableName: n.tableName,
+            sectionId: n.sectionId,
           }))
         );
         setEdges(
@@ -846,6 +869,19 @@ export async function POST(req: Request) {
             cardinality: e.cardinality,
             fromColumn: e.fromColumn,
             toColumn: e.toColumn,
+          }))
+        );
+        setSections(
+          (graphData.sections ?? []).map((s) => ({
+            id: s.id,
+            label: s.label,
+            color: s.color,
+            x: s.x,
+            y: s.y,
+            w: s.w,
+            h: s.h,
+            devStatus: s.devStatus,
+            workspace: s.workspace,
           }))
         );
         if (graphData.project) {
@@ -962,8 +998,60 @@ export async function POST(req: Request) {
   const setPosition = useCallback(async (id: string, x: number, y: number) => {
     const snappedX = snapToGrid(x);
     const snappedY = snapToGrid(y);
-    setNodes((p) => p.map((n) => (n.id === id ? { ...n, x: snappedX, y: snappedY, isManuallyPositioned: true } : n)));
-    try { await updateNode(id, { x: snappedX, y: snappedY }); } catch { /* ignore */ }
+    const nodeW = NODE_W;
+    const nodeH = NODE_H;
+    const center = { x: snappedX + nodeW / 2, y: snappedY + nodeH / 2 };
+    const newSectionId = findSectionForNode(center, sections);
+    setNodes((p) => p.map((n) => (n.id === id ? { ...n, x: snappedX, y: snappedY, sectionId: newSectionId, isManuallyPositioned: true } : n)));
+    try {
+      await updateNode(id, { x: snappedX, y: snappedY, sectionId: newSectionId });
+    } catch { /* ignore */ }
+  }, [sections]);
+
+  // ─── Section CRUD ──────────────────────────────────────────────────────────
+  const handleCreateSection = useCallback((x: number, y: number) => {
+    const newSection: SectionData = {
+      id: `section_${Date.now()}`,
+      label: "New Section",
+      color: "blue",
+      x: snapToGrid(x),
+      y: snapToGrid(y),
+      w: 600,
+      h: 400,
+      devStatus: "draft",
+      workspace,
+    };
+    setSections((prev) => [...prev, newSection]);
+    setSelectedSectionId(newSection.id);
+    if (!isDemoMode && !isDraftMode && project) {
+      createSection(project.id, { ...newSection, projectId: project.id }).catch(() => {});
+    }
+  }, [workspace, project, isDemoMode, isDraftMode]);
+
+  const handleUpdateSection = useCallback((id: string, updates: Partial<Pick<SectionData, "label" | "color" | "x" | "y" | "w" | "h" | "devStatus">>) => {
+    setSections((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+    if (!isDemoMode && !isDraftMode) {
+      updateSection(id, updates).catch(() => {});
+    }
+  }, [isDemoMode, isDraftMode]);
+
+  const handleDeleteSection = useCallback((id: string) => {
+    setSections((prev) => prev.filter((s) => s.id !== id));
+    setNodes((prev) => prev.map((n) => (n.sectionId === id ? { ...n, sectionId: null } : n)));
+    setSelectedSectionId(null);
+    if (!isDemoMode && !isDraftMode) {
+      deleteSection(id).catch(() => {});
+    }
+  }, [isDemoMode, isDraftMode]);
+
+  // When a section moves, translate all child nodes by the same delta.
+  const handleDragSectionChildren = useCallback((sectionId: string, dx: number, dy: number) => {
+    setNodes((prev) => prev.map((n) => {
+      if (n.sectionId !== sectionId) return n;
+      const newX = snapToGrid(n.x + dx);
+      const newY = snapToGrid(n.y + dy);
+      return { ...n, x: newX, y: newY };
+    }));
   }, []);
 
   // ─── Inline label editing handler (30% Manual Override) ──────────────────
@@ -1210,10 +1298,12 @@ export async function POST(req: Request) {
   const handleKeyboardDelete = useCallback(() => {
     if (selectedEdgeId) {
       handleDeleteEdge(selectedEdgeId);
+    } else if (selectedSectionId) {
+      handleDeleteSection(selectedSectionId);
     } else if (selected) {
       handleDeleteNode(selected);
     }
-  }, [selectedEdgeId, selected, handleDeleteEdge, handleDeleteNode]);
+  }, [selectedEdgeId, selectedSectionId, selected, handleDeleteEdge, handleDeleteSection, handleDeleteNode]);
 
   const handleUndo = useCallback(() => {
     const snap = history.undo();
@@ -1227,10 +1317,28 @@ export async function POST(req: Request) {
 
   useKeyboardShortcuts({
     onDelete: handleKeyboardDelete,
-    onEscape: () => { setSelected(null); setSelectedEdgeId(null); },
+    onEscape: () => { setSelected(null); setSelectedEdgeId(null); setSelectedSectionId(null); },
     onUndo: handleUndo,
     onRedo: handleRedo,
   });
+
+  // "S" hotkey: create a section at the center of the current viewport
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "s") return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const cx = (rect.width / 2 - (canvasPan.panX ?? 0)) / (zoom / 100);
+      const cy = (rect.height / 2 - (canvasPan.panY ?? 0)) / (zoom / 100);
+      handleCreateSection(cx - 300, cy - 200);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoom, canvasPan.panX, canvasPan.panY, handleCreateSection]);
 
   // ─── ERD edge creation from drag-to-connect ────────────────────────────────
   const handleCreateErdEdge = useCallback((fromId: string, fromHandle: HandleSegment, toId: string, toHandle: HandleSegment) => {
@@ -1415,6 +1523,7 @@ export async function POST(req: Request) {
             workspace: n.workspace,
             columns: n.columns,
             tableName: n.tableName,
+            sectionId: n.sectionId,
           }))
         );
         setEdges(
@@ -1921,6 +2030,21 @@ export async function POST(req: Request) {
                     })}
                   </svg>
 
+                  {/* Section containers (behind nodes) */}
+                  {sections.filter((s) => s.workspace === workspace).map((s) => (
+                    <SectionContainer
+                      key={s.id}
+                      section={s}
+                      selected={selectedSectionId === s.id}
+                      zoom={zoom}
+                      childCount={nodes.filter((n) => n.sectionId === s.id).length}
+                      onSelect={(id) => { setSelectedSectionId(id); setSelected(null); }}
+                      onUpdate={handleUpdateSection}
+                      onDelete={handleDeleteSection}
+                      onDragChildren={handleDragSectionChildren}
+                    />
+                  ))}
+
                   {/* Node layer */}
                   {nodes.length === 0 && !isLoading && !isDemoMode && !isDraftMode && (
                     <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
@@ -2110,6 +2234,7 @@ export async function POST(req: Request) {
               cursor={canvasPan.cursor}
               onRenameColumn={handleRenameColumn}
               onRenameTable={handleRenameTable}
+              sections={sections.filter((s) => s.workspace === "erd")}
             />
           )}
           </main>
