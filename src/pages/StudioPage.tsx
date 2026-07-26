@@ -1819,7 +1819,7 @@ export async function POST(req: Request) {
                                 fontWeight="700"
                                 fontFamily="ui-monospace, monospace"
                                 letterSpacing="0.08em"
-                                fill="white"
+                                fill="var(--background)"
                               >
                                 {decisionLabel}
                               </text>

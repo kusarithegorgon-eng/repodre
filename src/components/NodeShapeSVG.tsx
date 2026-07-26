@@ -52,11 +52,11 @@ function getFillForType(type: NodeType | undefined): string {
     case "gateway":
       return "var(--node-gateway-fill)";
     case "misc":
-      return "var(--node-misc-fill, #f5f5f5)";
+      return "var(--node-misc-fill, var(--surface))";
     case "bridge":
-      return "var(--node-bridge-fill, #e2e8f0)";
+      return "var(--node-bridge-fill, var(--surface-raised))";
     default:
-      return "#ffffff";
+      return "var(--surface)";
   }
 }
 
@@ -78,9 +78,9 @@ function getStrokeForType(type: NodeType | undefined, fallbackColor: string): st
     case "gateway":
       return "var(--node-gateway-stroke)";
     case "misc":
-      return "var(--node-misc-stroke, #78716c)";
+      return "var(--node-misc-stroke, var(--muted-foreground))";
     case "bridge":
-      return "var(--node-bridge-stroke, #475569)";
+      return "var(--node-bridge-stroke, var(--border))";
     default:
       return fallbackColor;
   }

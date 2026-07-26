@@ -181,7 +181,7 @@ export function BottleneckEdgeIndicator({
       <circle
         r="8"
         fill={highestSeverity === "high" ? "#dc2626" : highestSeverity === "medium" ? "#d97706" : "#3b82f6"}
-        stroke="white"
+        stroke="var(--background)"
         strokeWidth="2"
         className="animate-pulse"
       />
@@ -190,8 +190,8 @@ export function BottleneckEdgeIndicator({
         y="-4"
         width="8"
         height="8"
-        fill="white"
-        stroke="white"
+        fill="var(--background)"
+        stroke="var(--background)"
         strokeWidth="0.5"
       />
     </g>

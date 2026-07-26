@@ -18,8 +18,8 @@ import type { Cardinality } from "./sql-tokenizer";
 export const ERD_TABLE_WIDTH = 240;
 export const ERD_HEADER_HEIGHT = 36;
 export const ERD_ROW_HEIGHT = 28;
-export const ERD_GRID_GAP_X = 80;
-export const ERD_GRID_GAP_Y = 80;
+export const ERD_GRID_GAP_X = 120;
+export const ERD_GRID_GAP_Y = 100;
 export const ERD_START_X = 60;
 export const ERD_START_Y = 60;
 export const ERD_MAX_COLS = 3; // tables per row before wrapping
@@ -122,6 +122,10 @@ export function layoutErd(
 
   const tableById = new Map(positioned.map((t) => [t.id, t]));
 
+  // Compute per-edge bundle offsets so edges leaving the same table on the
+  // same side fan out instead of collapsing onto a single line.
+  const bundleOffsets = computeBundleOffsets(edges, tableById);
+
   // Route edges orthogonally between FK column rows
   const routedEdges: ErdEdge[] = edges
     .map((e) => {
@@ -129,10 +133,15 @@ export function layoutErd(
       const toTable = tableById.get(e.toTableId);
       if (!fromTable || !toTable) return null;
 
-      const fromAnchor = columnAnchor(fromTable, e.fromColumn, toTable);
-      const toAnchor = columnAnchor(toTable, e.toColumn, fromTable);
+      const offset = bundleOffsets.get(e.id) ?? 0;
 
-      const path = smoothstepPath(fromAnchor, toAnchor, fromTable, toTable);
+      const fromAnchor = columnAnchor(fromTable, e.fromColumn, toTable, offset);
+      const toAnchor = columnAnchor(toTable, e.toColumn, fromTable, offset);
+
+      const obstacles = positioned.filter(
+        (t) => t.id !== e.fromTableId && t.id !== e.toTableId
+      );
+      const path = smoothstepPath(fromAnchor, toAnchor, fromTable, toTable, obstacles);
 
       return {
         id: e.id,
@@ -152,19 +161,81 @@ export function layoutErd(
 }
 
 /**
+ * Compute a perpendicular bundle offset for each edge so that edges sharing
+ * the same source table and exit side are spaced apart vertically.
+ *
+ * Returns a map from edge id → vertical offset (px). Edges are grouped by
+ * (source table, exit side); within each group they are spread symmetrically
+ * around zero with a step of `BUNDLE_STEP` px.
+ */
+const BUNDLE_STEP = 14;
+
+function computeBundleOffsets(
+  edges: Array<{ id: string; fromTableId: string; toTableId: string }>,
+  tableById: Map<string, ErdTableNode>
+): Map<string, number> {
+  const groups = new Map<string, Array<{ id: string; toTableId: string }>>();
+
+  for (const e of edges) {
+    const from = tableById.get(e.fromTableId);
+    const to = tableById.get(e.toTableId);
+    if (!from || !to) continue;
+
+    const fromCenterX = from.x + from.width / 2;
+    const toCenterX = to.x + to.width / 2;
+    const side = toCenterX <= fromCenterX ? "left" : "right";
+    const key = `${e.fromTableId}:${side}`;
+
+    const arr = groups.get(key) ?? [];
+    arr.push({ id: e.id, toTableId: e.toTableId });
+    groups.set(key, arr);
+  }
+
+  const offsets = new Map<string, number>();
+
+  for (const [, members] of groups) {
+    if (members.length <= 1) {
+      offsets.set(members[0].id, 0);
+      continue;
+    }
+
+    // Sort members by target table y so offsets are monotonic
+    members.sort((a, b) => {
+      const ta = tableById.get(a.toTableId);
+      const tb = tableById.get(b.toTableId);
+      return (ta?.y ?? 0) - (tb?.y ?? 0);
+    });
+
+    const n = members.length;
+    const half = (n - 1) / 2;
+    members.forEach((m, i) => {
+      offsets.set(m.id, Math.round((i - half) * BUNDLE_STEP));
+    });
+  }
+
+  return offsets;
+}
+
+/**
  * Compute the canvas-space anchor point for a specific column row on a table.
  * The anchor sits on the side of the table closest to the other table.
+ * A vertical bundle offset is applied so concurrent edges from the same side
+ * fan out cleanly.
  */
 function columnAnchor(
   table: ErdTableNode,
   columnName: string,
-  otherTable: ErdTableNode
+  otherTable: ErdTableNode,
+  bundleOffset = 0
 ): Point {
   const colIndex = table.columns.findIndex((c) => c.name === columnName);
   const rowIndex = colIndex === -1 ? 0 : colIndex;
 
-  // y = header + row center
-  const y = table.y + ERD_HEADER_HEIGHT + rowIndex * ERD_ROW_HEIGHT + ERD_ROW_HEIGHT / 2;
+  // y = header + row center, shifted by bundle offset (clamped to table body)
+  const rawY = table.y + ERD_HEADER_HEIGHT + rowIndex * ERD_ROW_HEIGHT + ERD_ROW_HEIGHT / 2;
+  const minY = table.y + ERD_HEADER_HEIGHT + ERD_ROW_HEIGHT / 2;
+  const maxY = table.y + table.height - ERD_ROW_HEIGHT / 2;
+  const y = Math.max(minY, Math.min(maxY, rawY + bundleOffset));
 
   // x: pick the side of the table closest to the other table's center
   const myCenterX = table.x + table.width / 2;
@@ -178,15 +249,40 @@ function columnAnchor(
  * Build a smoothstep (rounded orthogonal) SVG path between two anchor points.
  * Uses quadratic Bezier curves at corners instead of sharp 90° turns,
  * which visually separates overlapping lines and makes them easier to follow.
+ *
+ * If the straight orthogonal route would pass through an obstacle table,
+ * the path is detoured around it using a perpendicular offset midpoint.
  */
-function smoothstepPath(from: Point, to: Point, fromTable: ErdTableNode, toTable: ErdTableNode): string {
+function smoothstepPath(
+  from: Point,
+  to: Point,
+  fromTable: ErdTableNode,
+  toTable: ErdTableNode,
+  obstacles: ErdTableNode[] = []
+): string {
   const fromIsRight = from.x > fromTable.x + fromTable.width / 2;
   const toIsRight = to.x > toTable.x + toTable.width / 2;
 
   const exitGap = 24;
   const p1x = from.x + (fromIsRight ? exitGap : -exitGap);
   const p2x = to.x + (toIsRight ? exitGap : -exitGap);
-  const midX = (p1x + p2x) / 2;
+  let midX = (p1x + p2x) / 2;
+
+  // Check if the vertical segment at midX would intersect any obstacle table.
+  // If so, shift midX to a clear column to the side of the obstacle.
+  const verticalTop = Math.min(from.y, to.y);
+  const verticalBottom = Math.max(from.y, to.y);
+  for (const obs of obstacles) {
+    if (midX >= obs.x - 12 && midX <= obs.x + obs.width + 12) {
+      if (verticalBottom >= obs.y - 12 && verticalTop <= obs.y + obs.height + 12) {
+        // Collision: push midX to the nearest clear side
+        const leftClear = obs.x - 12;
+        const rightClear = obs.x + obs.width + 12;
+        midX = Math.abs(leftClear - p1x) < Math.abs(rightClear - p1x) ? leftClear : rightClear;
+        break;
+      }
+    }
+  }
 
   const r = Math.min(12, Math.abs(midX - p1x) / 2, Math.abs(p2x - midX) / 2);
   const fromSx = fromIsRight ? 1 : -1;
