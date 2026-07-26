@@ -14,6 +14,9 @@
 
 import { parseGitHubUrl, checkRepositoryAccess, fetchRepositoryTree, fetchMultipleFiles, filterSourceFiles, getDefaultBranch, type GitHubRepo } from "./github-api";
 import { parseModule } from "./ast-parser";
+import { parserFactory } from "./parsers/parser-factory";
+import { normalizeModules, type UnifiedSchema } from "./parsers/unified-schema";
+import { checkRateLimit } from "./rate-limit-client";
 import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-analyzer";
 import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
@@ -109,6 +112,10 @@ export interface AnalysisResult {
   graph?: AnalysisGraph;
   error?: string;
   accessIssue?: AccessCheckResult;
+  /** Unified JSON schema (nodes + edges) from multi-language parsers */
+  unifiedSchema?: UnifiedSchema;
+  /** Rate-limit status from the import quota check */
+  rateLimited?: { retryAfter: number; tier: string; message: string };
 }
 
 export type ProgressCallback = (progress: AnalysisProgress) => void;
@@ -131,6 +138,18 @@ export async function analyzeRepository(
   } = {}
 ): Promise<AnalysisResult> {
   const { maxFiles = 100, branch: explicitBranch } = options;
+
+  // ── Rate-limit check: enforce tiered import quotas ───────────────────
+  const rateLimit = await checkRateLimit("repo_import");
+  if (!rateLimit.allowed) {
+    return {
+      success: false,
+      error: rateLimit.message ?? "Rate limit exceeded. Upgrade to Pro for unlimited imports.",
+      rateLimited: rateLimit.retryAfter
+        ? { retryAfter: rateLimit.retryAfter, tier: rateLimit.tier ?? "free", message: rateLimit.message ?? "" }
+        : undefined,
+    };
+  }
 
   // Phase: Connecting
   onProgress?.({
@@ -215,13 +234,21 @@ export async function analyzeRepository(
     totalFiles: files.size,
   });
 
-  // Parse each file
+  // Parse each file — route through the multi-language parser factory
+  // for non-JS/TS files (Python, PHP, Java, Go), fall back to acorn for JS/TS.
   const modules = [];
+  const unifiedModules = [];
   const parseErrors = new Map<string, string>();
   let processed = 0;
 
   for (const [path, content] of files) {
     try {
+      // Try the multi-language parser factory first
+      if (parserFactory.canParse(path)) {
+        const parsed = parserFactory.parse(content, path);
+        unifiedModules.push(parsed);
+      }
+      // Always also run the acorn-based parser for JS/TS compatibility
       const mod = parseModule(content, path);
       modules.push(mod);
       if (mod.error) parseErrors.set(path, mod.error);
@@ -239,6 +266,9 @@ export async function analyzeRepository(
       totalFiles: files.size,
     });
   }
+
+  // Build the unified JSON schema from all multi-language parse results
+  const unifiedSchema = normalizeModules(unifiedModules);
 
   // Phase: Building — wrapped in try-catch to prevent UI crashes from
   // layout engine errors (e.g., ELK web worker GWT ReferenceError)
@@ -467,6 +497,7 @@ export async function analyzeRepository(
       success: true,
       repo: accessCheck.repo,
       graph: { ...graph, crawlerGraph },
+      unifiedSchema,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "An unexpected error occurred during analysis";
