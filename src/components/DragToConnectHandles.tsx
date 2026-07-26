@@ -195,7 +195,7 @@ export function useDragToConnect({
   zoom,
   canvasRef,
   onConnect,
-  snapThreshold = 20,
+  snapThreshold = 40,
 }: UseDragToConnectOptions) {
   const [state, setState] = useState<DragToConnectState>({
     isDragging: false,
@@ -205,6 +205,15 @@ export function useDragToConnect({
     hoveredNodeId: null,
     hoveredHandle: null,
   });
+
+  // Ref mirror so the global mouseup listener always reads the freshest state
+  // (avoids stale-closure bugs where hoveredNodeId is still null at drop time).
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const onConnectRef = useRef(onConnect);
+  onConnectRef.current = onConnect;
 
   const startDrag = useCallback(
     (nodeId: string, handleId: HandleSegment, startPos: Point) => {
@@ -222,7 +231,7 @@ export function useDragToConnect({
 
   const updateMousePos = useCallback(
     (clientX: number, clientY: number) => {
-      if (!state.isDragging || !canvasRef.current) return;
+      if (!stateRef.current.isDragging || !canvasRef.current) return;
 
       const rect = canvasRef.current.getBoundingClientRect();
       const x = (clientX - rect.left) / zoom;
@@ -233,8 +242,8 @@ export function useDragToConnect({
       let hoveredHandle: HandleSegment | null = null;
       let minDist = snapThreshold;
 
-      for (const node of nodes) {
-        if (node.id === state.fromNodeId) continue;
+      for (const node of nodesRef.current) {
+        if (node.id === stateRef.current.fromNodeId) continue;
 
         const handles = anchorHandles(node);
         const cx = (node.w ?? NODE_W) / 2;
@@ -260,22 +269,104 @@ export function useDragToConnect({
         hoveredHandle,
       }));
     },
-    [state.isDragging, state.fromNodeId, nodes, zoom, canvasRef, snapThreshold]
+    [zoom, canvasRef, snapThreshold]
+  );
+
+  /**
+   * Fallback hit-test at drop time: if no handle was close enough, check
+   * whether the cursor landed inside (or near) a node's bounding box and
+   * snap to the nearest handle on that node. This makes the connection
+   * succeed even when the user releases slightly off the port.
+   */
+  const findDropTarget = useCallback(
+    (x: number, y: number): { nodeId: string; handle: HandleSegment } | null => {
+      const fromId = stateRef.current.fromNodeId;
+      let bestNode: string | null = null;
+      let bestDist = Infinity;
+
+      for (const node of nodesRef.current) {
+        if (node.id === fromId) continue;
+        const w = node.w ?? NODE_W;
+        const h = node.h ?? NODE_H;
+        // Expanded bounding box with snap padding around the node body
+        const pad = snapThreshold;
+        const left = node.x - pad;
+        const right = node.x + w + pad;
+        const top = node.y - pad;
+        const bottom = node.y + h + pad;
+
+        if (x >= left && x <= right && y >= top && y <= bottom) {
+          // Distance to node center — pick the closest node if overlapping
+          const cx = node.x + w / 2;
+          const cy = node.y + h / 2;
+          const d = Math.hypot(x - cx, y - cy);
+          if (d < bestDist) {
+            bestDist = d;
+            bestNode = node.id;
+          }
+        }
+      }
+
+      if (!bestNode) return null;
+
+      // Snap to the nearest handle on the chosen node
+      const target = nodesRef.current.find((n) => n.id === bestNode);
+      if (!target) return null;
+
+      const handles = anchorHandles(target);
+      const cx = (target.w ?? NODE_W) / 2;
+      const cy = (target.h ?? NODE_H) / 2;
+      let nearestHandle: HandleSegment = "e";
+      let nearestDist = Infinity;
+
+      for (const h of handles) {
+        const portX = target.x + cx + (h.x - cx);
+        const portY = target.y + cy + (h.y - cy);
+        const dist = Math.hypot(x - portX, y - portY);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestHandle = h.id;
+        }
+      }
+
+      return { nodeId: bestNode, handle: nearestHandle };
+    },
+    [snapThreshold]
   );
 
   const endDrag = useCallback(() => {
-    if (
-      state.isDragging &&
-      state.fromNodeId &&
-      state.fromHandle &&
-      state.hoveredNodeId &&
-      state.hoveredHandle
-    ) {
-      onConnect(
-        state.fromNodeId,
-        state.fromHandle,
-        state.hoveredNodeId,
-        state.hoveredHandle
+    const cur = stateRef.current;
+    if (!cur.isDragging || !cur.fromNodeId || !cur.fromHandle) {
+      setState({
+        isDragging: false,
+        fromNodeId: null,
+        fromHandle: null,
+        mousePos: null,
+        hoveredNodeId: null,
+        hoveredHandle: null,
+      });
+      return;
+    }
+
+    let targetNodeId = cur.hoveredNodeId;
+    let targetHandle = cur.hoveredHandle;
+
+    // Fallback: if no handle was hovered, try a body hit-test at the last
+    // known mouse position so a near-miss still anchors the connection.
+    if ((!targetNodeId || !targetHandle) && cur.mousePos) {
+      const drop = findDropTarget(cur.mousePos.x, cur.mousePos.y);
+      if (drop) {
+        targetNodeId = drop.nodeId;
+        targetHandle = drop.handle;
+      }
+    }
+
+    if (targetNodeId && targetHandle) {
+      onConnectRef.current(
+        cur.fromNodeId,
+        cur.fromHandle,
+        targetNodeId,
+        targetHandle
       );
     }
 
@@ -287,7 +378,7 @@ export function useDragToConnect({
       hoveredNodeId: null,
       hoveredHandle: null,
     });
-  }, [state, onConnect]);
+  }, [findDropTarget]);
 
   // Set up global mouse event listeners during drag
   useEffect(() => {
