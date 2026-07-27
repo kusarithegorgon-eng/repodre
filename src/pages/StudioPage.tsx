@@ -2157,6 +2157,9 @@ export async function POST(req: Request) {
               <div className="absolute right-4 top-4 z-30">
                 <CanvasExportButton
                   getCanvasContainer={() => canvasRef.current}
+                  nodes={nodes}
+                  edges={edges}
+                  workspace={workspace}
                   disabled={nodes.length === 0}
                 />
               </div>
@@ -2217,6 +2220,7 @@ export async function POST(req: Request) {
             </>
           ) : (
             /* Database ERD Canvas */
+            <>
             <ErdCanvas
               nodes={nodes}
               edges={edges}
@@ -2236,6 +2240,16 @@ export async function POST(req: Request) {
               onRenameTable={handleRenameTable}
               sections={sections.filter((s) => s.workspace === "erd")}
             />
+            <div className="absolute right-4 top-4 z-20">
+              <CanvasExportButton
+                getCanvasContainer={() => canvasRef.current}
+                nodes={nodes}
+                edges={edges}
+                workspace="erd"
+                disabled={nodes.filter((n) => n.workspace === "erd").length === 0}
+              />
+            </div>
+            </>
           )}
           </main>
         </div>
