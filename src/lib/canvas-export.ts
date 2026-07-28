@@ -3,9 +3,9 @@
  *
  * The canvas is a hybrid of HTML nodes (absolutely-positioned divs) and an SVG
  * edge layer. To produce a faithful raster/vector export we:
- *   1. Measure the bounding box of all rendered content.
- *   2. Build a standalone SVG that embeds the edge layer plus foreignObject
- *      snapshots of each node's HTML.
+ *   1. Compute the tight bounding box from node data model coordinates
+ *      (NOT getBoundingClientRect, which is distorted by zoom/pan transforms).
+ *   2. Build a standalone SVG with a correct viewBox matching that bbox.
  *   3. For PNG: draw the SVG onto a <canvas> at the requested scale and
  *      trigger a download.
  *   4. For SVG: serialize the standalone SVG and download it directly.
@@ -13,6 +13,8 @@
  * CSS custom properties (var(--…)) are resolved to computed values so the
  * exported image matches what the user sees on screen.
  */
+
+import { NODE_W, NODE_H } from "./canvas-geometry";
 
 export type ExportFormat = "png" | "svg";
 
@@ -26,19 +28,6 @@ export interface ExportOptions {
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-
-function resolveVar(value: string, element: HTMLElement): string {
-  if (!value || !value.includes("var(")) return value;
-  // Resolve var(--x) → computed value via a temporary probe element
-  const probe = document.createElement("div");
-  probe.style.cssText = `position:absolute;visibility:hidden;`;
-  probe.style.color = value;
-  document.body.appendChild(probe);
-  const resolved = getComputedStyle(probe).color;
-  document.body.removeChild(probe);
-  // If the var resolved to a color, use it; otherwise return original
-  return resolved && resolved !== "rgba(0, 0, 0, 0)" ? resolved : value;
-}
 
 function inlineComputedStyles(element: HTMLElement): string {
   const computed = getComputedStyle(element);
@@ -55,22 +44,30 @@ function inlineComputedStyles(element: HTMLElement): string {
     .join("");
 }
 
-function serializeNode(node: HTMLElement, offsetX: number, offsetY: number): string {
-  const rect = node.getBoundingClientRect();
-  const x = rect.left - offsetX;
-  const y = rect.top - offsetY;
-  const w = rect.width;
-  const h = rect.height;
+function serializeNode(
+  nodeEl: HTMLElement,
+  offsetX: number,
+  offsetY: number
+): string {
+  // Read the node's canvas-space position from its data attributes or style
+  const left = parseFloat(nodeEl.style.left || "0");
+  const top = parseFloat(nodeEl.style.top || "0");
+  const w = nodeEl.offsetWidth || NODE_W;
+  const h = nodeEl.offsetHeight || NODE_H;
 
-  // Clone the node and inline its computed styles
-  const clone = node.cloneNode(true) as HTMLElement;
-  clone.setAttribute("style", inlineComputedStyles(node));
+  // Position in bbox-local coordinates
+  const x = left - offsetX;
+  const y = top - offsetY;
+
+  const clone = nodeEl.cloneNode(true) as HTMLElement;
+  clone.setAttribute("style", inlineComputedStyles(nodeEl));
   clone.style.position = "static";
   clone.style.left = "0";
   clone.style.top = "0";
   clone.style.margin = "0";
+  clone.style.width = `${w}px`;
+  clone.style.height = `${h}px`;
 
-  // Wrap in a foreignObject positioned at the node's coordinates
   const fo = document.createElementNS(SVG_NS, "foreignObject");
   fo.setAttribute("x", String(x));
   fo.setAttribute("y", String(y));
@@ -81,12 +78,15 @@ function serializeNode(node: HTMLElement, offsetX: number, offsetY: number): str
   return new XMLSerializer().serializeToString(fo);
 }
 
-function serializeSvgLayer(svg: SVGSVGElement, offsetX: number, offsetY: number): string {
+function serializeSvgLayer(
+  svg: SVGSVGElement,
+  offsetX: number,
+  offsetY: number
+): string {
   const clone = svg.cloneNode(true) as SVGSVGElement;
-  // Make the clone cover the full canvas coordinate space
+  clone.removeAttribute("viewBox");
   clone.setAttribute("x", "0");
   clone.setAttribute("y", "0");
-  clone.removeAttribute("viewBox");
   clone.style.position = "absolute";
   clone.style.left = "0";
   clone.style.top = "0";
@@ -104,66 +104,6 @@ function serializeSvgLayer(svg: SVGSVGElement, offsetX: number, offsetY: number)
   return new XMLSerializer().serializeToString(clone);
 }
 
-function computeBoundingBox(
-  canvasContainer: HTMLElement
-): { x: number; y: number; width: number; height: number } {
-  const containerRect = canvasContainer.getBoundingClientRect();
-
-  // The inner transformed div is the first child
-  const inner = canvasContainer.querySelector(":scope > div") as HTMLElement | null;
-  if (!inner) {
-    return { x: 0, y: 0, width: containerRect.width, height: containerRect.height };
-  }
-
-  // Collect all node elements (direct children of the inner div that are positioned)
-  const nodeEls = Array.from(inner.querySelectorAll<HTMLElement>("[style*='position: absolute']"));
-  const svgEl = inner.querySelector("svg");
-
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-  // Account for nodes
-  for (const el of nodeEls) {
-    const r = el.getBoundingClientRect();
-    const left = r.left - containerRect.left;
-    const top = r.top - containerRect.top;
-    minX = Math.min(minX, left);
-    minY = Math.min(minY, top);
-    maxX = Math.max(maxX, left + r.width);
-    maxY = Math.max(maxY, top + r.height);
-  }
-
-  // Account for SVG edge paths
-  if (svgEl) {
-    const paths = svgEl.querySelectorAll("path, line, rect, circle, ellipse, polygon, polyline");
-    paths.forEach((p) => {
-      try {
-        const bbox = (p as SVGGraphicsElement).getBBox();
-        const svgRect = svgEl.getBoundingClientRect();
-        const left = svgRect.left - containerRect.left + bbox.x;
-        const top = svgRect.top - containerRect.top + bbox.y;
-        minX = Math.min(minX, left);
-        minY = Math.min(minY, top);
-        maxX = Math.max(maxX, left + bbox.width);
-        maxY = Math.max(maxY, top + bbox.height);
-      } catch {
-        // getBBox can fail for non-rendered elements
-      }
-    });
-  }
-
-  if (!isFinite(minX) || !isFinite(minY)) {
-    return { x: 0, y: 0, width: containerRect.width, height: containerRect.height };
-  }
-
-  const padding = 40;
-  return {
-    x: minX - padding,
-    y: minY - padding,
-    width: maxX - minX + padding * 2,
-    height: maxY - minY + padding * 2,
-  };
-}
-
 export async function exportCanvas(
   container: HTMLElement,
   format: ExportFormat,
@@ -173,7 +113,7 @@ export async function exportCanvas(
   const filename = options.filename ?? `repodre-canvas-${Date.now()}`;
   const background = options.background ?? "#ffffff";
 
-  const bbox = computeBoundingBox(container);
+  // The inner transformed div is the first child
   const inner = container.querySelector(":scope > div") as HTMLElement | null;
   if (!inner) {
     throw new Error("Canvas content not found");
@@ -182,25 +122,71 @@ export async function exportCanvas(
   const svgEl = inner.querySelector("svg");
   const nodeEls = Array.from(inner.querySelectorAll<HTMLElement>("[style*='position: absolute']"));
 
-  // Build the standalone SVG
+  // Build a list of canvas-space node positions from the DOM elements
+  const nodePositions: { x: number; y: number; w: number; h: number }[] = [];
+  for (const el of nodeEls) {
+    const left = parseFloat(el.style.left || "0");
+    const top = parseFloat(el.style.top || "0");
+    const w = el.offsetWidth || NODE_W;
+    const h = el.offsetHeight || NODE_H;
+    nodePositions.push({ x: left, y: top, w, h });
+  }
+
+  // Compute bounding box from canvas-space coordinates
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const np of nodePositions) {
+    minX = Math.min(minX, np.x);
+    minY = Math.min(minY, np.y);
+    maxX = Math.max(maxX, np.x + np.w);
+    maxY = Math.max(maxY, np.y + np.h);
+  }
+
+  // Also account for SVG edge paths using getBBox (in SVG user space)
+  if (svgEl) {
+    const paths = svgEl.querySelectorAll("path, line, rect, circle, ellipse, polygon, polyline");
+    paths.forEach((p) => {
+      try {
+        const bbox = (p as SVGGraphicsElement).getBBox();
+        minX = Math.min(minX, bbox.x);
+        minY = Math.min(minY, bbox.y);
+        maxX = Math.max(maxX, bbox.x + bbox.width);
+        maxY = Math.max(maxY, bbox.y + bbox.height);
+      } catch {
+        // getBBox can fail for non-rendered elements
+      }
+    });
+  }
+
+  if (!isFinite(minX) || !isFinite(minY)) {
+    minX = 0; minY = 0; maxX = 800; maxY = 600;
+  }
+
+  const padding = 48;
+  const bboxX = minX - padding;
+  const bboxY = minY - padding;
+  const bboxW = maxX - minX + padding * 2;
+  const bboxH = maxY - minY + padding * 2;
+
+  // Build the standalone SVG with correct viewBox
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("xmlns", SVG_NS);
-  svg.setAttribute("width", String(bbox.width));
-  svg.setAttribute("height", String(bbox.height));
-  svg.setAttribute("viewBox", `0 0 ${bbox.width} ${bbox.height}`);
+  svg.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  svg.setAttribute("width", String(bboxW));
+  svg.setAttribute("height", String(bboxH));
+  svg.setAttribute("viewBox", `0 0 ${bboxW} ${bboxH}`);
 
   // Background rect
   const bg = document.createElementNS(SVG_NS, "rect");
   bg.setAttribute("x", "0");
   bg.setAttribute("y", "0");
-  bg.setAttribute("width", String(bbox.width));
-  bg.setAttribute("height", String(bbox.height));
+  bg.setAttribute("width", String(bboxW));
+  bg.setAttribute("height", String(bboxH));
   bg.setAttribute("fill", background);
   svg.appendChild(bg);
 
   // Edge layer
   if (svgEl) {
-    const edgeSvg = serializeSvgLayer(svgEl, bbox.x, bbox.y);
+    const edgeSvg = serializeSvgLayer(svgEl, bboxX, bboxY);
     const parser = new DOMParser();
     const doc = parser.parseFromString(edgeSvg, "image/svg+xml");
     const imported = svg.ownerDocument!.importNode(doc.documentElement, true);
@@ -208,8 +194,8 @@ export async function exportCanvas(
   }
 
   // Node layer (foreignObject for each node)
-  for (const node of nodeEls) {
-    const foStr = serializeNode(node, bbox.x, bbox.y);
+  for (let i = 0; i < nodeEls.length; i++) {
+    const foStr = serializeNode(nodeEls[i], bboxX, bboxY);
     const parser = new DOMParser();
     const doc = parser.parseFromString(foStr, "image/svg+xml");
     const imported = svg.ownerDocument!.importNode(doc.documentElement, true);
@@ -237,8 +223,8 @@ export async function exportCanvas(
     });
 
     const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil(bbox.width * scale);
-    canvas.height = Math.ceil(bbox.height * scale);
+    canvas.width = Math.ceil(bboxW * scale);
+    canvas.height = Math.ceil(bboxH * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D context unavailable");
 

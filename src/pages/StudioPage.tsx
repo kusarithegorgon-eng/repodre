@@ -597,14 +597,22 @@ export function StudioPage() {
     }
   }, []);
 
+  // ─── Live Collaborative Cursors (Supabase Realtime broadcast) ──────────
+  const canvasRef = useRef<HTMLDivElement>(null);
+
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
   const canvasPan = useCanvasPan({
     enableSpacebar: true,
     enableMiddleMouse: true,
+    canvasRef,
+    zoom,
+    onZoomChange: (z: number) => {
+      setZoom(z);
+      if (project) {
+        updateProject(project.id, { zoom: z }).catch(() => {});
+      }
+    },
   });
-
-  // ─── Live Collaborative Cursors (Supabase Realtime broadcast) ──────────
-  const canvasRef = useRef<HTMLDivElement>(null);
   const { remoteCursors, isConnected: cursorsConnected } = useLiveCursors({
     projectId: activeProjectId,
     zoom,
