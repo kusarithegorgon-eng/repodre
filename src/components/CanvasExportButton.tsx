@@ -15,11 +15,11 @@ import {
   downloadMermaid,
   copyMermaidToClipboard,
 } from "@/lib/mermaid-export";
-import type { Node, Edge } from "@/lib/db-client";
+import type { Node as CanvasNode, Edge } from "@/lib/db-client";
 
 interface CanvasExportButtonProps {
   getCanvasContainer: () => HTMLElement | null;
-  nodes: Node[];
+  nodes: CanvasNode[];
   edges: Edge[];
   workspace: "app" | "erd";
   disabled?: boolean;
@@ -43,7 +43,7 @@ export function CanvasExportButton({
   useEffect(() => {
     if (!isOpen) return;
     const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      if (ref.current && !ref.current.contains(e.target as globalThis.Node)) {
         setIsOpen(false);
       }
     };

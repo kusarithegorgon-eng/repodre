@@ -9,8 +9,8 @@
  *   - Vector snapping: release over any port of another node registers a new edge
  */
 
-import { useState, useCallback, useEffect } from "react";
-import type { Point, HandleSegment, Shape } from "@/lib/canvas-geometry";
+import { useState, useCallback, useEffect, useRef } from "react";
+import type { Point, HandleSegment, Shape, PositionedNode } from "@/lib/canvas-geometry";
 import { anchorHandles, NODE_W, NODE_H } from "@/lib/canvas-geometry";
 
 export interface DragToConnectHandleProps {

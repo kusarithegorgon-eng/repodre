@@ -289,8 +289,8 @@ export function HomePage() {
               />
             </div>
           </div>
-        </AuthGate>
-      );
+        </div>
+      )}
 
       {/* Toast notification */}
       {toast && (
@@ -415,6 +415,7 @@ export function HomePage() {
               />
             </div>
           )}
+        </AuthGate>
         </div>
 
         {/* Demo Link */}
@@ -452,7 +453,6 @@ export function HomePage() {
             {syncStatus && (
               <p className="text-xs text-muted-foreground">{syncStatus}</p>
               )}
-          </AuthGate>
             <p className="text-xs text-muted-foreground">
               Click to sync repository files to Supabase database (check console for output)
             </p>
@@ -504,6 +504,7 @@ export function HomePage() {
         </div>
       </footer>
     </div>
+    </AuthGate>
   );
 }
 
