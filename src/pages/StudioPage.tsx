@@ -1846,8 +1846,8 @@ export async function POST(req: Request) {
                 ref={canvasRef}
                 className="grid-canvas absolute inset-0 overflow-hidden"
                 onClick={() => { setSelected(null); setSelectedAnnotationNode(null); setShowLayoutPopover(false); }}
-                onMouseDown={canvasPan.handleMouseDown}
-                style={{ cursor: canvasPan.cursor }}
+                onPointerDown={canvasPan.handlePointerDown}
+                style={{ cursor: canvasPan.cursor, touchAction: "none" }}
               >
                 <div
                   className="relative h-full w-full origin-top-left"
@@ -2242,7 +2242,7 @@ export async function POST(req: Request) {
               zoom={zoom}
               panX={canvasPan.panX}
               panY={canvasPan.panY}
-              onCanvasMouseDown={canvasPan.handleMouseDown}
+              onCanvasMouseDown={canvasPan.handlePointerDown}
               cursor={canvasPan.cursor}
               onRenameColumn={handleRenameColumn}
               onRenameTable={handleRenameTable}

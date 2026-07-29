@@ -1,12 +1,14 @@
 /**
  * useCanvasPan — Infinite Viewport Pan & Drag Engine
  *
- * Uses window capture-phase mousedown so node stopPropagation can't block pan.
- * Hardware-accelerated translate3d for 60fps smooth panning.
+ * Uses unified Pointer Events for both mouse and touch interactions:
+ *   - Mouse left-click drag on empty canvas → pan
+ *   - Single touch drag → pan
+ *   - Two-finger pinch → zoom (calls onZoomChange) + two-finger pan
+ *   - Spacebar + left-click → pan (via window capture-phase handler)
+ *   - Middle mouse → pan (via window capture-phase handler)
  *
- * Touch support:
- *   - Single finger: pan the canvas
- *   - Two fingers: pinch-to-zoom (calls onZoomChange) + two-finger pan
+ * Hardware-accelerated translate3d for 60fps smooth panning.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -19,7 +21,7 @@ export interface UseCanvasPanOptions {
   onZoomChange?: (zoom: number) => void;
   /** Current zoom percentage so pinch math can scale deltas correctly. */
   zoom?: number;
-  /** The canvas viewport element ref (for attaching touch listeners). */
+  /** The canvas viewport element ref (unused now, kept for API compat). */
   canvasRef?: React.RefObject<HTMLElement | null>;
 }
 
@@ -30,7 +32,6 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
     onPanChange,
     onZoomChange,
     zoom = 100,
-    canvasRef,
   } = options;
 
   const [panX, setPanX] = useState(0);
@@ -41,8 +42,9 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
   const stateRef = useRef({ panX: 0, panY: 0, isSpaceHeld: false, isPanning: false, zoom: 100 });
   const panStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
 
-  // Touch state
-  const touchStartRef = useRef<{
+  // Active pointers for multi-touch (pinch-to-zoom)
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStartRef = useRef<{
     panX: number;
     panY: number;
     distance: number;
@@ -100,111 +102,45 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
     };
   }, [enableSpacebar]);
 
-  // ─── Mouse: capture-phase mousedown ──────────────────────────────────────
+  // ─── Window capture-phase pointerdown (spacebar+left-click, middle mouse) ─
   useEffect(() => {
-    const handleCaptureMouseDown = (e: MouseEvent) => {
+    const handleCapturePointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return;
+
       const shouldPan =
         (stateRef.current.isSpaceHeld && e.button === 0) ||
         (enableMiddleMouse && e.button === 1);
 
-      if (shouldPan) {
-        e.preventDefault();
-        e.stopPropagation();
-        panStartRef.current = {
-          x: e.clientX,
-          y: e.clientY,
-          panX: stateRef.current.panX,
-          panY: stateRef.current.panY,
-        };
-        setIsPanning(true);
-        stateRef.current.isPanning = true;
-      }
+      if (!shouldPan) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      panStartRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        panX: stateRef.current.panX,
+        panY: stateRef.current.panY,
+      };
+      setIsPanning(true);
+      stateRef.current.isPanning = true;
     };
 
-    window.addEventListener("mousedown", handleCaptureMouseDown, true);
-    return () => window.removeEventListener("mousedown", handleCaptureMouseDown, true);
+    window.addEventListener("pointerdown", handleCapturePointerDown, true);
+    return () => window.removeEventListener("pointerdown", handleCapturePointerDown, true);
   }, [enableMiddleMouse]);
 
-  // ─── Mouse: mousemove + mouseup ──────────────────────────────────────────
+  // ─── Window pointermove + pointerup (shared by all pointer types) ─────────
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!stateRef.current.isPanning || !panStartRef.current) return;
-      const dx = e.clientX - panStartRef.current.x;
-      const dy = e.clientY - panStartRef.current.y;
-      const nx = panStartRef.current.panX + dx;
-      const ny = panStartRef.current.panY + dy;
-      setPanX(nx);
-      setPanY(ny);
-      stateRef.current.panX = nx;
-      stateRef.current.panY = ny;
-      onPanChange?.(nx, ny);
-    };
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!activePointersRef.current.has(e.pointerId)) return;
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    const handleMouseUp = () => {
-      if (!stateRef.current.isPanning) return;
-      panStartRef.current = null;
-      setIsPanning(false);
-      stateRef.current.isPanning = false;
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [onPanChange]);
-
-  // ─── Touch: single-finger pan + pinch-to-zoom ────────────────────────────
-  useEffect(() => {
-    const el = canvasRef?.current;
-    if (!el) return;
-
-    const getTouchDistance = (t1: Touch, t2: Touch): number => {
-      return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-    };
-
-    const handleTouchStart = (e: TouchEvent) => {
-      // Don't intercept touches on form elements
-      const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
-
-      if (e.touches.length === 1) {
-        // Single finger — start panning
-        const t = e.touches[0];
-        panStartRef.current = {
-          x: t.clientX,
-          y: t.clientY,
-          panX: stateRef.current.panX,
-          panY: stateRef.current.panY,
-        };
-        setIsPanning(true);
-        stateRef.current.isPanning = true;
-      } else if (e.touches.length === 2) {
-        // Two fingers — start pinch-to-zoom + two-finger pan
-        panStartRef.current = null; // cancel single-finger pan
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
-        touchStartRef.current = {
-          panX: stateRef.current.panX,
-          panY: stateRef.current.panY,
-          distance: getTouchDistance(t1, t2),
-          centerX: (t1.clientX + t2.clientX) / 2,
-          centerY: (t1.clientY + t2.clientY) / 2,
-          zoom: stateRef.current.zoom,
-        };
-        setIsPanning(true);
-        stateRef.current.isPanning = true;
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 1 && panStartRef.current) {
-        // Single-finger pan
-        e.preventDefault();
-        const t = e.touches[0];
-        const dx = t.clientX - panStartRef.current.x;
-        const dy = t.clientY - panStartRef.current.y;
+      if (activePointersRef.current.size === 1 && panStartRef.current) {
+        // Single-pointer pan
+        const dx = e.clientX - panStartRef.current.x;
+        const dy = e.clientY - panStartRef.current.y;
         const nx = panStartRef.current.panX + dx;
         const ny = panStartRef.current.panY + dy;
         setPanX(nx);
@@ -212,72 +148,111 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
         stateRef.current.panX = nx;
         stateRef.current.panY = ny;
         onPanChange?.(nx, ny);
-      } else if (e.touches.length === 2 && touchStartRef.current) {
+      } else if (activePointersRef.current.size === 2 && pinchStartRef.current) {
         // Pinch-to-zoom + two-finger pan
-        e.preventDefault();
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
-        const start = touchStartRef.current;
-
-        // Zoom from pinch distance ratio
-        const currentDistance = getTouchDistance(t1, t2);
+        const pointers = Array.from(activePointersRef.current.values());
+        const start = pinchStartRef.current;
+        const currentDistance = Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y);
         const distanceRatio = currentDistance / start.distance;
         const newZoom = Math.max(25, Math.min(200, Math.round(start.zoom * distanceRatio)));
-
-        // Pan from centroid movement
-        const currentCenterX = (t1.clientX + t2.clientX) / 2;
-        const currentCenterY = (t1.clientY + t2.clientY) / 2;
+        const currentCenterX = (pointers[0].x + pointers[1].x) / 2;
+        const currentCenterY = (pointers[0].y + pointers[1].y) / 2;
         const dx = currentCenterX - start.centerX;
         const dy = currentCenterY - start.centerY;
         const nx = start.panX + dx;
         const ny = start.panY + dy;
-
         setPanX(nx);
         setPanY(ny);
         stateRef.current.panX = nx;
         stateRef.current.panY = ny;
         onPanChange?.(nx, ny);
-
         if (onZoomChange && newZoom !== stateRef.current.zoom) {
           onZoomChange(newZoom);
         }
       }
     };
 
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length === 0) {
+    const handlePointerUp = (e: PointerEvent) => {
+      if (!activePointersRef.current.has(e.pointerId)) return;
+      activePointersRef.current.delete(e.pointerId);
+
+      if (activePointersRef.current.size === 0) {
         panStartRef.current = null;
-        touchStartRef.current = null;
+        pinchStartRef.current = null;
         setIsPanning(false);
         stateRef.current.isPanning = false;
-      } else if (e.touches.length === 1 && touchStartRef.current) {
-        // Transition from pinch back to single-finger pan
-        const t = e.touches[0];
+      } else if (activePointersRef.current.size === 1 && pinchStartRef.current) {
+        // Transition from pinch back to single-pointer pan
+        const [remaining] = Array.from(activePointersRef.current.entries());
         panStartRef.current = {
-          x: t.clientX,
-          y: t.clientY,
+          x: remaining[1].x,
+          y: remaining[1].y,
           panX: stateRef.current.panX,
           panY: stateRef.current.panY,
         };
-        touchStartRef.current = null;
+        pinchStartRef.current = null;
       }
     };
 
-    el.addEventListener("touchstart", handleTouchStart, { passive: false });
-    el.addEventListener("touchmove", handleTouchMove, { passive: false });
-    el.addEventListener("touchend", handleTouchEnd);
-    el.addEventListener("touchcancel", handleTouchEnd);
-
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
     return () => {
-      el.removeEventListener("touchstart", handleTouchStart);
-      el.removeEventListener("touchmove", handleTouchMove);
-      el.removeEventListener("touchend", handleTouchEnd);
-      el.removeEventListener("touchcancel", handleTouchEnd);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [canvasRef, onPanChange, onZoomChange]);
+  }, [onPanChange, onZoomChange]);
 
-  // Expose a no-op React handler for backwards-compat (canvas div's onMouseDown)
-  const handleMouseDown = useCallback((_e: React.MouseEvent) => {}, []);
+  // ─── React pointer handler for the canvas viewport container ─────────────
+  // Attach this to the canvas div via onPointerDown. It handles:
+  //   - Mouse left-click on empty canvas background → pan
+  //   - Single touch → pan
+  //   - Two-finger touch → pinch-to-zoom
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // Don't intercept on form elements
+    const target = e.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+
+    if (e.pointerType === "mouse") {
+      // Only pan on left-click (button 0)
+      if (e.button !== 0) return;
+      // Skip if spacebar is held — the window capture handler manages that case
+      if (stateRef.current.isSpaceHeld) return;
+      // Only pan when clicking on the canvas background, not on a node or
+      // other interactive child element. The canvas div itself and the
+      // inner content wrapper (marked with data-canvas-content) qualify.
+      if (target !== e.currentTarget && !target.hasAttribute("data-canvas-content")) return;
+    }
+
+    e.preventDefault();
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointersRef.current.size === 1) {
+      // Single pointer — start panning
+      panStartRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        panX: stateRef.current.panX,
+        panY: stateRef.current.panY,
+      };
+      setIsPanning(true);
+      stateRef.current.isPanning = true;
+    } else if (activePointersRef.current.size === 2) {
+      // Two pointers — start pinch-to-zoom + two-finger pan
+      panStartRef.current = null;
+      const pointers = Array.from(activePointersRef.current.values());
+      const dist = Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y);
+      pinchStartRef.current = {
+        panX: stateRef.current.panX,
+        panY: stateRef.current.panY,
+        distance: dist,
+        centerX: (pointers[0].x + pointers[1].x) / 2,
+        centerY: (pointers[0].y + pointers[1].y) / 2,
+        zoom: stateRef.current.zoom,
+      };
+    }
+  }, []);
 
   // Force body cursor when panning so it shows over all child elements
   useEffect(() => {
@@ -297,7 +272,7 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
     isPanning,
     isSpaceHeld,
     cursor,
-    handleMouseDown,
+    handlePointerDown,
     resetPan,
     setPan,
     transform: `translate3d(${panX}px, ${panY}px, 0)`,

@@ -70,7 +70,7 @@ interface ErdCanvasProps {
   zoom: number;
   panX?: number;
   panY?: number;
-  onCanvasMouseDown?: (e: React.MouseEvent) => void;
+  onCanvasMouseDown?: (e: React.PointerEvent) => void;
   cursor?: string;
   /** Called when user renames a column in-place (for SQL sync) */
   onRenameColumn?: (nodeId: string, oldName: string, newName: string) => void;
@@ -331,8 +331,8 @@ export function ErdCanvas({
       <div
         className="grid-canvas absolute inset-0 overflow-hidden"
         onClick={() => { onSelect(null); setSelectedEdgeId(null); setConstraintTooltip(null); }}
-        onMouseDown={onCanvasMouseDown}
-        style={{ cursor }}
+        onPointerDown={onCanvasMouseDown}
+        style={{ cursor, touchAction: "none" }}
       >
         <div
           className="relative h-full w-full origin-top-left"
