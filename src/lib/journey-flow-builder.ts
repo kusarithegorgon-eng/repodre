@@ -27,6 +27,7 @@
  */
 
 import type { ParsedModule } from "./ast-parser";
+import type { ParsedModule as UniversalParsedModule } from "./parsers/types";
 import type { Shape } from "./canvas-geometry";
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -531,7 +532,10 @@ const SECTION_LABELS: Record<ModuleSection, string> = {
 /**
  * Build a continuous user-journey flowchart from parsed modules.
  */
-export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
+export function buildJourneyGraph(
+  modules: ParsedModule[],
+  universalModules: UniversalParsedModule[] = []
+): JourneyGraph {
   resetCounters();
 
   const nodes: JourneyNode[] = [];
@@ -1142,10 +1146,111 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
     }
   }
 
+  // ── Universal parser symbol injection ─────────────────────────────────
+  // Convert discovered functions, components, routes, and models from the
+  // multi-language parser's symbol tables into journey nodes. These are the
+  // concrete code constructs (e.g. `function authenticate()`, `class User`,
+  // `GET /api/users`) that should appear on the canvas alongside the
+  // signal-derived skeleton nodes.
+  if (universalModules.length > 0) {
+    const existingLabels = new Set(nodes.map((n) => n.label.toLowerCase()));
+    let symbolCol = 6;
+
+    for (const umod of universalModules) {
+      const syms = umod.symbols;
+
+      // Components → action nodes
+      for (const comp of syms.components) {
+        const label = comp.name;
+        if (existingLabels.has(label.toLowerCase())) continue;
+        existingLabels.add(label.toLowerCase());
+        const node = addNode("action", label, symbolCol, placeInCol(symbolCol), umod.path, {
+          sub: `Component${comp.exported ? "" : " (local)"}`,
+        });
+        if (actionNodes.length > 0) {
+          addEdge(actionNodes[0].id, node.id, "renders");
+        } else if (decisionAndPages.length > 0) {
+          addEdge(decisionAndPages[0].id, node.id, "renders");
+        }
+        actionNodes.push(node);
+      }
+
+      // Functions → action nodes
+      for (const fn of syms.functions) {
+        const label = fn.name;
+        if (existingLabels.has(label.toLowerCase())) continue;
+        existingLabels.add(label.toLowerCase());
+
+        // Routes become page/decision nodes
+        if (fn.kind === "route") {
+          const node = addNode("page", label, 2, placeInCol(2), umod.path, {
+            sub: `Route${fn.async ? " (async)" : ""}`,
+          });
+          if (landingNode) {
+            addEdge(landingNode.id, node.id, "route");
+          }
+          decisionAndPages.push(node);
+          continue;
+        }
+
+        const node = addNode("action", label, symbolCol, placeInCol(symbolCol), umod.path, {
+          sub: `Function${fn.async ? " (async)" : ""}`,
+        });
+        if (actionNodes.length > 0) {
+          addEdge(actionNodes[actionNodes.length - 1].id, node.id, "calls");
+        } else if (decisionAndPages.length > 0) {
+          addEdge(decisionAndPages[0].id, node.id, "calls");
+        }
+        actionNodes.push(node);
+      }
+
+      // Classes → categorize by kind
+      for (const cls of syms.classes) {
+        const label = cls.name;
+        if (existingLabels.has(label.toLowerCase())) continue;
+        existingLabels.add(label.toLowerCase());
+
+        if (cls.kind === "model" || cls.kind === "repository") {
+          // Database models → DB nodes
+          const node = addNode("database", label, 7, placeInCol(7), umod.path, {
+            sub: cls.kind === "model" ? "Data Model" : "Repository",
+          });
+          if (actionNodes.length > 0) {
+            addEdge(actionNodes[actionNodes.length - 1].id, node.id, "query");
+          }
+          dbNodes.push(node);
+        } else if (cls.kind === "controller" || cls.kind === "service") {
+          // Controllers/services → action nodes
+          const node = addNode("action", label, symbolCol, placeInCol(symbolCol), umod.path, {
+            sub: cls.kind === "controller" ? "Controller" : "Service",
+          });
+          if (actionNodes.length > 0) {
+            addEdge(actionNodes[actionNodes.length - 1].id, node.id, "delegates");
+          } else if (decisionAndPages.length > 0) {
+            addEdge(decisionAndPages[0].id, node.id, "calls");
+          }
+          actionNodes.push(node);
+        }
+      }
+
+      // Routes from symbol table → page nodes
+      for (const route of syms.routes) {
+        const label = route.name;
+        if (existingLabels.has(label.toLowerCase())) continue;
+        existingLabels.add(label.toLowerCase());
+        const node = addNode("page", label, 2, placeInCol(2), umod.path, {
+          sub: "API Route",
+        });
+        if (landingNode) {
+          addEdge(landingNode.id, node.id, "route");
+        }
+        decisionAndPages.push(node);
+      }
+    }
+  }
+
   return { nodes, edges };
 }
-
-// ─── Tree Layout ──────────────────────────────────────────────────────────
 
 export interface TreeLayoutOptions {
   /** Horizontal spacing between sibling nodes at the same depth */

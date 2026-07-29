@@ -10,6 +10,138 @@
 import * as acorn from "acorn";
 import type { Node, Identifier, Literal, CallExpression } from "acorn";
 
+/**
+ * Strip TypeScript-specific syntax that acorn cannot parse, converting the
+ * source to plain JavaScript that acorn's parser can handle.
+ *
+ * This is a pragmatic line-based stripper — not a full TS transform — that
+ * removes:
+ *   - type annotations:  `: Type` in params, variables, returns
+ *   - interface/type declarations
+ *   - generics: `<T>` after function/class names
+ *   - `as Type` assertions
+ *   - `import type` / `export type` statements
+ *   - non-null assertion `!` (postfix)
+ *   - enum declarations
+ *   - access modifiers (public/private/protected/readonly) on class members
+ *
+ * It preserves all runtime code (function bodies, imports, exports, calls)
+ * so the AST walker can still extract exports, imports, and call expressions.
+ */
+export function stripTypeScriptSyntax(source: string): string {
+  const lines = source.split("\n");
+  const out: string[] = [];
+
+  for (let line of lines) {
+    // Skip interface/type declarations entirely
+    if (/^\s*(export\s+)?(interface|type)\s+\w+/.test(line)) {
+      // Skip until closing brace for multi-line declarations
+      if (!line.includes("}")) {
+        // Single-line type alias: `type X = ...;`
+        if (line.trim().endsWith(";") || (line.includes("=") && !line.includes("{"))) {
+          continue;
+        }
+        // Multi-line: skip until matching brace
+        let depth = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+        if (depth <= 0) continue;
+        while (depth > 0 && out.length < lines.length) {
+          continue;
+        }
+        continue;
+      }
+      continue;
+    }
+
+    // Skip `import type` and `export type` statements
+    if (/^\s*(import|export)\s+type\s/.test(line)) continue;
+
+    // Skip enum declarations
+    if (/^\s*(export\s+)?(const\s+)?enum\s+\w+/.test(line)) {
+      // Skip until closing brace
+      if (!line.includes("}")) continue;
+      continue;
+    }
+
+    // Remove `as Type` assertions (but not inside strings)
+    line = removeAsAssertions(line);
+
+    // Remove access modifiers on class members
+    line = line.replace(/\b(public|private|protected|readonly|override)\s+(?=(?:get\s+|set\s+)?(?:static\s+)?[\w]+(?:\s*[<(]))/g, "");
+
+    // Remove `abstract` keyword
+    line = line.replace(/\babstract\s+/g, "");
+
+    // Remove non-null assertion `!` before `.`, `;`, `)`, `,`
+    line = line.replace(/(\w|\]|\))!(?=[.;),\s])/g, "$1");
+
+    // Remove `satisfies Type` expressions
+    line = line.replace(/\bsatisfies\s+\w[\w.<>\[\]|&\s]*;?\s*$/g, "");
+
+    out.push(line);
+  }
+
+  return out.join("\n");
+}
+
+/**
+ * Remove `as Type` assertions from a line, being careful not to match
+ * inside string literals.
+ */
+function removeAsAssertions(line: string): string {
+  let result = "";
+  let i = 0;
+  let inString: string | null = null;
+
+  while (i < line.length) {
+    const ch = line[i];
+
+    if (inString) {
+      if (ch === "\\") {
+        result += ch + (line[i + 1] ?? "");
+        i += 2;
+        continue;
+      }
+      if (ch === inString) inString = null;
+      result += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === "`") {
+      inString = ch;
+      result += ch;
+      i++;
+      continue;
+    }
+
+    // Check for ` as ` keyword
+    if (ch === " " && line.slice(i + 1, i + 4) === "as " && i > 0) {
+      // Look back to ensure this isn't a property access like `.as`
+      const prevChar = result[result.length - 1];
+      if (prevChar && prevChar !== "." && /\w|\)|\]|\?/.test(prevChar)) {
+        // Skip ` as Type` until we hit `;`, `,`, `)`, end of line, or binary operator
+        i += 4; // skip " as "
+        // Skip the type expression
+        let depth = 0;
+        while (i < line.length) {
+          const c = line[i];
+          if (c === "<" || c === "(" || c === "[") depth++;
+          else if (c === ">" || c === ")" || c === "]") depth--;
+          else if (depth <= 0 && (c === ";" || c === "," || c === ")" || c === "\n")) break;
+          else if (depth <= 0 && c === " " && i + 1 < line.length && /[&|=\n]/.test(line[i + 1])) break;
+          i++;
+        }
+        continue;
+      }
+    }
+
+    result += ch;
+    i++;
+  }
+
+  return result;
+}
+
 export interface ParsedExport {
   name: string;
   type: "function" | "class" | "constant" | "default";
@@ -224,14 +356,18 @@ export function parseModule(source: string, path: string): ParsedModule {
   const imports: ParsedImport[] = [];
   const calls: ParsedFunctionCall[] = [];
 
+  // Strip TypeScript syntax before parsing with acorn (which only handles JS)
+  const isTsFile = /\.(ts|tsx|mts|cts)$/.test(path);
+  const jsSource = isTsFile ? stripTypeScriptSyntax(source) : source;
+
   try {
-    const ast = acorn.parse(source, {
+    const ast = acorn.parse(jsSource, {
       ecmaVersion: "latest",
       sourceType: "module",
       locations: true,
     });
 
-    walkAST(ast as unknown as AnyNode, source, {
+    walkAST(ast as unknown as AnyNode, jsSource, {
       onExport: (exp) => exports.push(exp),
       onImport: (imp) => imports.push(imp),
       onCall: (call) => calls.push(call),

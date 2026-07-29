@@ -16,6 +16,8 @@ import { parseGitHubUrl, checkRepositoryAccess, fetchRepositoryTree, fetchMultip
 import { parseModule } from "./ast-parser";
 import { parserFactory } from "./parsers/parser-factory";
 import { normalizeModules, type UnifiedSchema } from "./parsers/unified-schema";
+import type { ParsedModule as UniversalParsedModule } from "./parsers/types";
+import type { ParsedModule as ParsedModuleAst } from "./ast-parser";
 import { checkRateLimit } from "./rate-limit-client";
 import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-analyzer";
 import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
@@ -236,16 +238,17 @@ export async function analyzeRepository(
 
   // Parse each file — route through the multi-language parser factory
   // for non-JS/TS files (Python, PHP, Java, Go), fall back to acorn for JS/TS.
-  const modules = [];
-  const unifiedModules = [];
+  const modules: ParsedModuleAst[] = [];
+  const unifiedModules: UniversalParsedModule[] = [];
   const parseErrors = new Map<string, string>();
   let processed = 0;
 
   for (const [path, content] of files) {
     try {
       // Try the multi-language parser factory first
-      if (parserFactory.canParse(path)) {
-        const parsed = parserFactory.parse(content, path);
+      const parser = parserFactory.getParserForPath(path);
+      if (parser) {
+        const parsed = parser.parse(content, path);
         unifiedModules.push(parsed);
       }
       // Always also run the acorn-based parser for JS/TS compatibility
@@ -307,7 +310,7 @@ export async function analyzeRepository(
     // Constructs a continuous user-journey flowchart:
     //   Start → Landing → Auth → Validation → Decisions → Actions → DB → Logout → loop
     // Every node is connected — no dead-ends, no orphans.
-    const journeyGraph = buildJourneyGraph(modules);
+    const journeyGraph = buildJourneyGraph(modules, unifiedModules);
 
     // ── Architecture Decision Engine (enrichment / fallback) ──────────────
     const archGraph = buildArchGraph(modules);
