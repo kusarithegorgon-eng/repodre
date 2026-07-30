@@ -205,9 +205,10 @@ export async function fetchFileContent(
   owner: string,
   repo: string,
   path: string,
-  branch = "main"
+  branch = "main",
+  cachedToken?: string
 ): Promise<string | null> {
-  const token = await getGitHubAccessToken();
+  const token = cachedToken ?? await getGitHubAccessToken();
   if (!token) return null;
 
   try {
@@ -231,32 +232,38 @@ export async function fetchFileContent(
 }
 
 /**
- * Fetch multiple files concurrently.
+ * Fetch multiple files concurrently with a shared token and optional progress callback.
  */
 export async function fetchMultipleFiles(
   owner: string,
   repo: string,
   paths: string[],
   branch = "main",
-  maxConcurrent = 10
+  maxConcurrent = 15,
+  onFileProgress?: (fetched: number, total: number) => void
 ): Promise<Map<string, string>> {
-  const results = new Map<string, string>();
+  const token = await getGitHubAccessToken();
+  if (!token) return new Map();
 
-  // Process in batches to avoid rate limiting
-  const batches = [];
+  const results = new Map<string, string>();
+  let fetched = 0;
+
+  const batches: string[][] = [];
   for (let i = 0; i < paths.length; i += maxConcurrent) {
     batches.push(paths.slice(i, i + maxConcurrent));
   }
 
   for (const batch of batches) {
-    const promises = batch.map(async (path) => {
-      const content = await fetchFileContent(owner, repo, path, branch);
-      if (content !== null) {
-        results.set(path, content);
-      }
-    });
-
-    await Promise.all(promises);
+    await Promise.all(
+      batch.map(async (path) => {
+        const content = await fetchFileContent(owner, repo, path, branch, token);
+        if (content !== null) {
+          results.set(path, content);
+        }
+        fetched++;
+        onFileProgress?.(fetched, paths.length);
+      })
+    );
   }
 
   return results;

@@ -224,8 +224,23 @@ export async function analyzeRepository(
     totalFiles: filesToFetch.length,
   });
 
-  // Fetch file contents
-  const files = await fetchMultipleFiles(owner, repo, filesToFetch, branch, 5);
+  // Fetch file contents (shared token + per-file progress)
+  const files = await fetchMultipleFiles(
+    owner,
+    repo,
+    filesToFetch,
+    branch,
+    15,
+    (fetched, total) => {
+      onProgress?.({
+        phase: "fetching",
+        message: `Fetching ${fetched}/${total} files...`,
+        percent: 30 + (fetched / total) * 20,
+        filesProcessed: fetched,
+        totalFiles: total,
+      });
+    }
+  );
 
   // Phase: Parsing
   onProgress?.({
