@@ -1599,22 +1599,18 @@ export async function POST(req: Request) {
   );
 
   // Smart Links: classify edges by architectural layer (UI -> Controller -> DB)
-  const smartLinksResult = useMemo(
-    () =>
-      useSmartLinks(
-        nodes.map((n) => ({
-          id: n.id,
-          label: n.label,
-          sub: n.sub,
-          shape: n.shape,
-          accent: n.accent,
-          x: n.x,
-          y: n.y,
-          workspace: n.workspace,
-        })),
-        edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))
-      ),
-    [nodes, edges]
+  const smartLinksResult = useSmartLinks(
+    nodes.map((n) => ({
+      id: n.id,
+      label: n.label,
+      sub: n.sub,
+      shape: n.shape,
+      accent: n.accent,
+      x: n.x,
+      y: n.y,
+      workspace: n.workspace,
+    })),
+    edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))
   );
 
   // ── Bundle offsets: stagger entry points for fan-in edges ──────────────
