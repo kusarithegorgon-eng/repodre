@@ -137,9 +137,11 @@ export async function analyzeRepository(
     branch?: string;
     includePatterns?: RegExp[];
     excludePatterns?: RegExp[];
+    /** Abort the entire analysis (e.g. when the browser tab is hidden). */
+    signal?: AbortSignal;
   } = {}
 ): Promise<AnalysisResult> {
-  const { maxFiles = 100, branch: explicitBranch } = options;
+  const { maxFiles = 100, branch: explicitBranch, signal } = options;
 
   // ── Rate-limit check: enforce tiered import quotas ───────────────────
   const rateLimit = await checkRateLimit("repo_import");
@@ -241,6 +243,11 @@ export async function analyzeRepository(
   const files = new Map<string, string>();
 
   const abortController = new AbortController();
+  // If the caller aborts (e.g. tab hidden), propagate to the fetch queue.
+  if (signal) {
+    if (signal.aborted) abortController.abort();
+    else signal.addEventListener("abort", () => abortController.abort(), { once: true });
+  }
 
   const fetchPromise = fetchMultipleFiles(
     owner,
@@ -281,6 +288,9 @@ export async function analyzeRepository(
   }
 
   if (files.size === 0) {
+    if (signal?.aborted) {
+      throw new DOMException("Analysis aborted", "AbortError");
+    }
     return {
       success: false,
       error: "Failed to fetch any files from the repository. The repository may be empty or rate-limited.",

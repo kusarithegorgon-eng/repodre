@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { RouterProvider, createRouter, createRoute, createRootRoute } from "@tanstack/react-router";
 import "./index.css";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RootPage } from "./pages/RootPage";
 import { LandingPage } from "./pages/LandingPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -63,6 +64,8 @@ declare module "@tanstack/react-router" {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <ErrorBoundary>
+      <RouterProvider router={router} />
+    </ErrorBoundary>
   </React.StrictMode>
 );
