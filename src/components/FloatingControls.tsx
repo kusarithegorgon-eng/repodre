@@ -82,7 +82,9 @@ export function FloatingControls({
                     : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
                 }`}
               >
-                <ShapeIcon shape={shape} className="h-4 w-4" />
+                <span className="flex h-4 w-4 items-center justify-center">
+                  <ShapeIcon shape={shape} />
+                </span>
               </button>
             ))}
           </div>

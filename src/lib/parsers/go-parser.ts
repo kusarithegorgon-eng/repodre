@@ -144,7 +144,7 @@ export class GoParser implements Parser {
       if (typeMatch) {
         const name = typeMatch[1];
         const typeKind = typeMatch[2];
-        const kind = typeKind === "struct" ? "class_definition" : "class_declaration";
+        const kind = (typeKind === "struct" ? "class_definition" : "class_declaration") as UniversalNode["kind"];
         const node = this.createTypeNode(name, typeKind, i, indent);
         node.meta = { ...node.meta, typeKind, package: packageName };
         children.push(node);

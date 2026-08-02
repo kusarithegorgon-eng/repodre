@@ -197,9 +197,9 @@ export function EntityCard({ table, selected, highlightedColumn, onSelect, onDel
               {/* PK / FK icon */}
               <div className="flex w-4 shrink-0 items-center justify-center">
                 {col.pk ? (
-                  <Key className="h-3 w-3 text-yellow-400" title="Primary Key" />
+                  <Key className="h-3 w-3 text-yellow-400" aria-label="Primary Key" />
                 ) : col.fk ? (
-                  <Link2 className="h-3 w-3 text-neon-purple" title={fkRef ? `FK → ${fkRef}` : "Foreign Key"} />
+                  <Link2 className="h-3 w-3 text-neon-purple" aria-label={fkRef ? `FK → ${fkRef}` : "Foreign Key"} />
                 ) : (
                   <span className="h-3 w-3" />
                 )}

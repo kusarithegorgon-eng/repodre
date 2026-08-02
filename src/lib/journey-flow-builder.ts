@@ -548,7 +548,7 @@ export function buildJourneyGraph(
     col: number,
     row: number,
     sourcePath?: string,
-    overrides?: Partial<Pick<JourneyNode, "accent" | "sub" | "crudType" | "referencedModels" | "decisionTargets">>
+    overrides?: Partial<Pick<JourneyNode, "accent" | "sub" | "crudType" | "referencedModels" | "decisionTargets" | "sectionLabel">>
   ): JourneyNode => {
     const style = BASE_STYLE[type];
     const node: JourneyNode = {

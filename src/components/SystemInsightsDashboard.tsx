@@ -99,7 +99,7 @@ export function SystemInsightsDashboard({
             label: controller.label,
             path: [sourceNode.label, controller.label],
           });
-        } else if (sourceNode?.type !== "validation") {
+        } else if (sourceNode && sourceNode?.type !== "validation") {
           // Check if there's a path from a view that skips validation
           const visited = new Set<string>();
           const tracePath = (nodeId: string, path: string[]): boolean => {

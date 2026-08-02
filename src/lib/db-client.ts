@@ -248,15 +248,15 @@ function rowToAnnotation(row: AnnotationRow): Annotation {
     authorId: row.author_id,
     authorName: row.author_name,
     body: {
-      type: row.body.type,
+      type: "TextualBody",
       value: row.body.value,
-      format: row.body.format,
+      format: "text/plain",
     },
     target: {
-      type: row.target.type,
+      type: "CanvasNode",
       id: row.target.id,
       selector: {
-        type: row.target.selector.type,
+        type: "NodeIdSelector",
         value: row.target.selector.value,
       },
     },

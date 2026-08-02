@@ -13,7 +13,7 @@ export class PythonParser implements Parser {
   readonly language: SourceLanguage = "python";
 
   parse(source: string, path: string): ParsedModule {
-    const errors: this["parse"][""]["errors"] = [];
+    const errors: ParseError[] = [];
 
     const ast = this.parsePython(source);
     const symbols = this.extractSymbols(ast, source);
