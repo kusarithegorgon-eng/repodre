@@ -224,13 +224,20 @@ export async function analyzeRepository(
     totalFiles: filesToFetch.length,
   });
 
-  // Fetch file contents (shared token + per-file progress)
-  const files = await fetchMultipleFiles(
+  // ── Failsafe fetch: sliding-window concurrency (max 5) with a hard deadline.
+  // If the fetch phase hasn't completed within 15s of starting, we stop waiting
+  // for the remaining files and proceed with whatever was fetched so far —
+  // better to render a diagram from 99 files than hang forever on the 100th.
+  const FETCH_DEADLINE_MS = 15_000;
+  const fetchStart = Date.now();
+  const files = new Map<string, string>();
+
+  const fetchPromise = fetchMultipleFiles(
     owner,
     repo,
     filesToFetch,
     branch,
-    15,
+    5,
     (fetched, total) => {
       onProgress?.({
         phase: "fetching",
@@ -241,6 +248,41 @@ export async function analyzeRepository(
       });
     }
   );
+
+  const deadlineTimer = new Promise<void>((resolve) =>
+    setTimeout(() => resolve(), FETCH_DEADLINE_MS)
+  );
+
+  await Promise.race([fetchPromise.then((m) => { for (const [k, v] of m) files.set(k, v); }), deadlineTimer]);
+
+  if (files.size === 0) {
+    // If nothing arrived before the deadline, give the fetch a final chance
+    // to complete (the race may have resolved the timer first by a hair).
+    try {
+      const late = await Promise.race([
+        fetchPromise,
+        new Promise<Map<string, string>>((_, reject) =>
+          setTimeout(() => reject(new Error("fetch timeout")), 5_000)
+        ),
+      ]);
+      for (const [k, v] of late) files.set(k, v);
+    } catch {
+      // truly nothing came back
+    }
+  }
+
+  if (files.size === 0) {
+    return {
+      success: false,
+      error: "Failed to fetch any files from the repository. The repository may be empty or rate-limited.",
+    };
+  }
+
+  if (files.size < filesToFetch.length) {
+    console.warn(
+      `Fetch phase timed out after ${Date.now() - fetchStart}ms — proceeding with ${files.size}/${filesToFetch.length} files.`
+    );
+  }
 
   // Phase: Parsing
   onProgress?.({

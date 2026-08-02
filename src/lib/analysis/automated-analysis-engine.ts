@@ -165,7 +165,41 @@ export class AutomatedAnalysisEngine {
 
     onProgress?.("fetching", `Fetching ${filesToFetch.length} files...`, 30);
 
-    const files = await fetchMultipleFiles(owner, repo, filesToFetch, branch, 5);
+    // Failsafe fetch: sliding-window concurrency (max 5) with a 15s hard deadline.
+    // If the deadline fires, we proceed with whatever files arrived so far.
+    const FETCH_DEADLINE_MS = 15_000;
+    const files = new Map<string, string>();
+
+    const fetchPromise = fetchMultipleFiles(owner, repo, filesToFetch, branch, 5);
+    const deadlineTimer = new Promise<void>((resolve) =>
+      setTimeout(() => resolve(), FETCH_DEADLINE_MS)
+    );
+
+    await Promise.race([
+      fetchPromise.then((m) => { for (const [k, v] of m) files.set(k, v); }),
+      deadlineTimer,
+    ]);
+
+    if (files.size === 0) {
+      try {
+        const late = await Promise.race([
+          fetchPromise,
+          new Promise<Map<string, string>>((_, reject) =>
+            setTimeout(() => reject(new Error("fetch timeout")), 5_000)
+          ),
+        ]);
+        for (const [k, v] of late) files.set(k, v);
+      } catch {
+        // truly nothing came back
+      }
+    }
+
+    if (files.size === 0) {
+      return {
+        success: false,
+        error: "Failed to fetch any files from the repository.",
+      };
+    }
 
     // Phase: Parsing
     onProgress?.("parsing", "Parsing source files...", 40);

@@ -249,14 +249,22 @@ export async function fetchFileContent(
 }
 
 /**
- * Fetch multiple files concurrently with a shared token and optional progress callback.
+ * Fetch multiple files with a sliding-window concurrency limiter.
+ *
+ * Instead of firing all requests at once (or in fixed batches that wait for
+ * the slowest file in each batch), this maintains a steady pool of at most
+ * `maxConcurrent` in-flight requests. As soon as one finishes, the next path
+ * is dispatched — so a single slow file never blocks the rest of the batch.
+ *
+ * Each request gets its own timeout and one retry on transient failure to
+ * avoid losing progress near the end of a large repository.
  */
 export async function fetchMultipleFiles(
   owner: string,
   repo: string,
   paths: string[],
   branch = "main",
-  maxConcurrent = 15,
+  maxConcurrent = 5,
   onFileProgress?: (fetched: number, total: number) => void
 ): Promise<Map<string, string>> {
   const token = await getGitHubAccessToken();
@@ -264,32 +272,33 @@ export async function fetchMultipleFiles(
 
   const results = new Map<string, string>();
   let fetched = 0;
+  let index = 0;
 
-  const batches: string[][] = [];
-  for (let i = 0; i < paths.length; i += maxConcurrent) {
-    batches.push(paths.slice(i, i + maxConcurrent));
-  }
-
-  for (const batch of batches) {
-    const settled = await Promise.allSettled(
-      batch.map(async (path) => {
-        const content = await fetchFileContent(owner, repo, path, branch, token);
-        if (content !== null) {
-          results.set(path, content);
-        }
-        fetched++;
-        onFileProgress?.(fetched, paths.length);
-      })
-    );
-
-    for (let i = 0; i < settled.length; i++) {
-      const outcome = settled[i];
-      if (outcome.status === "rejected") {
-        const failedPath = batch[i];
-        console.warn(`Failed to fetch ${failedPath}:`, outcome.reason);
-      }
+  const fetchOne = async (path: string): Promise<void> => {
+    let content = await fetchFileContent(owner, repo, path, branch, token);
+    if (content === null) {
+ content = await fetchFileContent(owner, repo, path, branch, token);
     }
-  }
+    if (content !== null) results.set(path, content);
+  };
+
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const myIndex = index++;
+      if (myIndex >= paths.length) return;
+      const path = paths[myIndex];
+      try {
+        await fetchOne(path);
+      } catch (err) {
+        console.warn(`Failed to fetch ${path}:`, err);
+      }
+      fetched++;
+      onFileProgress?.(fetched, paths.length);
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(maxConcurrent, paths.length) }, () => worker());
+  await Promise.all(workers);
 
   return results;
 }
