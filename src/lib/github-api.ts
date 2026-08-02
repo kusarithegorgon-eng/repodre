@@ -7,6 +7,20 @@
 
 import { getGitHubAccessToken } from "./github-auth";
 
+const DEFAULT_TIMEOUT_MS = 5000;
+
+function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
+    clearTimeout(timer)
+  );
+}
+
 export interface GitHubRepo {
   id: number;
   name: string;
@@ -102,13 +116,16 @@ export async function checkRepositoryAccess(
   }
 
   try {
-    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
+    const response = await fetchWithTimeout(
+      `https://api.github.com/repos/${owner}/${repo}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }
+    );
 
     if (response.ok) {
       const repoData: GitHubRepo = await response.json();
@@ -179,7 +196,7 @@ export async function fetchRepositoryTree(
   if (!token) return null;
 
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
       {
         headers: {
@@ -212,7 +229,7 @@ export async function fetchFileContent(
   if (!token) return null;
 
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`,
       {
         headers: {
@@ -254,7 +271,7 @@ export async function fetchMultipleFiles(
   }
 
   for (const batch of batches) {
-    await Promise.all(
+    const settled = await Promise.allSettled(
       batch.map(async (path) => {
         const content = await fetchFileContent(owner, repo, path, branch, token);
         if (content !== null) {
@@ -264,6 +281,14 @@ export async function fetchMultipleFiles(
         onFileProgress?.(fetched, paths.length);
       })
     );
+
+    for (let i = 0; i < settled.length; i++) {
+      const outcome = settled[i];
+      if (outcome.status === "rejected") {
+        const failedPath = batch[i];
+        console.warn(`Failed to fetch ${failedPath}:`, outcome.reason);
+      }
+    }
   }
 
   return results;
@@ -299,13 +324,16 @@ export async function getDefaultBranch(owner: string, repo: string): Promise<str
   if (!token) return "main";
 
   try {
-    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
+    const response = await fetchWithTimeout(
+      `https://api.github.com/repos/${owner}/${repo}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }
+    );
 
     if (!response.ok) return "main";
 
