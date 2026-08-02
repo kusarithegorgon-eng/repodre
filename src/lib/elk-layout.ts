@@ -1,4 +1,4 @@
-import ELK from "elkjs/lib/elk-api.js";
+import ELK from "elkjs/lib/elk.bundled.js";
 
 const elk = new ELK();
 
