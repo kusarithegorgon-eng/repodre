@@ -53,7 +53,20 @@ const NODE_HEIGHT = 80;
 // Bridge nodes are smaller circles
 const BRIDGE_NODE_SIZE = 72;
 
-const elk = new ELK();
+// ELK is constructed with a browser-native workerFactory so Vite never
+// tries to resolve the elkjs CJS `require('web-worker')` specifier.
+// If Workers are unavailable (e.g. sandboxed iframe) we fall back to
+// running ELK synchronously on the main thread.
+let elk: ELK;
+try {
+  elk = new ELK({
+    workerFactory: (url: string) =>
+      new Worker(new URL(url, import.meta.url), { type: "module" }),
+  });
+} catch {
+  // Fallback: no worker — ELK runs synchronously on main thread.
+  elk = new ELK();
+}
 
 /**
  * Layout a JourneyGraph using ELK's layered algorithm.
