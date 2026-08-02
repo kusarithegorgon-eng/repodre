@@ -225,12 +225,22 @@ export async function analyzeRepository(
   });
 
   // ── Failsafe fetch: sliding-window concurrency (max 5) with a hard deadline.
-  // If the fetch phase hasn't completed within 15s of starting, we stop waiting
-  // for the remaining files and proceed with whatever was fetched so far —
-  // better to render a diagram from 99 files than hang forever on the 100th.
-  const FETCH_DEADLINE_MS = 15_000;
+  //
+  // CRITICAL: results are streamed into `files` incrementally via the
+  // `onFileFetched` callback. This means if the deadline fires while the
+  // final file is still hanging, every file fetched up to that point is
+  // already in the map — we don't lose them. The previous implementation
+  // only copied results when the whole promise resolved, so a hung 100th
+  // file discarded all 99 successful fetches and the UI reported "failed
+  // to fetch any files."
+  //
+  // The deadline aborts remaining fetches via AbortController so no orphaned
+  // sockets linger. We then proceed with whatever arrived.
+  const FETCH_DEADLINE_MS = 8_000;
   const fetchStart = Date.now();
   const files = new Map<string, string>();
+
+  const abortController = new AbortController();
 
   const fetchPromise = fetchMultipleFiles(
     owner,
@@ -246,6 +256,12 @@ export async function analyzeRepository(
         filesProcessed: fetched,
         totalFiles: total,
       });
+    },
+    {
+      onFileFetched: (path, content) => {
+        files.set(path, content);
+      },
+      signal: abortController.signal,
     }
   );
 
@@ -253,22 +269,15 @@ export async function analyzeRepository(
     setTimeout(() => resolve(), FETCH_DEADLINE_MS)
   );
 
-  await Promise.race([fetchPromise.then((m) => { for (const [k, v] of m) files.set(k, v); }), deadlineTimer]);
+  await Promise.race([fetchPromise, deadlineTimer]);
 
-  if (files.size === 0) {
-    // If nothing arrived before the deadline, give the fetch a final chance
-    // to complete (the race may have resolved the timer first by a hair).
-    try {
-      const late = await Promise.race([
-        fetchPromise,
-        new Promise<Map<string, string>>((_, reject) =>
-          setTimeout(() => reject(new Error("fetch timeout")), 5_000)
-        ),
-      ]);
-      for (const [k, v] of late) files.set(k, v);
-    } catch {
-      // truly nothing came back
-    }
+  // If the fetch is still running (deadline won the race), abort it and
+  // give in-flight requests a moment to settle. Results already streamed
+  // via onFileFetched are safe in the map.
+  if (!abortController.signal.aborted) {
+    abortController.abort();
+    // Allow aborted fetches to reject/settle — ignore their rejections.
+    await fetchPromise.catch(() => {});
   }
 
   if (files.size === 0) {

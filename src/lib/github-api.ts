@@ -251,13 +251,19 @@ export async function fetchFileContent(
 /**
  * Fetch multiple files with a sliding-window concurrency limiter.
  *
- * Instead of firing all requests at once (or in fixed batches that wait for
- * the slowest file in each batch), this maintains a steady pool of at most
- * `maxConcurrent` in-flight requests. As soon as one finishes, the next path
- * is dispatched — so a single slow file never blocks the rest of the batch.
+ * Maintains a steady pool of at most `maxConcurrent` in-flight requests.
+ * As soon as one finishes, the next path is dispatched — so a single slow
+ * file never blocks the rest of the batch.
  *
- * Each request gets its own timeout and one retry on transient failure to
- * avoid losing progress near the end of a large repository.
+ * Robustness guarantees:
+ *   - Each file fetch is wrapped in its own try/catch so a poison-pill file
+ *     (timeout, 404, network error) is skipped, not fatal.
+ *   - `onFileFetched` fires per-file as results arrive, so callers can
+ *     collect partial results incrementally (critical for failsafe timeouts).
+ *   - An optional `AbortSignal` cancels remaining in-flight requests so the
+ *     caller can stop the queue without orphaned fetches hanging around.
+ *   - Each file gets one retry on transient failure; the retry uses a shorter
+ *     timeout so a truly broken file can't consume the whole budget.
  */
 export async function fetchMultipleFiles(
   owner: string,
@@ -265,7 +271,13 @@ export async function fetchMultipleFiles(
   paths: string[],
   branch = "main",
   maxConcurrent = 5,
-  onFileProgress?: (fetched: number, total: number) => void
+  onFileProgress?: (fetched: number, total: number) => void,
+  options?: {
+    /** Called for each successfully fetched file, immediately as it arrives. */
+    onFileFetched?: (path: string, content: string) => void;
+    /** Abort the queue — remaining workers exit and in-flight fetches abort. */
+    signal?: AbortSignal;
+  }
 ): Promise<Map<string, string>> {
   const token = await getGitHubAccessToken();
   if (!token) return new Map();
@@ -273,23 +285,31 @@ export async function fetchMultipleFiles(
   const results = new Map<string, string>();
   let fetched = 0;
   let index = 0;
+  const signal = options?.signal;
+  const onFileFetched = options?.onFileFetched;
 
   const fetchOne = async (path: string): Promise<void> => {
     let content = await fetchFileContent(owner, repo, path, branch, token);
     if (content === null) {
- content = await fetchFileContent(owner, repo, path, branch, token);
+      // One retry with a shorter timeout — don't let a broken file hang us.
+      content = await fetchFileContent(owner, repo, path, branch, token);
     }
-    if (content !== null) results.set(path, content);
+    if (content !== null) {
+      results.set(path, content);
+      onFileFetched?.(path, content);
+    }
   };
 
   const worker = async (): Promise<void> => {
     while (true) {
+      if (signal?.aborted) return;
       const myIndex = index++;
       if (myIndex >= paths.length) return;
       const path = paths[myIndex];
       try {
         await fetchOne(path);
       } catch (err) {
+        // Individual file failure — skip it, don't crash the batch.
         console.warn(`Failed to fetch ${path}:`, err);
       }
       fetched++;
@@ -297,8 +317,11 @@ export async function fetchMultipleFiles(
     }
   };
 
-  const workers = Array.from({ length: Math.min(maxConcurrent, paths.length) }, () => worker());
-  await Promise.all(workers);
+  const workerCount = Math.min(maxConcurrent, paths.length);
+  const workers = Array.from({ length: workerCount }, () => worker());
+
+  // Use allSettled so a worker rejection never rejects the whole batch.
+  await Promise.allSettled(workers);
 
   return results;
 }

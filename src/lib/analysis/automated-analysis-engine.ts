@@ -165,33 +165,37 @@ export class AutomatedAnalysisEngine {
 
     onProgress?.("fetching", `Fetching ${filesToFetch.length} files...`, 30);
 
-    // Failsafe fetch: sliding-window concurrency (max 5) with a 15s hard deadline.
-    // If the deadline fires, we proceed with whatever files arrived so far.
-    const FETCH_DEADLINE_MS = 15_000;
+    // Failsafe fetch: sliding-window concurrency (max 5) with an 8s hard
+    // deadline. Results stream into `files` incrementally via onFileFetched
+    // so a hung final file never discards the ones already fetched.
+    const FETCH_DEADLINE_MS = 8_000;
     const files = new Map<string, string>();
 
-    const fetchPromise = fetchMultipleFiles(owner, repo, filesToFetch, branch, 5);
+    const abortController = new AbortController();
+
+    const fetchPromise = fetchMultipleFiles(
+      owner,
+      repo,
+      filesToFetch,
+      branch,
+      5,
+      undefined,
+      {
+        onFileFetched: (path, content) => {
+          files.set(path, content);
+        },
+        signal: abortController.signal,
+      },
+    );
     const deadlineTimer = new Promise<void>((resolve) =>
       setTimeout(() => resolve(), FETCH_DEADLINE_MS)
     );
 
-    await Promise.race([
-      fetchPromise.then((m) => { for (const [k, v] of m) files.set(k, v); }),
-      deadlineTimer,
-    ]);
+    await Promise.race([fetchPromise, deadlineTimer]);
 
-    if (files.size === 0) {
-      try {
-        const late = await Promise.race([
-          fetchPromise,
-          new Promise<Map<string, string>>((_, reject) =>
-            setTimeout(() => reject(new Error("fetch timeout")), 5_000)
-          ),
-        ]);
-        for (const [k, v] of late) files.set(k, v);
-      } catch {
-        // truly nothing came back
-      }
+    if (!abortController.signal.aborted) {
+      abortController.abort();
+      await fetchPromise.catch(() => {});
     }
 
     if (files.size === 0) {
