@@ -47,10 +47,6 @@ export interface BlueprintNode {
   sourcePath?: string;
   /** line number in the source where the construct was detected */
   line?: number;
-  /** x position (set by layout) */
-  x?: number;
-  /** y position (set by layout) */
-  y?: number;
 }
 
 export interface BlueprintEdge {

@@ -247,8 +247,6 @@ export function createCloudNodes(
   // Deployment gateway node
   if (infrastructure.deploymentTarget) {
     cloudNodes.push({
-      id: `cloud-deploy-${infrastructure.deploymentTarget.name}`,
-      key: `cloud-deploy-${infrastructure.deploymentTarget.name}`,
       type: "gateway" as BlueprintNodeType,
       shape: "document",
       accent: "orange",
@@ -263,8 +261,6 @@ export function createCloudNodes(
   // Storage bucket nodes
   for (const bucket of infrastructure.storageBuckets) {
     cloudNodes.push({
-      id: `cloud-storage-${bucket.name}`,
-      key: `cloud-storage-${bucket.name}`,
       type: "storage" as BlueprintNodeType,
       shape: "cylinder",
       accent: "blue",
@@ -279,8 +275,6 @@ export function createCloudNodes(
   // CDN nodes
   for (const cdn of infrastructure.cdnInstances) {
     cloudNodes.push({
-      id: `cloud-cdn-${cdn.name}`,
-      key: `cloud-cdn-${cdn.name}`,
       type: "cdn" as BlueprintNodeType,
       shape: "parallelogram",
       accent: "teal",
@@ -325,8 +319,8 @@ export function createStorageEdges(
 
       if (viewNode && storageNodes[0]) {
         edges.push({
-          from: viewNode.id,
-          to: storageNodes[0].id,
+          from: viewNode.x,
+          to: storageNodes[0].x,
           label: "Asset Upload",
         });
       }

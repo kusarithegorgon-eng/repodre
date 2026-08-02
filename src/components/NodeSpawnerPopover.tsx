@@ -418,7 +418,7 @@ export function createNewNodeConfig(
     label: defaultLabels[type],
     sub: defaultSubs[type],
     shape: option.shape,
-    accent: option.accent as "green" | "purple" | "teal" | "blue",
+    accent: option.accent,
     x: position.x,
     y: position.y,
   };

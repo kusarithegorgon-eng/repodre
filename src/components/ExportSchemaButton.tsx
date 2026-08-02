@@ -33,7 +33,7 @@ export function ExportSchemaButton({ nodes, edges, disabled }: ExportSchemaButto
   useEffect(() => {
     if (!isOpen) return;
     const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as globalThis.Node)) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     };

@@ -1,6 +1,6 @@
 import { Link, useSearch, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Home, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw, GitBranch, LogOut, Undo2, Redo2 } from "lucide-react";
+import { ChevronDown, ChevronRight, File as FileIcon, FileCode2, Folder, FolderOpen, Chrome as Home, Minus, Plus, Settings2, Sparkles, Spline, Trash2, X, Loader as Loader2, Download, Upload, LayoutGrid as Layout, CornerDownRight, Activity, TriangleAlert as AlertTriangle, Cloud, Server, Shield, Key, RefreshCw, GitBranch, LogOut, Undo2, Redo2 } from "lucide-react";
 import { RepodreLogo } from "@/components/RepodreLogo";
 import { NodeShapeSVG, ShapeIcon } from "@/components/NodeShapeSVG";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";

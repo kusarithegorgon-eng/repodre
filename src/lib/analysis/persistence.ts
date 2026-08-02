@@ -291,7 +291,6 @@ export async function loadPersistedGraph(
           html_url: project.repo_url,
           description: null,
           language: null,
-          owner_info: { login: "", avatar_url: "" },
         },
         branch: "main",
         filesParsed: nodes?.length ?? 0,

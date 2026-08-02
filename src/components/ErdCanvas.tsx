@@ -461,19 +461,19 @@ export function ErdCanvas({
 
           {/* Live edge drawing preview (drag-to-connect) */}
           <LiveEdgeDrawing
-            isActive={dragToConnect.isDragging}
+            isActive={dragToConnect.state.isDragging}
             startNode={
-              dragToConnect.fromNodeId
+              dragToConnect.state.fromNodeId
                 ? (() => {
-                    const n = tableNodes.find((t) => t.id === dragToConnect.fromNodeId);
+                    const n = tableNodes.find((t) => t.id === dragToConnect.state.fromNodeId);
                     return n
-                      ? { id: n.id, shape: n.shape, x: n.x, y: n.y, w: n.w ?? 220, h: n.h ?? 160 }
+                      ? { id: n.id, shape: n.shape, x: n.x, y: n.y, w: n.width, h: n.height }
                       : null;
                   })()
                 : null
             }
-            startHandle={dragToConnect.fromHandle}
-            currentMousePos={dragToConnect.mousePos}
+            startHandle={dragToConnect.state.fromHandle}
+            currentMousePos={dragToConnect.state.mousePos}
             zoom={zoom / 100}
             accentColor="var(--teal)"
           />
@@ -506,7 +506,7 @@ export function ErdCanvas({
                 />
                 {/* Drag-to-connect handles (visible on hover) */}
                 <DragToConnectHandle
-                  shape="rectangle"
+                  shape={table.shape}
                   x={table.x}
                   y={table.y}
                   w={table.width}

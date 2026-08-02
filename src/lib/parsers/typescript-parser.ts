@@ -109,7 +109,7 @@ export class TypeScriptParser implements Parser {
     };
 
     // Recursively process children
-    const children = this.extractChildren(node as unknown as Record<string, unknown>);
+    const children = this.extractChildren(node as Record<string, unknown>);
     for (const child of children) {
       if (child && typeof child === "object" && "type" in child) {
         const childNode = this.convertNode(child as acorn.Node, source, id);
