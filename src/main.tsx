@@ -69,3 +69,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </ErrorBoundary>
   </React.StrictMode>
 );
+
+// Log uncaught render errors that escape the ErrorBoundary (e.g. errors thrown
+// in hooks called outside the boundary's subtree, or during async rendering).
+window.addEventListener("error", (e) => {
+  console.error("[Uncaught] Render error:", e.error ?? e.message);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("[Uncaught] Unhandled promise rejection:", e.reason);
+});
