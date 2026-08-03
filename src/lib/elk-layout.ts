@@ -1,11 +1,4 @@
-import ELK from "elkjs/lib/elk-api.js";
-import elkWorkerUrl from "elkjs/lib/elk-worker.min.js?url";
 import type { JourneyGraph, JourneyNode, JourneyEdge, JourneyNodeType } from "./journey-flow-builder";
-import { layoutJourneyTree } from "./journey-flow-builder";
-
-const elk = new ELK({
-  workerUrl: elkWorkerUrl,
-});
 
 export interface LayoutNode {
   id: string;
@@ -43,6 +36,37 @@ export interface GraphEdge {
 const NODE_W = 170;
 const NODE_H = 38;
 
+// ─── Lazy ELK initialization ──────────────────────────────────────────────
+// ELK is loaded lazily so a worker-creation failure never crashes the entire
+// module at import time (which would take down the whole app chunk). If the
+// worker can't be created, we fall back to a synchronous main-thread ELK.
+
+let elkInstance: any | null = null;
+let elkInitFailed = false;
+
+async function getElk(): Promise<any> {
+  if (elkInstance) return elkInstance;
+  if (elkInitFailed) return null;
+
+  try {
+    const ELK = (await import("elkjs/lib/elk-api.js")).default;
+    const elkWorkerUrl = (await import("elkjs/lib/elk-worker.min.js?url")).default;
+
+    if (elkWorkerUrl) {
+      elkInstance = new ELK({ workerUrl: elkWorkerUrl });
+    } else {
+      // No worker URL resolved — use the bundled version that runs on main thread
+      const BundledELK = (await import("elkjs/lib/elk.bundled.js")).default;
+      elkInstance = new BundledELK();
+    }
+    return elkInstance;
+  } catch (err) {
+    console.warn("ELK initialization failed, will use grid fallback:", err);
+    elkInitFailed = true;
+    return null;
+  }
+}
+
 // ─── Journey Graph Layout (ELK layered) ─────────────────────────────────────
 
 export interface JourneyLayoutOptions {
@@ -54,6 +78,22 @@ export interface JourneyLayoutOptions {
   decisionSpacing?: number;
   startX?: number;
   startY?: number;
+}
+
+function gridFallback(
+  nodes: Array<{ id: string }>,
+  startX: number,
+  startY: number
+): Map<string, { x: number; y: number }> {
+  const positions = new Map<string, { x: number; y: number }>();
+  const COLS = 4;
+  nodes.forEach((n, i) => {
+    positions.set(n.id, {
+      x: startX + (i % COLS) * 280,
+      y: startY + Math.floor(i / COLS) * 160,
+    });
+  });
+  return positions;
 }
 
 export async function layoutJourneyGraphWithElk(
@@ -68,9 +108,10 @@ export async function layoutJourneyGraphWithElk(
     startY = 100,
   } = options;
 
-  const positions = new Map<string, { x: number; y: number }>();
+  if (graph.nodes.length === 0) return new Map();
 
-  if (graph.nodes.length === 0) return positions;
+  const elk = await getElk();
+  if (!elk) return gridFallback(graph.nodes, startX, startY);
 
   const elkNodes = graph.nodes.map((n) => ({
     id: n.id,
@@ -99,28 +140,40 @@ export async function layoutJourneyGraphWithElk(
   };
 
   try {
-    const result = await elk.layout(elkGraph as any);
+    const result = await elk.layout(elkGraph);
+    const positions = new Map<string, { x: number; y: number }>();
     for (const child of result.children || []) {
       positions.set(child.id, { x: (child.x ?? 0) + startX, y: (child.y ?? 0) + startY });
     }
-  } catch {
-    // Fallback: simple grid layout
-    const COLS = 4;
-    graph.nodes.forEach((n, i) => {
-      positions.set(n.id, {
-        x: startX + (i % COLS) * 280,
-        y: startY + Math.floor(i / COLS) * 160,
-      });
-    });
+    return positions;
+  } catch (err) {
+    console.warn("ELK layout failed, using grid fallback:", err);
+    return gridFallback(graph.nodes, startX, startY);
   }
-
-  return positions;
 }
 
 export async function layoutGraph(
   nodes: GraphNode[],
   edges: GraphEdge[]
 ): Promise<LayoutResult> {
+  const elk = await getElk();
+
+  if (!elk) {
+    const positions = gridFallback(nodes, 120, 100);
+    return {
+      nodes: nodes.map((n) => {
+        const pos = positions.get(n.id) ?? { x: 0, y: 0 };
+        return { id: n.id, width: NODE_W, height: NODE_H, x: pos.x, y: pos.y };
+      }),
+      edges: edges.map((e) => ({
+        id: e.id,
+        sources: [e.source],
+        targets: [e.target],
+        sections: [],
+      })),
+    };
+  }
+
   const elkNodes = nodes.map((n) => ({
     id: n.id,
     width: NODE_W,
@@ -157,25 +210,42 @@ export async function layoutGraph(
     edges: elkEdges,
   };
 
-  const result = await elk.layout(graph as any);
+  try {
+    const result = await elk.layout(graph);
 
-  const layoutNodes: LayoutNode[] = (result.children || []).map((c: any) => ({
-    id: c.id,
-    width: c.width,
-    height: c.height,
-    x: c.x,
-    y: c.y,
-  }));
+    const layoutNodes: LayoutNode[] = (result.children || []).map((c: any) => ({
+      id: c.id,
+      width: c.width,
+      height: c.height,
+      x: c.x,
+      y: c.y,
+    }));
 
-  const layoutEdges: LayoutEdge[] = (result.edges || []).map((e: any) => ({
-    id: e.id,
-    sources: e.sources,
-    targets: e.targets,
-    sections: (e.sections || []).map((s: any) => ({
-      startPoint: s.startPoint,
-      endPoint: s.bendPoints ? [...s.bendPoints, s.endPoint] : [s.endPoint],
-    })),
-  }));
+    const layoutEdges: LayoutEdge[] = (result.edges || []).map((e: any) => ({
+      id: e.id,
+      sources: e.sources,
+      targets: e.targets,
+      sections: (e.sections || []).map((s: any) => ({
+        startPoint: s.startPoint,
+        endPoint: s.bendPoints ? [...s.bendPoints, s.endPoint] : [s.endPoint],
+      })),
+    }));
 
-  return { nodes: layoutNodes, edges: layoutEdges };
+    return { nodes: layoutNodes, edges: layoutEdges };
+  } catch (err) {
+    console.warn("ELK layoutGraph failed, using grid fallback:", err);
+    const positions = gridFallback(nodes, 120, 100);
+    return {
+      nodes: nodes.map((n) => {
+        const pos = positions.get(n.id) ?? { x: 0, y: 0 };
+        return { id: n.id, width: NODE_W, height: NODE_H, x: pos.x, y: pos.y };
+      }),
+      edges: edges.map((e) => ({
+        id: e.id,
+        sources: [e.source],
+        targets: [e.target],
+        sections: [],
+      })),
+    };
+  }
 }

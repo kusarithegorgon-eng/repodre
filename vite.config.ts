@@ -15,6 +15,6 @@ export default defineConfig({
     drop: ["debugger"],
   },
   optimizeDeps: {
-    include: ["elkjs/lib/elk-api.js"],
+    include: ["elkjs/lib/elk-api.js", "elkjs/lib/elk.bundled.js"],
   },
 });
