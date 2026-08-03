@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { supabase } from "@/lib/supabase";
 import { Loader as Loader2 } from "lucide-react";
 
@@ -13,7 +13,17 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const navigate = useNavigate();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const search = useSearch({ strict: false }) as { demo?: boolean; draft?: boolean };
+  const isDemoMode = search?.demo === true;
+  const isDraftMode = search?.draft === true;
+  const bypassAuth = isDemoMode || isDraftMode;
+
   useEffect(() => {
+    if (bypassAuth) {
+      setChecking(false);
+      return;
+    }
+
     let mounted = true;
 
     // 5-second safety net — only fires if session check AND auth events both
@@ -67,7 +77,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
       clearSafetyTimeout();
       subscription.unsubscribe();
     };
-  }, [navigate]);
+  }, [navigate, bypassAuth]);
 
   if (checking) {
     return (
