@@ -278,8 +278,8 @@ export async function fetchFileContent(
  *     collect partial results incrementally (critical for failsafe timeouts).
  *   - An optional `AbortSignal` cancels remaining in-flight requests so the
  *     caller can stop the queue without orphaned fetches hanging around.
- *   - Each file gets one retry on transient failure; the retry uses a shorter
- *     timeout so a truly broken file can't consume the whole budget.
+ *   - Each file fetch uses a short timeout with no retry so a single broken
+ *     file can't consume the whole budget.
  */
 export async function fetchMultipleFiles(
   owner: string,
