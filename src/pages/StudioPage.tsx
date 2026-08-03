@@ -1665,6 +1665,7 @@ export async function POST(req: Request) {
 
   // ── Primary path computation: smoothstep orthogonal with bundle offsets ──
   const routed = useMemo(() => {
+    try {
     const rawPaths = edges.map((e) => {
       const a = nodes.find((n) => n.id === e.from);
       const b = nodes.find((n) => n.id === e.to);
@@ -1713,6 +1714,10 @@ export async function POST(req: Request) {
     }
 
     return rawPaths;
+    } catch (err) {
+      console.error("Edge routing failed:", err);
+      return edges.map((e) => ({ id: e.id, path: "", detoured: false }));
+    }
   }, [edges, nodes, smartRoute, snapResult, wireStyle, bundleOffsets]);
 
   if (isLoading) {

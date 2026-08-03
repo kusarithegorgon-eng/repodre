@@ -300,11 +300,13 @@ export function useSmartLinks(
 
   // Generate suggested controllers for each direct UI-DB connection
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-  const suggestedControllers = directConnections.map((conn) => {
-    const uiNode = nodeMap.get(conn.uiNodeId)!;
-    const dbNode = nodeMap.get(conn.dbNodeId)!;
-    return generateControllerIntermediary(uiNode, dbNode);
-  });
+  const suggestedControllers = directConnections
+    .filter((conn) => nodeMap.has(conn.uiNodeId) && nodeMap.has(conn.dbNodeId))
+    .map((conn) => {
+      const uiNode = nodeMap.get(conn.uiNodeId)!;
+      const dbNode = nodeMap.get(conn.dbNodeId)!;
+      return generateControllerIntermediary(uiNode, dbNode);
+    });
 
   return {
     smartLinks,
