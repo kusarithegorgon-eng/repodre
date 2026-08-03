@@ -238,7 +238,7 @@ export async function analyzeRepository(
   //
   // The deadline aborts remaining fetches via AbortController so no orphaned
   // sockets linger. We then proceed with whatever arrived.
-  const FETCH_DEADLINE_MS = 8_000;
+  const FETCH_DEADLINE_MS = 5_000;
   const fetchStart = Date.now();
   const files = new Map<string, string>();
 
@@ -279,15 +279,11 @@ export async function analyzeRepository(
   await Promise.race([fetchPromise, deadlineTimer]);
 
   // If the fetch is still running (deadline won the race), abort it and
-  // give in-flight requests a brief moment to settle. Results already
-  // streamed via onFileFetched are safe in the map — we don't need to wait
-  // for a hung file's internal timeout + retry to complete.
+  // proceed immediately. Results already streamed via onFileFetched are
+  // safe in the map — we don't need to wait for hung files to settle.
   if (!abortController.signal.aborted) {
     abortController.abort();
-    await Promise.race([
-      fetchPromise.catch(() => {}),
-      new Promise<void>((resolve) => setTimeout(resolve, 500)),
-    ]);
+    fetchPromise.catch(() => {});
   }
 
   if (files.size === 0) {

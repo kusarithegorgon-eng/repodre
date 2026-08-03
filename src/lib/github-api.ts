@@ -7,7 +7,7 @@
 
 import { getGitHubAccessToken } from "./github-auth";
 
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 3000;
 
 function fetchWithTimeout(
   url: string,
@@ -305,11 +305,7 @@ export async function fetchMultipleFiles(
   const onFileFetched = options?.onFileFetched;
 
   const fetchOne = async (path: string): Promise<void> => {
-    let content = await fetchFileContent(owner, repo, path, branch, token, signal);
-    if (content === null && !signal?.aborted) {
-      // One retry with a shorter timeout — don't let a broken file hang us.
-      content = await fetchFileContent(owner, repo, path, branch, token, signal);
-    }
+    const content = await fetchFileContent(owner, repo, path, branch, token, signal);
     if (content !== null) {
       results.set(path, content);
       onFileFetched?.(path, content);
