@@ -279,12 +279,15 @@ export async function analyzeRepository(
   await Promise.race([fetchPromise, deadlineTimer]);
 
   // If the fetch is still running (deadline won the race), abort it and
-  // give in-flight requests a moment to settle. Results already streamed
-  // via onFileFetched are safe in the map.
+  // give in-flight requests a brief moment to settle. Results already
+  // streamed via onFileFetched are safe in the map — we don't need to wait
+  // for a hung file's internal timeout + retry to complete.
   if (!abortController.signal.aborted) {
     abortController.abort();
-    // Allow aborted fetches to reject/settle — ignore their rejections.
-    await fetchPromise.catch(() => {});
+    await Promise.race([
+      fetchPromise.catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 500)),
+    ]);
   }
 
   if (files.size === 0) {

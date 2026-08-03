@@ -12,10 +12,23 @@ const DEFAULT_TIMEOUT_MS = 5000;
 function fetchWithTimeout(
   url: string,
   options: RequestInit,
-  timeoutMs = DEFAULT_TIMEOUT_MS
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  externalSignal?: AbortSignal
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // Propagate an external abort signal (e.g. from the batch deadline) so
+  // in-flight requests are cancelled immediately rather than waiting for
+  // their own internal timeout to expire.
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
+
   return fetch(url, { ...options, signal: controller.signal }).finally(() =>
     clearTimeout(timer)
   );
@@ -223,7 +236,8 @@ export async function fetchFileContent(
   repo: string,
   path: string,
   branch = "main",
-  cachedToken?: string
+  cachedToken?: string,
+  externalSignal?: AbortSignal
 ): Promise<string | null> {
   const token = cachedToken ?? await getGitHubAccessToken();
   if (!token) return null;
@@ -237,7 +251,9 @@ export async function fetchFileContent(
           Accept: "application/vnd.github.raw+json",
           "X-GitHub-Api-Version": "2022-11-28",
         },
-      }
+      },
+      DEFAULT_TIMEOUT_MS,
+      externalSignal
     );
 
     if (!response.ok) return null;
@@ -289,10 +305,10 @@ export async function fetchMultipleFiles(
   const onFileFetched = options?.onFileFetched;
 
   const fetchOne = async (path: string): Promise<void> => {
-    let content = await fetchFileContent(owner, repo, path, branch, token);
-    if (content === null) {
+    let content = await fetchFileContent(owner, repo, path, branch, token, signal);
+    if (content === null && !signal?.aborted) {
       // One retry with a shorter timeout — don't let a broken file hang us.
-      content = await fetchFileContent(owner, repo, path, branch, token);
+      content = await fetchFileContent(owner, repo, path, branch, token, signal);
     }
     if (content !== null) {
       results.set(path, content);
