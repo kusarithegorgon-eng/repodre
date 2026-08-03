@@ -18,7 +18,7 @@ import { parserFactory } from "./parsers/parser-factory";
 import { normalizeModules, type UnifiedSchema } from "./parsers/unified-schema";
 import type { ParsedModule as UniversalParsedModule } from "./parsers/types";
 import type { ParsedModule as ParsedModuleAst } from "./ast-parser";
-import { checkRateLimit } from "./rate-limit-client";
+
 import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-analyzer";
 import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
@@ -141,19 +141,7 @@ export async function analyzeRepository(
     signal?: AbortSignal;
   } = {}
 ): Promise<AnalysisResult> {
-  const { maxFiles = 100, branch: explicitBranch, signal } = options;
-
-  // ── Rate-limit check: enforce tiered import quotas ───────────────────
-  const rateLimit = await checkRateLimit("repo_import");
-  if (!rateLimit.allowed) {
-    return {
-      success: false,
-      error: rateLimit.message ?? "Rate limit exceeded. Upgrade to Pro for unlimited imports.",
-      rateLimited: rateLimit.retryAfter
-        ? { retryAfter: rateLimit.retryAfter, tier: rateLimit.tier ?? "free", message: rateLimit.message ?? "" }
-        : undefined,
-    };
-  }
+  const { maxFiles = 40, branch: explicitBranch, signal } = options;
 
   // Phase: Connecting
   onProgress?.({

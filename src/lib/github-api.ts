@@ -230,6 +230,10 @@ export async function fetchRepositoryTree(
 
 /**
  * Fetch the content of a specific file in the repository.
+ *
+ * Uses raw.githubusercontent.com first — it has no per-file rate limit and
+ * is significantly faster for public repos. Falls back to the authenticated
+ * GitHub API only for private repos (when the raw URL returns 404/403).
  */
 export async function fetchFileContent(
   owner: string,
@@ -239,6 +243,18 @@ export async function fetchFileContent(
   cachedToken?: string,
   externalSignal?: AbortSignal
 ): Promise<string | null> {
+  // Try raw.githubusercontent.com first — no rate limit, no auth needed for public repos.
+  try {
+    const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
+    const response = await fetchWithTimeout(rawUrl, {}, DEFAULT_TIMEOUT_MS, externalSignal);
+    if (response.ok) return await response.text();
+    // 404 on raw likely means private repo — fall through to API
+    if (response.status !== 404 && response.status !== 403) return null;
+  } catch {
+    // Network error on raw — fall through to API
+  }
+
+  // Fallback: authenticated GitHub API (for private repos)
   const token = cachedToken ?? await getGitHubAccessToken();
   if (!token) return null;
 
@@ -257,7 +273,6 @@ export async function fetchFileContent(
     );
 
     if (!response.ok) return null;
-
     return await response.text();
   } catch {
     return null;
@@ -286,7 +301,7 @@ export async function fetchMultipleFiles(
   repo: string,
   paths: string[],
   branch = "main",
-  maxConcurrent = 5,
+  maxConcurrent = 8,
   onFileProgress?: (fetched: number, total: number) => void,
   options?: {
     /** Called for each successfully fetched file, immediately as it arrives. */
@@ -295,8 +310,8 @@ export async function fetchMultipleFiles(
     signal?: AbortSignal;
   }
 ): Promise<Map<string, string>> {
-  const token = await getGitHubAccessToken();
-  if (!token) return new Map();
+  // Token is optional — raw.githubusercontent.com works without auth for public repos.
+  const token = await getGitHubAccessToken().catch(() => null);
 
   const results = new Map<string, string>();
   let fetched = 0;
