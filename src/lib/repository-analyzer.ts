@@ -307,6 +307,12 @@ export async function analyzeRepository(
   let processed = 0;
 
   for (const [path, content] of files) {
+    // Yield to the event loop every 3 files so the UI stays responsive
+    // (progress bar updates, Cancel button works) during heavy parsing.
+    if (processed > 0 && processed % 3 === 0) {
+      await new Promise<void>((r) => setTimeout(r, 0));
+    }
+
     try {
       // Try the multi-language parser factory first
       const parser = parserFactory.getParserForPath(path);

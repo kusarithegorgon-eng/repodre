@@ -845,12 +845,18 @@ export async function POST(req: Request) {
     clearDiff,
   } = useGitDiff(nodes);
 
-  // Update last webhook event when connected
+  // Fire a single mock webhook event when the user connects — never re-fires
+  // on node changes (triggerMockEvent closes over `nodes` and would loop).
+  const firedMockRef = useRef(false);
   useEffect(() => {
-    if (webhookSync.isConnected) {
+    if (webhookSync.isConnected && !firedMockRef.current) {
+      firedMockRef.current = true;
       webhookSync.triggerMockEvent();
     }
-  }, [webhookSync.isConnected, webhookSync.triggerMockEvent]);
+    if (!webhookSync.isConnected) {
+      firedMockRef.current = false;
+    }
+  }, [webhookSync.isConnected]);
 
 
 

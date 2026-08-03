@@ -138,7 +138,7 @@ export function HomePage() {
 
     try {
       const analysisResult = await analyzeRepository(trimmedUrl, setProgress, {
-        maxFiles: 100,
+        maxFiles: 30,
         signal: visibilityAbort.signal,
       });
 
