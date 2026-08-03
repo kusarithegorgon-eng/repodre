@@ -759,41 +759,56 @@ export async function POST(req: Request) {
 
   // Detect infrastructure and bottlenecks on mount
   useEffect(() => {
-    const analysis = analyzeBottlenecks(mockModules);
-    setBottleneckWarnings(analysis.warnings);
+    try {
+      const analysis = analyzeBottlenecks(mockModules);
+      setBottleneckWarnings(analysis.warnings);
+    } catch (err) {
+      console.error("Bottleneck analysis failed:", err);
+      setBottleneckWarnings([]);
+    }
   }, [mockModules]);
 
   // Compute cross-reference links between controllers and database tables
   useEffect(() => {
-    const xrefResult = buildCrossReferences(
-      nodes.map((n) => ({
-        id: n.id,
-        label: n.label,
-        sub: n.sub,
-        shape: n.shape,
-        tableName: n.tableName,
-      })),
-      mockModules,
-    );
-    setCrossRefLinks(xrefResult.links);
+    try {
+      const xrefResult = buildCrossReferences(
+        nodes.map((n) => ({
+          id: n.id,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          tableName: n.tableName,
+        })),
+        mockModules,
+      );
+      setCrossRefLinks(xrefResult.links);
+    } catch (err) {
+      console.error("Cross-reference analysis failed:", err);
+      setCrossRefLinks([]);
+    }
   }, [nodes, mockModules]);
 
   // Detect architectural anti-patterns
   useEffect(() => {
-    const result = detectAntiPatterns(
-      nodes.map((n) => ({
-        id: n.id,
-        label: n.label,
-        sub: n.sub,
-        shape: n.shape,
-      })),
-      edges.map((e) => ({
-        id: e.id,
-        from: e.from,
-        to: e.to,
-      }))
-    );
-    setAntiPatternWarnings(result.warnings);
+    try {
+      const result = detectAntiPatterns(
+        nodes.map((n) => ({
+          id: n.id,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+        })),
+        edges.map((e) => ({
+          id: e.id,
+          from: e.from,
+          to: e.to,
+        }))
+      );
+      setAntiPatternWarnings(result.warnings);
+    } catch (err) {
+      console.error("Anti-pattern detection failed:", err);
+      setAntiPatternWarnings([]);
+    }
   }, [nodes, edges]);
 
   // Compute production overlay nodes (read replicas, firewall gates)
@@ -915,8 +930,14 @@ export async function POST(req: Request) {
   useEffect(() => {
     // Demo mode: instantly hydrate from static seed data, skip all DB fetches
     if (isDemoMode) {
-      setNodes(INITIAL_NODES);
-      setEdges(INITIAL_EDGES);
+      try {
+        setNodes(INITIAL_NODES);
+        setEdges(INITIAL_EDGES);
+      } catch (err) {
+        console.error("Demo data hydration failed:", err);
+        setNodes([]);
+        setEdges([]);
+      }
       setIsLoading(false);
       return;
     }
