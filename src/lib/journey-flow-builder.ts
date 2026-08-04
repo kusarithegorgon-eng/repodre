@@ -588,6 +588,7 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   // ── Scan modules ─────────────────────────────────────────────────────
   let authNode: JourneyNode | null = null;
   let logoutNode: JourneyNode | null = null;
+  const authNodes: JourneyNode[] = [];
   const validationNodes: JourneyNode[] = [];
   const decisionNodes: JourneyNode[] = [];
   const actionNodes: JourneyNode[] = [];
@@ -605,56 +606,60 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   // Track DB nodes by label for context-aware edge matching
   const dbNodeByLabel = new Map<string, JourneyNode>();
 
+  // Track which source paths already produced a node to avoid exact duplicates
+  const seenSourcePaths = new Set<string>();
+
   for (const mod of modules) {
     const sig = detectSignals(mod);
 
-    if (sig.isAuth && !authNode) {
-      authNode = addNode("auth", "Auth Login", 2, placeInCol(2), mod.path);
+    // ── Per-file node generation: each discovered file gets its own node ──
+    // We no longer collapse all auth files into one node or all CREATE
+    // actions into one node. Instead, every file that matches a category
+    // produces a distinct graph node so the canvas reflects the actual
+    // repository structure.
+
+    if (sig.isAuth) {
+      const label = sig.routePath ? `Auth: ${sig.routePath}` : "Auth Login";
+      const authN = addNode("auth", label, 2, placeInCol(2), mod.path);
+      if (!authNode) authNode = authN; // keep first auth node for skeleton
+      authNodes.push(authN);
     }
 
-    if (sig.isLogout && !logoutNode) {
-      logoutNode = addNode("logout", "Logout", 7, placeInCol(7), mod.path);
+    if (sig.isLogout) {
+      const label = "Logout";
+      const logoutN = addNode("logout", label, 7, placeInCol(7), mod.path);
+      if (!logoutNode) logoutNode = logoutN;
     }
 
     if (sig.isValidation) {
-      const label = sig.isAuth ? "Validate Credentials" : "Validate Input";
-      if (!validationNodes.some((v) => v.label === label)) {
-        validationNodes.push(addNode("validation", label, 3, placeInCol(3), mod.path));
-      }
+      const filename = mod.path.split("/").pop()?.replace(/\.\w+$/, "") || "validate";
+      const label = sig.isAuth ? `Validate: ${filename}` : `Validate: ${filename}`;
+      const valNode = addNode("validation", label, 3, placeInCol(3), mod.path);
+      validationNodes.push(valNode);
     }
 
     if (sig.decisions.length > 0 && sig.routePath) {
       const label = `Choose: ${sig.routePath}`;
-      if (!decisionNodes.some((d) => d.label === label)) {
-        decisionNodes.push(addNode("decision", label, 4, placeInCol(4), mod.path, {
-          decisionTargets: sig.decisions,
-        }));
-      }
+      const decNode = addNode("decision", label, 4, placeInCol(4), mod.path, {
+        decisionTargets: sig.decisions,
+      });
+      decisionNodes.push(decNode);
     }
 
-    // Action nodes — use refined CRUD type for label, color, and sub
+    // Action nodes — one per API file, refined with CRUD type
     if (sig.isApi) {
       const crudStyle = CRUD_STYLE[sig.crudType];
-      const label = crudStyle.label;
+      // Use the route path or filename as the label so each API is distinct
+      const apiLabel = sig.routePath ?? mod.path.split("/").pop()?.replace(/\.\w+$/, "") ?? crudStyle.label;
+      const label = `${crudStyle.label.split(" Action")[0]}: ${apiLabel}`;
 
-      if (!actionNodes.some((a) => a.label === label)) {
-        const aNode = addNode("action", label, 5, placeInCol(5), mod.path, {
-          accent: crudStyle.accent,
-          sub: crudStyle.sub,
-          crudType: sig.crudType,
-          referencedModels: sig.importedModels,
-        });
-        actionNodes.push(aNode);
-      } else if (sig.importedModels.length > 0) {
-        // Merge referenced models into existing action node of same type
-        const existing = actionNodes.find((a) => a.label === label);
-        if (existing) {
-          existing.referencedModels = [
-            ...(existing.referencedModels ?? []),
-            ...sig.importedModels,
-          ];
-        }
-      }
+      const aNode = addNode("action", label, 5, placeInCol(5), mod.path, {
+        accent: crudStyle.accent,
+        sub: crudStyle.sub,
+        crudType: sig.crudType,
+        referencedModels: sig.importedModels,
+      });
+      actionNodes.push(aNode);
     }
 
     // ── Process Node Detection ───────────────────────────────────────────
@@ -704,7 +709,7 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
       }
     }
 
-    // Storage DB nodes
+    // Storage DB nodes — one per distinct storage action label
     for (const sa of sig.storageActions) {
       if (!dbNodeByLabel.has(sa.dbLabel)) {
         const dbNode = addNode("database", sa.dbLabel, 6, placeInCol(6), mod.path);
@@ -714,17 +719,19 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
       }
     }
 
-    // File-based DB nodes
-    if (sig.isDatabase) {
+    // File-based DB nodes — one per database/model file
+    if (sig.isDatabase && !sig.isApi) {
       const filename = mod.path.split("/").pop()?.replace(/\.\w+$/, "") || "Database";
       const label = `DB: ${filename}`;
-      if (!dbNodeByLabel.has(label)) {
+      if (!dbNodeByLabel.has(label) && !seenSourcePaths.has(mod.path)) {
         const dbNode = addNode("database", label, 6, placeInCol(6), mod.path);
         dbNodes.push(dbNode);
         dbNodeByLabel.set(label, dbNode);
+        seenSourcePaths.add(mod.path);
       }
     }
 
+    // Page nodes — one per route path (deduped by path, not by type)
     if (sig.routePath && !sig.isLanding && !sig.isAuth && !sig.isLogout) {
       if (!pageNodes.some((p) => p.label === sig.routePath) && !sig.isApi) {
         pageNodes.push(addNode("page", sig.routePath, 4, placeInCol(4), mod.path));
@@ -735,17 +742,27 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   // ── Weave skeleton ───────────────────────────────────────────────────
   let lastNode = landingNode;
 
-  if (authNode) {
-    addEdge(landingNode.id, authNode.id, "needs login");
-    lastNode = authNode;
+  // Connect landing to all auth nodes (or first page if no auth)
+  if (authNodes.length > 0) {
+    for (const auth of authNodes) {
+      addEdge(landingNode.id, auth.id, "needs login");
+    }
+    lastNode = authNodes[authNodes.length - 1];
+  } else if (pageNodes.length > 0) {
+    addEdge(landingNode.id, pageNodes[0].id, "browse");
+    lastNode = pageNodes[0];
   }
 
-  if (validationNodes.length > 0 && authNode) {
-    const credValidation = validationNodes.find((v) => v.label === "Validate Credentials");
-    if (credValidation) {
-      addEdge(authNode.id, credValidation.id, "check");
-      addEdge(credValidation.id, authNode.id, "fail → retry");
-      lastNode = credValidation;
+  // Connect auth nodes to their validation nodes (if any validation was
+  // detected in the same source file). Each validation node connects back
+  // to its auth node on failure.
+  if (validationNodes.length > 0 && authNodes.length > 0) {
+    for (const val of validationNodes) {
+      // Find the auth node from the same source path, or fall back to first
+      const matchingAuth = authNodes.find((a) => a.sourcePath === val.sourcePath) ?? authNodes[0];
+      addEdge(matchingAuth.id, val.id, "check");
+      addEdge(val.id, matchingAuth.id, "fail → retry");
+      lastNode = val;
     }
   }
 
@@ -956,7 +973,11 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
   }
 
   // Input validations (non-credential)
-  const inputValidations = validationNodes.filter((v) => v.label !== "Validate Credentials");
+  // All validation nodes that are not credential checks (auth validations
+  // were already connected above). We identify credential validations by
+  // their source path matching an auth node.
+  const authSourcePaths = new Set(authNodes.map((a) => a.sourcePath).filter(Boolean) as string[]);
+  const inputValidations = validationNodes.filter((v) => !v.sourcePath || !authSourcePaths.has(v.sourcePath));
   for (const v of inputValidations) {
     if (decisionAndPages.length > 0) {
       addEdge(decisionAndPages[0].id, v.id, "submit");
