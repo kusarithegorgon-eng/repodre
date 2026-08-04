@@ -16,9 +16,7 @@ import { parseGitHubUrl, checkRepositoryAccess, fetchRepositoryTree, fetchMultip
 import { parseModule } from "./ast-parser";
 import { parserFactory } from "./parsers/parser-factory";
 import { normalizeModules, type UnifiedSchema } from "./parsers/unified-schema";
-import type { ParsedModule as UniversalParsedModule } from "./parsers/types";
-import type { ParsedModule as ParsedModuleAst } from "./ast-parser";
-
+import { checkRateLimit } from "./rate-limit-client";
 import { analyzeBlueprintEnhanced, type EnhancedBlueprint } from "./enhanced-analyzer";
 import { layoutBlueprint, layoutEnhancedBlueprint, layoutSectionedBlueprint, filterPortalEdges, type LaidOutBlueprint, type SectionedLayout } from "./system-blueprint";
 import { crawlRepository, type FlowchartGraph, type CrawlerNode, type CrawlerEdge } from "./repo-crawler";
@@ -137,11 +135,21 @@ export async function analyzeRepository(
     branch?: string;
     includePatterns?: RegExp[];
     excludePatterns?: RegExp[];
-    /** Abort the entire analysis (e.g. when the browser tab is hidden). */
-    signal?: AbortSignal;
   } = {}
 ): Promise<AnalysisResult> {
-  const { maxFiles = 40, branch: explicitBranch, signal } = options;
+  const { maxFiles = 100, branch: explicitBranch } = options;
+
+  // ── Rate-limit check: enforce tiered import quotas ───────────────────
+  const rateLimit = await checkRateLimit("repo_import");
+  if (!rateLimit.allowed) {
+    return {
+      success: false,
+      error: rateLimit.message ?? "Rate limit exceeded. Upgrade to Pro for unlimited imports.",
+      rateLimited: rateLimit.retryAfter
+        ? { retryAfter: rateLimit.retryAfter, tier: rateLimit.tier ?? "free", message: rateLimit.message ?? "" }
+        : undefined,
+    };
+  }
 
   // Phase: Connecting
   onProgress?.({
@@ -214,81 +222,8 @@ export async function analyzeRepository(
     totalFiles: filesToFetch.length,
   });
 
-  // ── Failsafe fetch: sliding-window concurrency (max 5) with a hard deadline.
-  //
-  // CRITICAL: results are streamed into `files` incrementally via the
-  // `onFileFetched` callback. This means if the deadline fires while the
-  // final file is still hanging, every file fetched up to that point is
-  // already in the map — we don't lose them. The previous implementation
-  // only copied results when the whole promise resolved, so a hung 100th
-  // file discarded all 99 successful fetches and the UI reported "failed
-  // to fetch any files."
-  //
-  // The deadline aborts remaining fetches via AbortController so no orphaned
-  // sockets linger. We then proceed with whatever arrived.
-  const FETCH_DEADLINE_MS = 5_000;
-  const fetchStart = Date.now();
-  const files = new Map<string, string>();
-
-  const abortController = new AbortController();
-  // If the caller aborts (e.g. tab hidden), propagate to the fetch queue.
-  if (signal) {
-    if (signal.aborted) abortController.abort();
-    else signal.addEventListener("abort", () => abortController.abort(), { once: true });
-  }
-
-  const fetchPromise = fetchMultipleFiles(
-    owner,
-    repo,
-    filesToFetch,
-    branch,
-    5,
-    (fetched, total) => {
-      onProgress?.({
-        phase: "fetching",
-        message: `Fetching ${fetched}/${total} files...`,
-        percent: 30 + (fetched / total) * 20,
-        filesProcessed: fetched,
-        totalFiles: total,
-      });
-    },
-    {
-      onFileFetched: (path, content) => {
-        files.set(path, content);
-      },
-      signal: abortController.signal,
-    }
-  );
-
-  const deadlineTimer = new Promise<void>((resolve) =>
-    setTimeout(() => resolve(), FETCH_DEADLINE_MS)
-  );
-
-  await Promise.race([fetchPromise, deadlineTimer]);
-
-  // If the fetch is still running (deadline won the race), abort it and
-  // proceed immediately. Results already streamed via onFileFetched are
-  // safe in the map — we don't need to wait for hung files to settle.
-  if (!abortController.signal.aborted) {
-    abortController.abort();
-    fetchPromise.catch(() => {});
-  }
-
-  if (files.size === 0) {
-    if (signal?.aborted) {
-      throw new DOMException("Analysis aborted", "AbortError");
-    }
-    return {
-      success: false,
-      error: "Failed to fetch any files from the repository. The repository may be empty or rate-limited.",
-    };
-  }
-
-  if (files.size < filesToFetch.length) {
-    console.warn(
-      `Fetch phase timed out after ${Date.now() - fetchStart}ms — proceeding with ${files.size}/${filesToFetch.length} files.`
-    );
-  }
+  // Fetch file contents
+  const files = await fetchMultipleFiles(owner, repo, filesToFetch, branch, 5);
 
   // Phase: Parsing
   onProgress?.({
@@ -301,23 +236,16 @@ export async function analyzeRepository(
 
   // Parse each file — route through the multi-language parser factory
   // for non-JS/TS files (Python, PHP, Java, Go), fall back to acorn for JS/TS.
-  const modules: ParsedModuleAst[] = [];
-  const unifiedModules: UniversalParsedModule[] = [];
+  const modules = [];
+  const unifiedModules = [];
   const parseErrors = new Map<string, string>();
   let processed = 0;
 
   for (const [path, content] of files) {
-    // Yield to the event loop every 3 files so the UI stays responsive
-    // (progress bar updates, Cancel button works) during heavy parsing.
-    if (processed > 0 && processed % 3 === 0) {
-      await new Promise<void>((r) => setTimeout(r, 0));
-    }
-
     try {
       // Try the multi-language parser factory first
-      const parser = parserFactory.getParserForPath(path);
-      if (parser) {
-        const parsed = parser.parse(content, path);
+      if (parserFactory.canParse(path)) {
+        const parsed = parserFactory.parse(content, path);
         unifiedModules.push(parsed);
       }
       // Always also run the acorn-based parser for JS/TS compatibility
@@ -379,7 +307,7 @@ export async function analyzeRepository(
     // Constructs a continuous user-journey flowchart:
     //   Start → Landing → Auth → Validation → Decisions → Actions → DB → Logout → loop
     // Every node is connected — no dead-ends, no orphans.
-    const journeyGraph = buildJourneyGraph(modules, unifiedModules);
+    const journeyGraph = buildJourneyGraph(modules);
 
     // ── Architecture Decision Engine (enrichment / fallback) ──────────────
     const archGraph = buildArchGraph(modules);

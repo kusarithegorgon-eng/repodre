@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { RouterProvider, createRouter, createRoute, createRootRoute } from "@tanstack/react-router";
 import "./index.css";
-import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RootPage } from "./pages/RootPage";
 import { LandingPage } from "./pages/LandingPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -64,17 +63,6 @@ declare module "@tanstack/react-router" {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <RouterProvider router={router} />
-    </ErrorBoundary>
+    <RouterProvider router={router} />
   </React.StrictMode>
 );
-
-// Log uncaught render errors that escape the ErrorBoundary (e.g. errors thrown
-// in hooks called outside the boundary's subtree, or during async rendering).
-window.addEventListener("error", (e) => {
-  console.error("[Uncaught] Render error:", e.error ?? e.message);
-});
-window.addEventListener("unhandledrejection", (e) => {
-  console.error("[Uncaught] Unhandled promise rejection:", e.reason);
-});

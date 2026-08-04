@@ -7,33 +7,6 @@
 
 import { getGitHubAccessToken } from "./github-auth";
 
-const DEFAULT_TIMEOUT_MS = 3000;
-
-function fetchWithTimeout(
-  url: string,
-  options: RequestInit,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-  externalSignal?: AbortSignal
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  // Propagate an external abort signal (e.g. from the batch deadline) so
-  // in-flight requests are cancelled immediately rather than waiting for
-  // their own internal timeout to expire.
-  if (externalSignal) {
-    if (externalSignal.aborted) {
-      controller.abort();
-    } else {
-      externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
-    }
-  }
-
-  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
-    clearTimeout(timer)
-  );
-}
-
 export interface GitHubRepo {
   id: number;
   name: string;
@@ -129,16 +102,13 @@ export async function checkRepositoryAccess(
   }
 
   try {
-    const response = await fetchWithTimeout(
-      `https://api.github.com/repos/${owner}/${repo}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      }
-    );
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
 
     if (response.ok) {
       const repoData: GitHubRepo = await response.json();
@@ -209,7 +179,7 @@ export async function fetchRepositoryTree(
   if (!token) return null;
 
   try {
-    const response = await fetchWithTimeout(
+    const response = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
       {
         headers: {
@@ -230,36 +200,18 @@ export async function fetchRepositoryTree(
 
 /**
  * Fetch the content of a specific file in the repository.
- *
- * Uses raw.githubusercontent.com first — it has no per-file rate limit and
- * is significantly faster for public repos. Falls back to the authenticated
- * GitHub API only for private repos (when the raw URL returns 404/403).
  */
 export async function fetchFileContent(
   owner: string,
   repo: string,
   path: string,
-  branch = "main",
-  cachedToken?: string,
-  externalSignal?: AbortSignal
+  branch = "main"
 ): Promise<string | null> {
-  // Try raw.githubusercontent.com first — no rate limit, no auth needed for public repos.
-  try {
-    const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
-    const response = await fetchWithTimeout(rawUrl, {}, DEFAULT_TIMEOUT_MS, externalSignal);
-    if (response.ok) return await response.text();
-    // 404 on raw likely means private repo — fall through to API
-    if (response.status !== 404 && response.status !== 403) return null;
-  } catch {
-    // Network error on raw — fall through to API
-  }
-
-  // Fallback: authenticated GitHub API (for private repos)
-  const token = cachedToken ?? await getGitHubAccessToken();
+  const token = await getGitHubAccessToken();
   if (!token) return null;
 
   try {
-    const response = await fetchWithTimeout(
+    const response = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`,
       {
         headers: {
@@ -267,12 +219,11 @@ export async function fetchFileContent(
           Accept: "application/vnd.github.raw+json",
           "X-GitHub-Api-Version": "2022-11-28",
         },
-      },
-      DEFAULT_TIMEOUT_MS,
-      externalSignal
+      }
     );
 
     if (!response.ok) return null;
+
     return await response.text();
   } catch {
     return null;
@@ -280,75 +231,33 @@ export async function fetchFileContent(
 }
 
 /**
- * Fetch multiple files with a sliding-window concurrency limiter.
- *
- * Maintains a steady pool of at most `maxConcurrent` in-flight requests.
- * As soon as one finishes, the next path is dispatched — so a single slow
- * file never blocks the rest of the batch.
- *
- * Robustness guarantees:
- *   - Each file fetch is wrapped in its own try/catch so a poison-pill file
- *     (timeout, 404, network error) is skipped, not fatal.
- *   - `onFileFetched` fires per-file as results arrive, so callers can
- *     collect partial results incrementally (critical for failsafe timeouts).
- *   - An optional `AbortSignal` cancels remaining in-flight requests so the
- *     caller can stop the queue without orphaned fetches hanging around.
- *   - Each file fetch uses a short timeout with no retry so a single broken
- *     file can't consume the whole budget.
+ * Fetch multiple files concurrently.
  */
 export async function fetchMultipleFiles(
   owner: string,
   repo: string,
   paths: string[],
   branch = "main",
-  maxConcurrent = 8,
-  onFileProgress?: (fetched: number, total: number) => void,
-  options?: {
-    /** Called for each successfully fetched file, immediately as it arrives. */
-    onFileFetched?: (path: string, content: string) => void;
-    /** Abort the queue — remaining workers exit and in-flight fetches abort. */
-    signal?: AbortSignal;
-  }
+  maxConcurrent = 10
 ): Promise<Map<string, string>> {
-  // Token is optional — raw.githubusercontent.com works without auth for public repos.
-  const token = await getGitHubAccessToken().catch(() => null);
-
   const results = new Map<string, string>();
-  let fetched = 0;
-  let index = 0;
-  const signal = options?.signal;
-  const onFileFetched = options?.onFileFetched;
 
-  const fetchOne = async (path: string): Promise<void> => {
-    const content = await fetchFileContent(owner, repo, path, branch, token, signal);
-    if (content !== null) {
-      results.set(path, content);
-      onFileFetched?.(path, content);
-    }
-  };
+  // Process in batches to avoid rate limiting
+  const batches = [];
+  for (let i = 0; i < paths.length; i += maxConcurrent) {
+    batches.push(paths.slice(i, i + maxConcurrent));
+  }
 
-  const worker = async (): Promise<void> => {
-    while (true) {
-      if (signal?.aborted) return;
-      const myIndex = index++;
-      if (myIndex >= paths.length) return;
-      const path = paths[myIndex];
-      try {
-        await fetchOne(path);
-      } catch (err) {
-        // Individual file failure — skip it, don't crash the batch.
-        console.warn(`Failed to fetch ${path}:`, err);
+  for (const batch of batches) {
+    const promises = batch.map(async (path) => {
+      const content = await fetchFileContent(owner, repo, path, branch);
+      if (content !== null) {
+        results.set(path, content);
       }
-      fetched++;
-      onFileProgress?.(fetched, paths.length);
-    }
-  };
+    });
 
-  const workerCount = Math.min(maxConcurrent, paths.length);
-  const workers = Array.from({ length: workerCount }, () => worker());
-
-  // Use allSettled so a worker rejection never rejects the whole batch.
-  await Promise.allSettled(workers);
+    await Promise.all(promises);
+  }
 
   return results;
 }
@@ -383,16 +292,13 @@ export async function getDefaultBranch(owner: string, repo: string): Promise<str
   if (!token) return "main";
 
   try {
-    const response = await fetchWithTimeout(
-      `https://api.github.com/repos/${owner}/${repo}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      }
-    );
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
 
     if (!response.ok) return "main";
 

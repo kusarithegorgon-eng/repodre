@@ -597,22 +597,14 @@ export function StudioPage() {
     }
   }, []);
 
-  // ─── Live Collaborative Cursors (Supabase Realtime broadcast) ──────────
-  const canvasRef = useRef<HTMLDivElement>(null);
-
   // ─── Infinite Canvas Pan Engine ─────────────────────────────────────────────
   const canvasPan = useCanvasPan({
     enableSpacebar: true,
     enableMiddleMouse: true,
-    canvasRef,
-    zoom,
-    onZoomChange: (z: number) => {
-      setZoom(z);
-      if (project) {
-        updateProject(project.id, { zoom: z }).catch(() => {});
-      }
-    },
   });
+
+  // ─── Live Collaborative Cursors (Supabase Realtime broadcast) ──────────
+  const canvasRef = useRef<HTMLDivElement>(null);
   const { remoteCursors, isConnected: cursorsConnected } = useLiveCursors({
     projectId: activeProjectId,
     zoom,
@@ -759,56 +751,41 @@ export async function POST(req: Request) {
 
   // Detect infrastructure and bottlenecks on mount
   useEffect(() => {
-    try {
-      const analysis = analyzeBottlenecks(mockModules);
-      setBottleneckWarnings(analysis.warnings);
-    } catch (err) {
-      console.error("Bottleneck analysis failed:", err);
-      setBottleneckWarnings([]);
-    }
+    const analysis = analyzeBottlenecks(mockModules);
+    setBottleneckWarnings(analysis.warnings);
   }, [mockModules]);
 
   // Compute cross-reference links between controllers and database tables
   useEffect(() => {
-    try {
-      const xrefResult = buildCrossReferences(
-        nodes.map((n) => ({
-          id: n.id,
-          label: n.label,
-          sub: n.sub,
-          shape: n.shape,
-          tableName: n.tableName,
-        })),
-        mockModules,
-      );
-      setCrossRefLinks(xrefResult.links);
-    } catch (err) {
-      console.error("Cross-reference analysis failed:", err);
-      setCrossRefLinks([]);
-    }
+    const xrefResult = buildCrossReferences(
+      nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+        tableName: n.tableName,
+      })),
+      mockModules,
+    );
+    setCrossRefLinks(xrefResult.links);
   }, [nodes, mockModules]);
 
   // Detect architectural anti-patterns
   useEffect(() => {
-    try {
-      const result = detectAntiPatterns(
-        nodes.map((n) => ({
-          id: n.id,
-          label: n.label,
-          sub: n.sub,
-          shape: n.shape,
-        })),
-        edges.map((e) => ({
-          id: e.id,
-          from: e.from,
-          to: e.to,
-        }))
-      );
-      setAntiPatternWarnings(result.warnings);
-    } catch (err) {
-      console.error("Anti-pattern detection failed:", err);
-      setAntiPatternWarnings([]);
-    }
+    const result = detectAntiPatterns(
+      nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+      })),
+      edges.map((e) => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+      }))
+    );
+    setAntiPatternWarnings(result.warnings);
   }, [nodes, edges]);
 
   // Compute production overlay nodes (read replicas, firewall gates)
@@ -845,18 +822,12 @@ export async function POST(req: Request) {
     clearDiff,
   } = useGitDiff(nodes);
 
-  // Fire a single mock webhook event when the user connects — never re-fires
-  // on node changes (triggerMockEvent closes over `nodes` and would loop).
-  const firedMockRef = useRef(false);
+  // Update last webhook event when connected
   useEffect(() => {
-    if (webhookSync.isConnected && !firedMockRef.current) {
-      firedMockRef.current = true;
+    if (webhookSync.isConnected) {
       webhookSync.triggerMockEvent();
     }
-    if (!webhookSync.isConnected) {
-      firedMockRef.current = false;
-    }
-  }, [webhookSync.isConnected]);
+  }, [webhookSync.isConnected, webhookSync.triggerMockEvent]);
 
 
 
@@ -936,14 +907,8 @@ export async function POST(req: Request) {
   useEffect(() => {
     // Demo mode: instantly hydrate from static seed data, skip all DB fetches
     if (isDemoMode) {
-      try {
-        setNodes(INITIAL_NODES);
-        setEdges(INITIAL_EDGES);
-      } catch (err) {
-        console.error("Demo data hydration failed:", err);
-        setNodes([]);
-        setEdges([]);
-      }
+      setNodes(INITIAL_NODES);
+      setEdges(INITIAL_EDGES);
       setIsLoading(false);
       return;
     }
@@ -1626,18 +1591,22 @@ export async function POST(req: Request) {
   );
 
   // Smart Links: classify edges by architectural layer (UI -> Controller -> DB)
-  const smartLinksResult = useSmartLinks(
-    nodes.map((n) => ({
-      id: n.id,
-      label: n.label,
-      sub: n.sub,
-      shape: n.shape,
-      accent: n.accent,
-      x: n.x,
-      y: n.y,
-      workspace: n.workspace,
-    })),
-    edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))
+  const smartLinksResult = useMemo(
+    () =>
+      useSmartLinks(
+        nodes.map((n) => ({
+          id: n.id,
+          label: n.label,
+          sub: n.sub,
+          shape: n.shape,
+          accent: n.accent,
+          x: n.x,
+          y: n.y,
+          workspace: n.workspace,
+        })),
+        edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))
+      ),
+    [nodes, edges]
   );
 
   // ── Bundle offsets: stagger entry points for fan-in edges ──────────────
@@ -1665,7 +1634,6 @@ export async function POST(req: Request) {
 
   // ── Primary path computation: smoothstep orthogonal with bundle offsets ──
   const routed = useMemo(() => {
-    try {
     const rawPaths = edges.map((e) => {
       const a = nodes.find((n) => n.id === e.from);
       const b = nodes.find((n) => n.id === e.to);
@@ -1714,10 +1682,6 @@ export async function POST(req: Request) {
     }
 
     return rawPaths;
-    } catch (err) {
-      console.error("Edge routing failed:", err);
-      return edges.map((e) => ({ id: e.id, path: "", detoured: false }));
-    }
   }, [edges, nodes, smartRoute, snapResult, wireStyle, bundleOffsets]);
 
   if (isLoading) {
@@ -1874,8 +1838,8 @@ export async function POST(req: Request) {
                 ref={canvasRef}
                 className="grid-canvas absolute inset-0 overflow-hidden"
                 onClick={() => { setSelected(null); setSelectedAnnotationNode(null); setShowLayoutPopover(false); }}
-                onPointerDown={canvasPan.handlePointerDown}
-                style={{ cursor: canvasPan.cursor, touchAction: "none" }}
+                onMouseDown={canvasPan.handleMouseDown}
+                style={{ cursor: canvasPan.cursor }}
               >
                 <div
                   className="relative h-full w-full origin-top-left"
@@ -2193,9 +2157,6 @@ export async function POST(req: Request) {
               <div className="absolute right-4 top-4 z-30">
                 <CanvasExportButton
                   getCanvasContainer={() => canvasRef.current}
-                  nodes={nodes}
-                  edges={edges}
-                  workspace={workspace}
                   disabled={nodes.length === 0}
                 />
               </div>
@@ -2256,7 +2217,6 @@ export async function POST(req: Request) {
             </>
           ) : (
             /* Database ERD Canvas */
-            <>
             <ErdCanvas
               nodes={nodes}
               edges={edges}
@@ -2270,22 +2230,12 @@ export async function POST(req: Request) {
               zoom={zoom}
               panX={canvasPan.panX}
               panY={canvasPan.panY}
-              onCanvasMouseDown={canvasPan.handlePointerDown}
+              onCanvasMouseDown={canvasPan.handleMouseDown}
               cursor={canvasPan.cursor}
               onRenameColumn={handleRenameColumn}
               onRenameTable={handleRenameTable}
               sections={sections.filter((s) => s.workspace === "erd")}
             />
-            <div className="absolute right-4 top-4 z-20">
-              <CanvasExportButton
-                getCanvasContainer={() => canvasRef.current}
-                nodes={nodes}
-                edges={edges}
-                workspace="erd"
-                disabled={nodes.filter((n) => n.workspace === "erd").length === 0}
-              />
-            </div>
-            </>
           )}
           </main>
         </div>

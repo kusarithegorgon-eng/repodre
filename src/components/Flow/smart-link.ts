@@ -6,7 +6,6 @@
  * to maintain proper separation: UI → Controller → Database.
  */
 
-import { useMemo } from "react";
 import type { Point } from "@/lib/canvas-geometry";
 import { centerOf, perimeterPoint, snappedEdgePath } from "@/lib/canvas-geometry";
 import {
@@ -296,31 +295,22 @@ export function useSmartLinks(
     y: number;
   }>;
 } {
-  return useMemo(() => {
-    try {
-      const smartLinks = generateSmartLinks(nodes, edges, config);
-      const directConnections = findDirectUiToDbConnections(nodes, edges);
+  const smartLinks = generateSmartLinks(nodes, edges, config);
+  const directConnections = findDirectUiToDbConnections(nodes, edges);
 
-      // Generate suggested controllers for each direct UI-DB connection
-      const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-      const suggestedControllers = directConnections
-        .filter((conn) => nodeMap.has(conn.uiNodeId) && nodeMap.has(conn.dbNodeId))
-        .map((conn) => {
-          const uiNode = nodeMap.get(conn.uiNodeId)!;
-          const dbNode = nodeMap.get(conn.dbNodeId)!;
-          return generateControllerIntermediary(uiNode, dbNode);
-        });
+  // Generate suggested controllers for each direct UI-DB connection
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const suggestedControllers = directConnections.map((conn) => {
+    const uiNode = nodeMap.get(conn.uiNodeId)!;
+    const dbNode = nodeMap.get(conn.dbNodeId)!;
+    return generateControllerIntermediary(uiNode, dbNode);
+  });
 
-      return {
-        smartLinks,
-        directConnections,
-        suggestedControllers,
-      };
-    } catch (err) {
-      console.error("Smart link generation failed:", err);
-      return { smartLinks: [], directConnections: [], suggestedControllers: [] };
-    }
-  }, [nodes, edges, config]);
+  return {
+    smartLinks,
+    directConnections,
+    suggestedControllers,
+  };
 }
 
 /**

@@ -165,45 +165,7 @@ export class AutomatedAnalysisEngine {
 
     onProgress?.("fetching", `Fetching ${filesToFetch.length} files...`, 30);
 
-    // Failsafe fetch: sliding-window concurrency (max 5) with an 8s hard
-    // deadline. Results stream into `files` incrementally via onFileFetched
-    // so a hung final file never discards the ones already fetched.
-    const FETCH_DEADLINE_MS = 8_000;
-    const files = new Map<string, string>();
-
-    const abortController = new AbortController();
-
-    const fetchPromise = fetchMultipleFiles(
-      owner,
-      repo,
-      filesToFetch,
-      branch,
-      5,
-      undefined,
-      {
-        onFileFetched: (path, content) => {
-          files.set(path, content);
-        },
-        signal: abortController.signal,
-      },
-    );
-    const deadlineTimer = new Promise<void>((resolve) =>
-      setTimeout(() => resolve(), FETCH_DEADLINE_MS)
-    );
-
-    await Promise.race([fetchPromise, deadlineTimer]);
-
-    if (!abortController.signal.aborted) {
-      abortController.abort();
-      await fetchPromise.catch(() => {});
-    }
-
-    if (files.size === 0) {
-      return {
-        success: false,
-        error: "Failed to fetch any files from the repository.",
-      };
-    }
+    const files = await fetchMultipleFiles(owner, repo, filesToFetch, branch, 5);
 
     // Phase: Parsing
     onProgress?.("parsing", "Parsing source files...", 40);

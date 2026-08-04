@@ -70,7 +70,7 @@ interface ErdCanvasProps {
   zoom: number;
   panX?: number;
   panY?: number;
-  onCanvasMouseDown?: (e: React.PointerEvent) => void;
+  onCanvasMouseDown?: (e: React.MouseEvent) => void;
   cursor?: string;
   /** Called when user renames a column in-place (for SQL sync) */
   onRenameColumn?: (nodeId: string, oldName: string, newName: string) => void;
@@ -279,23 +279,6 @@ export function ErdCanvas({
     return visited;
   }, [selectedEdgeId, edges, selected]);
 
-  // Build FK reference map: for each table, map FK column name → "TargetTable.targetColumn"
-  // Must be declared before any early return to satisfy React's Rules of Hooks.
-  const fkRefMaps = useMemo(() => {
-    const maps = new Map<string, Map<string, string>>();
-    for (const e of edges) {
-      if (!e.fromColumn || !e.toColumn || !e.cardinality) continue;
-      const fromTable = tableNodes.find((n) => n.id === e.from);
-      const toTable = tableNodes.find((n) => n.id === e.to);
-      if (!fromTable || !toTable) continue;
-      const toTableName = toTable.tableName ?? toTable.label;
-      const ref = `${toTableName}.${e.toColumn}`;
-      if (!maps.has(e.from)) maps.set(e.from, new Map());
-      maps.get(e.from)!.set(e.fromColumn, ref);
-    }
-    return maps;
-  }, [edges, tableNodes]);
-
   const cardinalityLabel = (c: string) =>
     c === "one-to-one" ? "1:1" : c === "many-to-many" ? "M:N" : "1:N";
 
@@ -320,6 +303,22 @@ export function ErdCanvas({
     );
   }
 
+  // Build FK reference map: for each table, map FK column name → "TargetTable.targetColumn"
+  const fkRefMaps = useMemo(() => {
+    const maps = new Map<string, Map<string, string>>();
+    for (const e of edges) {
+      if (!e.fromColumn || !e.toColumn || !e.cardinality) continue;
+      const fromTable = tableNodes.find((n) => n.id === e.from);
+      const toTable = tableNodes.find((n) => n.id === e.to);
+      if (!fromTable || !toTable) continue;
+      const toTableName = toTable.tableName ?? toTable.label;
+      const ref = `${toTableName}.${e.toColumn}`;
+      if (!maps.has(e.from)) maps.set(e.from, new Map());
+      maps.get(e.from)!.set(e.fromColumn, ref);
+    }
+    return maps;
+  }, [edges, tableNodes]);
+
   // Build edge lookup for click handler
   const edgeLookup = new Map(
     edges
@@ -332,8 +331,8 @@ export function ErdCanvas({
       <div
         className="grid-canvas absolute inset-0 overflow-hidden"
         onClick={() => { onSelect(null); setSelectedEdgeId(null); setConstraintTooltip(null); }}
-        onPointerDown={onCanvasMouseDown}
-        style={{ cursor, touchAction: "none" }}
+        onMouseDown={onCanvasMouseDown}
+        style={{ cursor }}
       >
         <div
           className="relative h-full w-full origin-top-left"

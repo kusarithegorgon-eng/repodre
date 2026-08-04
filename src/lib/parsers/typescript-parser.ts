@@ -6,8 +6,7 @@
  */
 
 import * as acorn from "acorn";
-import type { Parser, SourceLanguage, ParsedModule, UniversalNode, SymbolTable, Symbol, Import, ParseError } from "./types";
-import { stripTypeScriptSyntax } from "../ast-parser";
+import type { Parser, SourceLanguage, ParsedModule, UniversalNode, SymbolTable, Symbol, Import } from "./types";
 
 const TYPESCRIPT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 
@@ -16,7 +15,7 @@ export class TypeScriptParser implements Parser {
 
   parse(source: string, path: string): ParsedModule {
     const language = this.getLanguage(path) ?? "typescript";
-    const errors: ParseError[] = [];
+    const errors: this["parse"][""]["errors"] = [];
 
     let ast: UniversalNode;
     const symbols: SymbolTable = {
@@ -29,19 +28,15 @@ export class TypeScriptParser implements Parser {
       routes: [],
     };
 
-    // Strip TypeScript-specific syntax before parsing with acorn
-    const isTsFile = /\.(ts|tsx|mts|cts)$/.test(path);
-    const jsSource = isTsFile ? stripTypeScriptSyntax(source) : source;
-
     try {
-      const program = acorn.parse(jsSource, {
+      const program = acorn.parse(source, {
         ecmaVersion: "latest",
         sourceType: "module",
         locations: true,
         onComment: [],
       });
 
-      ast = this.convertNode(program as acorn.Node, jsSource, "root");
+      ast = this.convertNode(program as acorn.Node, source, "root");
       this.extractSymbols(ast, symbols, language);
     } catch (err) {
       errors.push({

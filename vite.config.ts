@@ -11,10 +11,9 @@ export default defineConfig({
     minify: "esbuild",
   },
   esbuild: {
+    // Strip debug/info log calls from production bundles.
+    // console.error and console.warn are preserved for runtime error reporting.
     pure: ["console.log", "console.debug", "console.info"],
     drop: ["debugger"],
-  },
-  optimizeDeps: {
-    include: ["elkjs/lib/elk-api.js", "elkjs/lib/elk.bundled.js"],
   },
 });

@@ -126,20 +126,9 @@ export function HomePage() {
     setError(null);
     setResult(null);
 
-    // Abort the fetch if the user switches tabs during analysis — prevents
-    // background-throttled timers from hanging the React tree on return.
-    const visibilityAbort = new AbortController();
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        visibilityAbort.abort();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-
     try {
       const analysisResult = await analyzeRepository(trimmedUrl, setProgress, {
-        maxFiles: 30,
-        signal: visibilityAbort.signal,
+        maxFiles: 100,
       });
 
       setResult(analysisResult);
@@ -219,16 +208,10 @@ export function HomePage() {
         }
       }
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        setError("Analysis was cancelled because you switched browser tabs. Please try again while keeping this tab active.");
-        showToast("Analysis cancelled — please keep this tab active while fetching.");
-      } else {
-        const message = err instanceof Error ? err.message : "An unexpected error occurred";
-        setError(message);
-        showToast("Parsing failed. Please ensure the repository is public and accessible.");
-      }
+      const message = err instanceof Error ? err.message : "An unexpected error occurred";
+      setError(message);
+      showToast("Parsing failed. Please ensure the repository is public and accessible.");
     } finally {
-      document.removeEventListener("visibilitychange", onVisibilityChange);
       setIsAnalyzing(false);
       setProgress(null);
     }
@@ -306,8 +289,8 @@ export function HomePage() {
               />
             </div>
           </div>
-        </div>
-      )}
+        </AuthGate>
+      );
 
       {/* Toast notification */}
       {toast && (
@@ -432,7 +415,6 @@ export function HomePage() {
               />
             </div>
           )}
-        </AuthGate>
         </div>
 
         {/* Demo Link */}
@@ -470,6 +452,7 @@ export function HomePage() {
             {syncStatus && (
               <p className="text-xs text-muted-foreground">{syncStatus}</p>
               )}
+          </AuthGate>
             <p className="text-xs text-muted-foreground">
               Click to sync repository files to Supabase database (check console for output)
             </p>
@@ -521,7 +504,6 @@ export function HomePage() {
         </div>
       </footer>
     </div>
-    </AuthGate>
   );
 }
 
