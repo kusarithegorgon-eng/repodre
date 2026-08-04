@@ -330,7 +330,14 @@ export async function analyzeRepository(
     let graphNodes: AnalysisGraph["nodes"];
     let graphEdges: AnalysisGraph["edges"];
 
-    if (journeyGraph.nodes.length > 1) {
+    // The journey skeleton always creates 3 nodes (Start, Landing, Loop),
+    // so we check whether it produced any *content* nodes beyond the skeleton.
+    const SKELETON_NODE_TYPES = new Set(["start", "end"]);
+    const journeyContentNodes = journeyGraph.nodes.filter(
+      (n) => !SKELETON_NODE_TYPES.has(n.type) && n.label !== "Landing Page"
+    );
+
+    if (journeyContentNodes.length > 0) {
       // Primary path: ELK layered tree layout (includes bridge nodes)
       const elkPositions = await layoutJourneyGraphWithElk(journeyGraph);
 

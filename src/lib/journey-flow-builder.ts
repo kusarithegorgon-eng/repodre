@@ -145,6 +145,10 @@ interface DetectedSignals {
   importedModels: string[];
   /** External service names detected (stripe, sendgrid, etc.) */
   externalServices: string[];
+  /** Notable npm dependencies parsed from package.json */
+  pkgDeps: string[];
+  /** Route paths extracted from layout.tsx child imports */
+  layoutRoutes: string[];
 }
 
 interface StorageAction {
@@ -266,11 +270,59 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     /(?:^|\/)pages\/index\.(tsx|ts|js|jsx)$/.test(mod.path) ||
     /(?:^|\/)app\/layout\.(tsx|ts|js|jsx)$/.test(mod.path);
 
+  // ── Layout file route extraction ──────────────────────────────────────
+  // Next.js layout.tsx files often import child page components. Extract
+  // those import paths as route candidates so we generate decision/page
+  // nodes even when only layout.tsx was fetched.
+  const layoutRoutes: string[] = [];
+  if (/(?:^|\/)app\/layout\.(tsx|ts|js|jsx)$/.test(mod.path)) {
+    // Match: import X from './something/page' or './something' or '../something'
+    const importMatches = [...mod.source.matchAll(/import\s+\w+\s+from\s+['"`]([\.\/][^'"`]+)['"`]/g)];
+    for (const m of importMatches) {
+      const importPath = m[1];
+      // Strip file extensions and ./ prefixes
+      const cleaned = importPath.replace(/\.\/(?:tsx|ts|js|jsx)$/, '').replace(/^\.\//, '').replace(/^\.\.\//, '');
+      if (cleaned && !cleaned.includes('node_modules') && !['layout', 'globals', 'root'].includes(cleaned)) {
+        const route = '/' + cleaned.replace(/\//g, '/');
+        if (!layoutRoutes.includes(route)) layoutRoutes.push(route);
+      }
+    }
+  }
+
+  // ── package.json dependency extraction ────────────────────────────────
+  // When package.json is fetched, extract notable dependencies as
+  // external service / database / cache signals so they produce nodes.
+  const pkgDeps: string[] = [];
+  if (mod.path.endsWith('package.json')) {
+    try {
+      const pkg = JSON.parse(mod.source);
+      const allDeps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+      const notableDeps = [
+        'stripe', '@supabase/supabase-js', 'prisma', '@prisma/client',
+        'mongoose', 'redis', 'ioredis', '@sendgrid/mail', 'openai',
+        'aws-sdk', '@aws-sdk/client-s3', 'firebase', 'twilio',
+        'cloudinary', '@octokit/rest', 'winston', 'pino', 'sentry',
+        'next-auth', '@auth/core', 'express', 'fastify', 'koa',
+        'react-query', '@tanstack/react-query', 'swr',
+        'bull', 'bullmq', 'node-cron',
+      ];
+      for (const dep of Object.keys(allDeps)) {
+        if (notableDeps.includes(dep) || notableDeps.some(nd => dep.includes(nd))) {
+          pkgDeps.push(dep);
+        }
+      }
+    } catch {
+      // not valid JSON, skip
+    }
+  }
+
   const isAuth =
     /sign\s*in|sign\s*up|login|log\s*in|register|authenticat|signin|signup/.test(src) ||
     path.includes("auth") ||
     path.includes("login") ||
-    path.includes("signup");
+    path.includes("signup") ||
+    pkgDeps.includes('next-auth') ||
+    pkgDeps.includes('@auth/core');
 
   const isLogout = /sign\s*out|log\s*out|logout|signout/.test(src) || path.includes("logout");
 
@@ -297,7 +349,11 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     src.includes("supabase") ||
     src.includes("mongoose") ||
     src.includes("create table") ||
-    src.includes("select * from");
+    src.includes("select * from") ||
+    pkgDeps.includes('prisma') ||
+    pkgDeps.includes('@prisma/client') ||
+    pkgDeps.includes('mongoose') ||
+    pkgDeps.includes('@supabase/supabase-js');
 
   // ── Middleware Detection ────────────────────────────────────────────────
   // Files named middleware.ts or containing guard/auth middleware patterns
@@ -372,7 +428,12 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     filename.includes("cache") ||
     /\.cache\s*\(|cache\.|memcached|redis.*cache|react-query|tanstack\/query|usequery|usemutation/i.test(src) ||
     /stale-while-revalidate|swr|cachestore|cachestrategy/i.test(src) ||
-    /next\s*\.\s*cache|unstable_cache/i.test(src);
+    /next\s*\.\s*cache|unstable_cache/i.test(src) ||
+    pkgDeps.includes('redis') ||
+    pkgDeps.includes('ioredis') ||
+    pkgDeps.includes('react-query') ||
+    pkgDeps.includes('@tanstack/react-query') ||
+    pkgDeps.includes('swr');
 
   // Refined CRUD detection using ORM method calls
   const crudType = detectCrudType(src, filename, isApi);
@@ -386,6 +447,10 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     if (pagesMatch && !pagesMatch[1].startsWith("api/") && !pagesMatch[1].startsWith("_")) {
       routePath = `/${pagesMatch[1].replace(/\[|\]/g, ":")}`;
     }
+  }
+  // Layout file: use first layout route as routePath so it becomes a decision node
+  if (!routePath && layoutRoutes.length > 0) {
+    routePath = layoutRoutes[0];
   }
 
   // Detect user decisions
@@ -401,6 +466,10 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
   const hrefMatches = [...src.matchAll(/href\s*=\s*['"`]([^'"`]+)['"`]/g)];
   for (const m of hrefMatches) {
     if (m[1] && !m[1].startsWith("#") && !decisions.includes(m[1])) decisions.push(m[1]);
+  }
+  // Layout routes become decision targets
+  for (const r of layoutRoutes) {
+    if (!decisions.includes(r)) decisions.push(r);
   }
 
   // Detect data-storing actions
@@ -460,6 +529,8 @@ function detectSignals(mod: ParsedModule): DetectedSignals {
     storageActions,
     importedModels,
     externalServices: detectedExternalServices,
+    pkgDeps,
+    layoutRoutes,
   };
 }
 
@@ -660,6 +731,61 @@ export function buildJourneyGraph(modules: ParsedModule[]): JourneyGraph {
         referencedModels: sig.importedModels,
       });
       actionNodes.push(aNode);
+    }
+
+    // ── Package.json dependency nodes ──────────────────────────────────
+    // When package.json is the only file fetched, generate external service
+    // and database nodes from notable dependencies so the canvas still
+    // shows a meaningful architecture.
+    if (sig.pkgDeps.length > 0) {
+      for (const dep of sig.pkgDeps) {
+        // Database deps → DB nodes
+        if (dep.includes('prisma') || dep.includes('mongoose') || dep.includes('supabase')) {
+          const label = dep.includes('supabase') ? 'DB: Supabase' : dep.includes('prisma') ? 'DB: Prisma' : 'DB: MongoDB';
+          if (!dbNodeByLabel.has(label)) {
+            const dbNode = addNode('database', label, 6, placeInCol(6), mod.path);
+            dbNodes.push(dbNode);
+            dbNodeByLabel.set(label, dbNode);
+          }
+        }
+        // Cache deps → cache nodes
+        if (dep.includes('redis') || dep.includes('react-query') || dep.includes('tanstack/react-query') || dep.includes('swr')) {
+          const label = dep.includes('redis') ? 'Cache: Redis' : 'Cache: React Query';
+          if (!cacheNodes.some((c) => c.label === label)) {
+            cacheNodes.push(addNode('cache', label, 5, placeInCol(5), mod.path));
+          }
+        }
+        // External service deps → external service nodes
+        const externalMap: Record<string, string> = {
+          'stripe': 'Stripe', 'openai': 'OpenAI', '@sendgrid/mail': 'SendGrid',
+          'twilio': 'Twilio', 'cloudinary': 'Cloudinary', '@octokit/rest': 'GitHub API',
+          'aws-sdk': 'AWS', '@aws-sdk/client-s3': 'AWS S3', 'firebase': 'Firebase',
+          'sentry': 'Sentry',
+        };
+        for (const [matchKey, svcLabel] of Object.entries(externalMap)) {
+          if (dep.includes(matchKey)) {
+            const label = `External: ${svcLabel}`;
+            if (!externalServiceNodes.some((e) => e.label === label)) {
+              externalServiceNodes.push(addNode('external_service', label, 5, placeInCol(5), mod.path));
+            }
+          }
+        }
+        // Auth deps → auth node
+        if (dep.includes('next-auth') || dep.includes('@auth/core')) {
+          if (!authNode) {
+            const authN = addNode('auth', 'Auth: OAuth', 2, placeInCol(2), mod.path);
+            authNode = authN;
+            authNodes.push(authN);
+          }
+        }
+        // Background service deps → service nodes
+        if (dep.includes('bull') || dep.includes('node-cron')) {
+          const label = dep.includes('bull') ? 'Service: BullMQ' : 'Service: Cron';
+          if (!serviceNodes.some((s) => s.label === label)) {
+            serviceNodes.push(addNode('service', label, 5, placeInCol(5), mod.path));
+          }
+        }
+      }
     }
 
     // ── Process Node Detection ───────────────────────────────────────────
