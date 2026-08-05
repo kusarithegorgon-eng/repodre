@@ -22,8 +22,5 @@ export {
   persistAnalysisGraph,
   loadPersistedGraph,
   deletePersistedProject,
-  type PersistedProject,
-  type PersistedNode,
-  type PersistedEdge,
   type PersistenceResult,
 } from "./persistence";
