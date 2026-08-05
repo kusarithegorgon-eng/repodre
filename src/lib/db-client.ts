@@ -503,18 +503,28 @@ export async function syncRepoToSupabase(
     return { success: true, count: 0 };
   }
 
-  // Map files to node format
-  const nodes = files.map((file, index) => ({
-    label: file.name,
-    sub: inferSubLabel(file.id),
-    shape: inferShape(file.id) as Shape,
-    accent: "teal" as Accent,
-    x: 80 + (index % 6) * 200,
-    y: 80 + Math.floor(index / 6) * 140,
-    workspace: "app" as Workspace,
-    columns: null,
-    tableName: null,
-  }));
+  // Map files to node format, deduplicating by label so the batch
+  // never contains two rows with the same (project_id, label) —
+  // PostgREST upsert can only resolve conflicts against existing rows,
+  // not within the same payload.
+  const seen = new Set<string>();
+  const nodes = files
+    .map((file, index) => ({
+      label: file.name,
+      sub: inferSubLabel(file.id),
+      shape: inferShape(file.id) as Shape,
+      accent: "teal" as Accent,
+      x: 80 + (index % 6) * 200,
+      y: 80 + Math.floor(index / 6) * 140,
+      workspace: "app" as Workspace,
+      columns: null,
+      tableName: null,
+    }))
+    .filter((n) => {
+      if (seen.has(n.label)) return false;
+      seen.add(n.label);
+      return true;
+    });
 
   try {
     const { data, error } = await supabase
