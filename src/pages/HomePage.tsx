@@ -293,8 +293,8 @@ export function HomePage() {
               />
             </div>
           </div>
-        </AuthGate>
-      );
+        </div>
+      )}
 
       {/* Toast notification */}
       {toast && (
@@ -508,6 +508,7 @@ export function HomePage() {
         </div>
       </footer>
     </div>
+    </AuthGate>
   );
 }
 
