@@ -167,22 +167,30 @@ export function HomePage() {
             }))
           );
 
-          // Map analysis node IDs to DB node IDs by label, since upsert
-          // may collapse duplicate labels and return fewer rows than input.
-          const nodeIdMap = new Map<string, string>();
+          // Map analysis node IDs to DB node IDs by label. With upsert,
+          // duplicate labels collapse into one DB row, so every analysis
+          // node sharing a label maps to the same DB UUID.
+          const labelToDbId = new Map<string, string>();
           for (const dbNode of savedNodes) {
-            const analysisNode = analysisResult.graph.nodes.find(
-              (n) => n.label === dbNode.label
-            );
-            if (analysisNode) nodeIdMap.set(analysisNode.id, dbNode.id);
+            labelToDbId.set(dbNode.label, dbNode.id);
+          }
+          const nodeIdMap = new Map<string, string>();
+          for (const analysisNode of analysisResult.graph.nodes) {
+            const dbId = labelToDbId.get(analysisNode.label);
+            if (dbId) nodeIdMap.set(analysisNode.id, dbId);
           }
 
-          // Save edges
+          // Filter out edges whose endpoints didn't get mapped — sending
+          // raw analysis IDs (e.g. "j_45") to a uuid column crashes.
+          const validEdges = analysisResult.graph.edges.filter(
+            (e) => nodeIdMap.has(e.from) && nodeIdMap.has(e.to)
+          );
+
           await batchCreateEdges(
             project.id,
-            analysisResult.graph.edges.map((e) => ({
-              from: nodeIdMap.get(e.from) || e.from,
-              to: nodeIdMap.get(e.to) || e.to,
+            validEdges.map((e) => ({
+              from: nodeIdMap.get(e.from)!,
+              to: nodeIdMap.get(e.to)!,
               fromHandle: e.fromHandle as HandleSegment | undefined,
               toHandle: e.toHandle as HandleSegment | undefined,
             }))
