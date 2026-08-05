@@ -1585,25 +1585,31 @@ export async function POST(req: Request) {
   // node and builds a smooth cubic-bezier path that snaps exactly to the port
   // coordinates. Paths recalculate on every render (including during drag),
   // so wires always track node positions without clipping into geometry.
-  const snapResult = useEdgeSnap(
-    nodes.map((n) => ({ ...n, w: n.w ?? NODE_W, h: n.h ?? NODE_H })),
-    edges,
+  const snapNodes = useMemo(
+    () => nodes.map((n) => ({ ...n, w: n.w ?? NODE_W, h: n.h ?? NODE_H })),
+    [nodes],
   );
+  const snapResult = useEdgeSnap(snapNodes, edges);
 
-  // Smart Links: classify edges by architectural layer (UI -> Controller -> DB)
-  const smartLinksResult = useSmartLinks(
-    nodes.map((n) => ({
-      id: n.id,
-      label: n.label,
-      sub: n.sub,
-      shape: n.shape,
-      accent: n.accent,
-      x: n.x,
-      y: n.y,
-      workspace: n.workspace,
-    })),
-    edges.map((e) => ({ id: e.id, from: e.from, to: e.to }))
+  const smartLinkNodes = useMemo(
+    () =>
+      nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+        accent: n.accent,
+        x: n.x,
+        y: n.y,
+        workspace: n.workspace,
+      })),
+    [nodes],
   );
+  const smartLinkEdges = useMemo(
+    () => edges.map((e) => ({ id: e.id, from: e.from, to: e.to })),
+    [edges],
+  );
+  const smartLinksResult = useSmartLinks(smartLinkNodes, smartLinkEdges);
 
   // ── Bundle offsets: stagger entry points for fan-in edges ──────────────
   // When multiple edges arrive at the same target node, offset each path

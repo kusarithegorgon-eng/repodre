@@ -510,7 +510,7 @@ export async function syncRepoToSupabase(
   const seen = new Set<string>();
   const nodes = files
     .map((file, index) => ({
-      label: file.name,
+      label: file.id,
       sub: inferSubLabel(file.id),
       shape: inferShape(file.id) as Shape,
       accent: "teal" as Accent,
