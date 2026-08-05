@@ -167,11 +167,15 @@ export function HomePage() {
             }))
           );
 
-          // Create a mapping from generated IDs to DB IDs for edges
+          // Map analysis node IDs to DB node IDs by label, since upsert
+          // may collapse duplicate labels and return fewer rows than input.
           const nodeIdMap = new Map<string, string>();
-          analysisResult.graph.nodes.forEach((n, i) => {
-            nodeIdMap.set(n.id, savedNodes[i].id);
-          });
+          for (const dbNode of savedNodes) {
+            const analysisNode = analysisResult.graph.nodes.find(
+              (n) => n.label === dbNode.label
+            );
+            if (analysisNode) nodeIdMap.set(analysisNode.id, dbNode.id);
+          }
 
           // Save edges
           await batchCreateEdges(

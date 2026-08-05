@@ -437,10 +437,20 @@ export async function batchCreateNodes(
   projectId: string,
   nodes: (Omit<Node, "id" | "projectId"> & { userId?: string | null })[]
 ): Promise<Node[]> {
+  // Deduplicate by label so the batch never contains two rows with the
+  // same (project_id, label) — PostgREST upsert can only resolve conflicts
+  // against existing rows, not within the same payload.
+  const seen = new Set<string>();
+  const deduped = nodes.filter((n) => {
+    if (seen.has(n.label)) return false;
+    seen.add(n.label);
+    return true;
+  });
+
   const { data, error } = await supabase
     .from("nodes")
-    .insert(
-      nodes.map((n) => {
+    .upsert(
+      deduped.map((n) => {
         const insertData: Record<string, unknown> = {
           project_id: projectId,
           label: n.label,
@@ -460,7 +470,8 @@ export async function batchCreateNodes(
           insertData.user_id = n.userId;
         }
         return insertData;
-      })
+      }),
+      { onConflict: "project_id,label", ignoreDuplicates: false }
     )
     .select();
 
@@ -694,10 +705,20 @@ export async function batchCreateEdges(
   projectId: string,
   edges: Omit<Edge, "id" | "projectId">[]
 ): Promise<Edge[]> {
+  // Deduplicate by (from, to) so the batch never contains two rows with
+  // the same edge pair.
+  const seen = new Set<string>();
+  const deduped = edges.filter((e) => {
+    const key = `${e.from}->${e.to}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   const { data, error } = await supabase
     .from("edges")
-    .insert(
-      edges.map((e) => ({
+    .upsert(
+      deduped.map((e) => ({
         project_id: projectId,
         from_node: e.from,
         to_node: e.to,
@@ -706,7 +727,8 @@ export async function batchCreateEdges(
         cardinality: e.cardinality ?? null,
         from_column: e.fromColumn ?? null,
         to_column: e.toColumn ?? null,
-      }))
+      })),
+      { onConflict: "project_id,from_node,to_node", ignoreDuplicates: false }
     )
     .select();
 
