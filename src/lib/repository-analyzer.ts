@@ -244,8 +244,9 @@ export async function analyzeRepository(
   for (const [path, content] of files) {
     try {
       // Try the multi-language parser factory first
-      if (parserFactory.canParse(path)) {
-        const parsed = parserFactory.parse(content, path);
+      const parser = parserFactory.getParserForPath(path);
+      if (parser) {
+        const parsed = parser.parse(content, path);
         unifiedModules.push(parsed);
       }
       // Always also run the acorn-based parser for JS/TS compatibility
