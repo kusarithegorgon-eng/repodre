@@ -827,7 +827,8 @@ export async function POST(req: Request) {
     if (webhookSync.isConnected) {
       webhookSync.triggerMockEvent();
     }
-  }, [webhookSync.isConnected, webhookSync.triggerMockEvent]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [webhookSync.isConnected]);
 
 
 
