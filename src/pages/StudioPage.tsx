@@ -1418,14 +1418,26 @@ export async function POST(req: Request) {
         })),
       );
 
+      // Map by label since upsert may collapse duplicate labels
+      const labelToDbId = new Map<string, string>();
+      for (const dbNode of savedNodes) {
+        labelToDbId.set(dbNode.label, dbNode.id);
+      }
       const nodeIdMap = new Map<string, string>();
-      nodes.forEach((n, i) => nodeIdMap.set(n.id, savedNodes[i].id));
+      for (const n of nodes) {
+        const dbId = labelToDbId.get(n.label);
+        if (dbId) nodeIdMap.set(n.id, dbId);
+      }
+
+      const validEdges = edges.filter(
+        (e) => nodeIdMap.has(e.from) && nodeIdMap.has(e.to)
+      );
 
       await batchCreateEdges(
         newProject.id,
-        edges.map((e) => ({
-          from: nodeIdMap.get(e.from) || e.from,
-          to: nodeIdMap.get(e.to) || e.to,
+        validEdges.map((e) => ({
+          from: nodeIdMap.get(e.from)!,
+          to: nodeIdMap.get(e.to)!,
           fromHandle: e.fromHandle,
           toHandle: e.toHandle,
           cardinality: e.cardinality,

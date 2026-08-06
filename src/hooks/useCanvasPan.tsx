@@ -1,8 +1,13 @@
 /**
  * useCanvasPan — Infinite Viewport Pan & Drag Engine
  *
- * Uses window capture-phase mousedown so node stopPropagation can't block pan.
- * Hardware-accelerated translate3d for 60fps smooth panning.
+ * Supports three pan modes:
+ * 1. Left-click-drag on empty canvas (the canvas div's onMouseDown calls handleMouseDown)
+ * 2. Spacebar + left-click-drag anywhere
+ * 3. Middle-click-drag anywhere
+ *
+ * Node elements call e.stopPropagation() on their own mousedown, so the
+ * canvas-level handler only fires when clicking empty space.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -10,11 +15,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 export interface UseCanvasPanOptions {
   enableSpacebar?: boolean;
   enableMiddleMouse?: boolean;
+  enableLeftClickDrag?: boolean;
   onPanChange?: (panX: number, panY: number) => void;
 }
 
 export function useCanvasPan(options: UseCanvasPanOptions = {}) {
-  const { enableSpacebar = true, enableMiddleMouse = true, onPanChange } = options;
+  const { enableSpacebar = true, enableMiddleMouse = true, enableLeftClickDrag = true, onPanChange } = options;
 
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
@@ -46,11 +52,21 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
     onPanChange?.(x, y);
   }, [onPanChange]);
 
+  const startPan = useCallback((clientX: number, clientY: number) => {
+    panStartRef.current = {
+      x: clientX,
+      y: clientY,
+      panX: stateRef.current.panX,
+      panY: stateRef.current.panY,
+    };
+    setIsPanning(true);
+    stateRef.current.isPanning = true;
+  }, []);
+
   // Spacebar handler
   useEffect(() => {
     if (!enableSpacebar) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't capture space when user is typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === "Space" && !e.repeat) {
         e.preventDefault();
@@ -73,7 +89,7 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
     };
   }, [enableSpacebar]);
 
-  // Global capture-phase mousedown — fires before any React synthetic event
+  // Global capture-phase mousedown for middle-mouse and spacebar+click
   useEffect(() => {
     const handleCaptureMouseDown = (e: MouseEvent) => {
       const shouldPan =
@@ -83,21 +99,24 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
       if (shouldPan) {
         e.preventDefault();
         e.stopPropagation();
-        panStartRef.current = {
-          x: e.clientX,
-          y: e.clientY,
-          panX: stateRef.current.panX,
-          panY: stateRef.current.panY,
-        };
-        setIsPanning(true);
-        stateRef.current.isPanning = true;
+        startPan(e.clientX, e.clientY);
       }
     };
 
-    // Capture phase ensures this fires before React's bubble-phase handlers
     window.addEventListener("mousedown", handleCaptureMouseDown, true);
     return () => window.removeEventListener("mousedown", handleCaptureMouseDown, true);
-  }, [enableMiddleMouse]);
+  }, [enableMiddleMouse, startPan]);
+
+  // React onMouseDown handler for the canvas div — starts left-click-drag pan.
+  // Node elements call e.stopPropagation() so this only fires on empty canvas.
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!enableLeftClickDrag) return;
+    if (e.button !== 0) return;
+    // Don't pan if spacebar is held (the capture-phase listener handles that)
+    if (stateRef.current.isSpaceHeld) return;
+    e.preventDefault();
+    startPan(e.clientX, e.clientY);
+  }, [enableLeftClickDrag, startPan]);
 
   // Global mousemove + mouseup for active panning
   useEffect(() => {
@@ -128,11 +147,6 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [onPanChange]);
-
-  // Expose a no-op React handler for backwards-compat (canvas div's onMouseDown)
-  const handleMouseDown = useCallback((_e: React.MouseEvent) => {
-    // Actual pan handling is via window capture-phase listener above
-  }, []);
 
   // Force body cursor when panning so it shows over all child elements
   useEffect(() => {

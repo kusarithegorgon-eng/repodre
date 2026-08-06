@@ -355,14 +355,28 @@ export async function deleteProject(id: string): Promise<void> {
 
 // Node operations
 
+const MAX_NODES_PER_PROJECT = 500;
+
 export async function listNodes(projectId: string): Promise<Node[]> {
   const { data, error } = await supabase
     .from("nodes")
     .select("*")
-    .eq("project_id", projectId);
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true })
+    .limit(MAX_NODES_PER_PROJECT);
 
   if (error) throw error;
   return (data ?? []).map(rowToNode);
+}
+
+export async function getNodeCount(projectId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("nodes")
+    .select("*", { count: "exact", head: true })
+    .eq("project_id", projectId);
+
+  if (error) throw error;
+  return count ?? 0;
 }
 
 export async function createNode(
@@ -605,11 +619,15 @@ function inferShape(path: string): string {
 
 // Edge operations
 
+const MAX_EDGES_PER_PROJECT = 1000;
+
 export async function listEdges(projectId: string): Promise<Edge[]> {
   const { data, error } = await supabase
     .from("edges")
     .select("*")
-    .eq("project_id", projectId);
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true })
+    .limit(MAX_EDGES_PER_PROJECT);
 
   if (error) throw error;
   return (data ?? []).map(rowToEdge);
