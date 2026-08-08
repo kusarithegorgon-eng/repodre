@@ -28,6 +28,7 @@ import {
 import type { Node, Edge } from "@/lib/db-client";
 import type { HandleSegment } from "@/lib/canvas-geometry";
 import { X, Trash2 } from "lucide-react";
+import { SectionContainer } from "./SectionContainer";
 
 function sectionColorHex(color: string): string {
   const map: Record<string, string> = {
@@ -78,6 +79,16 @@ interface ErdCanvasProps {
   onRenameTable?: (nodeId: string, newName: string) => void;
   /** Section containers to render behind ERD tables */
   sections?: Array<{ id: string; label: string; color: string; x: number; y: number; w: number; h: number; devStatus: string }>;
+  /** Called when a section is updated (drag, resize, relabel) */
+  onUpdateSection?: (id: string, updates: Partial<{ label: string; color: string; x: number; y: number; w: number; h: number; devStatus: string }>) => void;
+  /** Called when a section is deleted */
+  onDeleteSection?: (id: string) => void;
+  /** Called continuously during a section move-drag to translate child nodes */
+  onDragSectionChildren?: (sectionId: string, dx: number, dy: number) => void;
+  /** Called once when a section move-drag ends — use to persist child positions */
+  onDragSectionChildrenEnd?: () => void;
+  /** Called when the user clicks the Fit-to-Content button on a section */
+  onFitSectionToContent?: (id: string) => void;
 }
 
 export function ErdCanvas({
@@ -98,6 +109,11 @@ export function ErdCanvas({
   onRenameColumn,
   onRenameTable,
   sections = [],
+  onUpdateSection,
+  onDeleteSection,
+  onDragSectionChildren,
+  onDragSectionChildrenEnd,
+  onFitSectionToContent,
 }: ErdCanvasProps) {
   // Filter to ERD table nodes only
   const tableNodes = nodes.filter((n) => n.workspace === "erd" && n.columns);
@@ -339,42 +355,29 @@ export function ErdCanvas({
           style={{ transform: `translate3d(${panX}px, ${panY}px, 0) scale(${zoom / 100})` }}
         >
           {/* Section containers (behind ERD tables) */}
-          {sections.map((s) => {
-            const isReady = s.devStatus === "ready";
-            const colorHex = isReady ? "rgba(34, 197, 94, 0.06)" : sectionColorHex(s.color);
-            const borderColor = isReady ? "rgba(34, 197, 94, 0.35)" : sectionBorderHex(s.color);
-            return (
-              <div
-                key={s.id}
-                className="absolute rounded-2xl pointer-events-none"
-                style={{
-                  left: s.x,
-                  top: s.y,
-                  width: s.w,
-                  height: s.h,
-                  zIndex: 0,
-                  background: colorHex,
-                  border: `2px dashed ${borderColor}`,
-                }}
-              >
-                <div
-                  className="absolute top-0 left-0 right-0 flex items-center px-3 rounded-t-2xl"
-                  style={{
-                    height: 36,
-                    background: isReady ? "rgba(34, 197, 94, 0.12)" : sectionBorderHex(s.color),
-                    borderBottom: `1px solid ${borderColor}`,
-                  }}
-                >
-                  <span className="text-sm font-semibold text-foreground/80 truncate">{s.label}</span>
-                  {isReady && (
-                    <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-bold text-green-600" style={{ background: "rgba(34,197,94,0.15)" }}>
-                      Ready for Dev
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {sections.map((s) => (
+            <SectionContainer
+              key={s.id}
+              section={{
+                id: s.id,
+                label: s.label,
+                color: s.color as any,
+                x: s.x,
+                y: s.y,
+                w: s.w,
+                h: s.h,
+                devStatus: s.devStatus as any,
+              }}
+              zoom={zoom}
+              isSelected={false}
+              onSelect={() => {}}
+              onUpdate={(updates) => onUpdateSection?.(s.id, updates)}
+              onDelete={(id) => onDeleteSection?.(id)}
+              onDragChildren={(sectionId, dx, dy) => onDragSectionChildren?.(sectionId, dx, dy)}
+              onDragEnd={() => onDragSectionChildrenEnd?.()}
+              onFitToContent={(id) => onFitSectionToContent?.(id)}
+            />
+          ))}
 
           {/* Edge SVG layer with Crow's Foot markers */}
           <svg

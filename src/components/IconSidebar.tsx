@@ -7,7 +7,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Chrome as Home, ShieldCheck, MessageCircle } from "lucide-react";
+import { Download, Upload, Activity, Play, FileCode2, GitBranch, RefreshCw, Plus, Minus, Settings2, Spline, Magnet, CornerDownRight, Cloud, Users, GitCompare, Eye, Zap, Inbox, Database, BookOpen, Workflow, Chrome as Home, ShieldCheck, MessageCircle, Group } from "lucide-react";
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
 
@@ -169,6 +169,7 @@ export interface IconSidebarProps {
   onRecenter: () => void;
   onRefresh: () => void;
   onResetLayout: () => void;
+  onCreateSection: () => void;
   onExportJSON: () => void;
   onImportJSON: () => void;
   onChangeWorkspace: (ws: "app" | "erd") => void;
@@ -228,6 +229,7 @@ export function IconSidebar({
   onRecenter,
   onRefresh,
   onResetLayout,
+  onCreateSection,
   onExportJSON,
   onImportJSON,
   onChangeWorkspace,
@@ -340,6 +342,13 @@ export function IconSidebar({
               tooltip={`Smart Routing: ${smartRoute ? "ON" : "OFF"}`}
               onClick={onToggleSmartRoute}
               active={smartRoute}
+            />
+
+            <SidebarButton
+              icon={<Group className="h-4 w-4" />}
+              tooltip="Create Section (Figma-style group)"
+              onClick={onCreateSection}
+              disabled={nodes.length === 0}
             />
 
             <SidebarButton

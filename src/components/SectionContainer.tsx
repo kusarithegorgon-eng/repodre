@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Trash2 } from "lucide-react";
+import { Check, Trash2, Maximize2 } from "lucide-react";
 import type { Section, SectionColor, DevStatus } from "@/lib/db-client";
 
 const SECTION_COLORS: Record<SectionColor, { bg: string; border: string; header: string; glow: string }> = {
@@ -41,6 +41,10 @@ interface SectionContainerProps {
   onDelete: (id: string) => void;
   /** Called continuously during a drag with the delta (dx, dy) in canvas coords. */
   onDragChildren: (sectionId: string, dx: number, dy: number) => void;
+  /** Called once when a move-drag ends (mouseup) — use to persist child positions. */
+  onDragEnd?: () => void;
+  /** Called when the user clicks the Fit-to-Content button. */
+  onFitToContent?: (id: string) => void;
 }
 
 export function SectionContainer({
@@ -52,6 +56,8 @@ export function SectionContainer({
   onUpdate,
   onDelete,
   onDragChildren,
+  onDragEnd,
+  onFitToContent,
 }: SectionContainerProps) {
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState(section.label);
@@ -111,6 +117,9 @@ export function SectionContainer({
     };
 
     const onUp = () => {
+      if (dragState.current?.mode === "move") {
+        onDragEnd?.();
+      }
       dragState.current = null;
     };
 
@@ -120,7 +129,7 @@ export function SectionContainer({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [zoom, section.id, section.x, section.y, section.w, section.h, onUpdate, onDragChildren]);
+  }, [zoom, section.id, section.x, section.y, section.w, section.h, onUpdate, onDragChildren, onDragEnd]);
 
   // ─── Label editing ──────────────────────────────────────────────────────
   const commitLabel = useCallback(() => {
@@ -264,6 +273,18 @@ export function SectionContainer({
         >
           <Check className="h-3 w-3" />
           {isReady ? "Ready for Dev" : "Draft"}
+        </button>
+
+        {/* Fit to Content */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onFitToContent?.(section.id);
+          }}
+          className="shrink-0 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-primary/15 hover:text-primary"
+          title="Fit section to contained nodes"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
         </button>
 
         {/* Delete */}

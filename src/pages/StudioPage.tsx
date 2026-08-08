@@ -1078,6 +1078,37 @@ export async function POST(req: Request) {
     }));
   }, []);
 
+  // Persist child positions to DB after a section drag ends.
+  const handleDragSectionChildrenEnd = useCallback(() => {
+    if (isDemoMode || isDraftMode) return;
+    setNodes((prev) => {
+      const updates = prev
+        .filter((n) => n.sectionId)
+        .map((n) => ({ id: n.id, x: n.x, y: n.y }));
+      if (updates.length > 0) {
+        batchUpdateNodePositions(updates).catch(() => {});
+      }
+      return prev;
+    });
+  }, [isDemoMode, isDraftMode]);
+
+  // Auto-pad: resize a section to fit all of its child nodes with padding.
+  const handleFitSectionToContent = useCallback((sectionId: string) => {
+    const children = nodes.filter((n) => n.sectionId === sectionId);
+    if (children.length === 0) return;
+    const minX = Math.min(...children.map((n) => n.x));
+    const minY = Math.min(...children.map((n) => n.y));
+    const maxX = Math.max(...children.map((n) => n.x + (n.w ?? NODE_W)));
+    const maxY = Math.max(...children.map((n) => n.y + (n.h ?? NODE_H)));
+    const PAD = 40; // px padding around children
+    const HEADER_OFFSET = 44; // header height
+    const newX = snapToGrid(minX - PAD);
+    const newY = snapToGrid(minY - PAD - HEADER_OFFSET);
+    const newW = snapToGrid(maxX - minX + PAD * 2);
+    const newH = snapToGrid(maxY - minY + PAD * 2 + HEADER_OFFSET);
+    handleUpdateSection(sectionId, { x: newX, y: newY, w: newW, h: newH });
+  }, [nodes, handleUpdateSection]);
+
   // ─── Inline label editing handler (30% Manual Override) ──────────────────
   const setLabel = useCallback(async (id: string, label: string) => {
     setNodes((p) => p.map((n) => (n.id === id ? { ...n, label } : n)));
@@ -1839,6 +1870,13 @@ export async function POST(req: Request) {
         onRecenter={canvasPan.resetPan}
         onRefresh={refreshCanvas}
         onResetLayout={handleResetToAutoLayout}
+        onCreateSection={() => {
+          const rect = canvasRef.current?.getBoundingClientRect();
+          if (!rect) return;
+          const cx = (rect.width / 2 - (canvasPan.panX ?? 0)) / (zoom / 100);
+          const cy = (rect.height / 2 - (canvasPan.panY ?? 0)) / (zoom / 100);
+          handleCreateSection(cx - 300, cy - 200);
+        }}
         onExportJSON={handleExportJSON}
         onImportJSON={() => fileInputRef.current?.click()}
         onChangeWorkspace={handleWorkspaceChange}
@@ -2126,6 +2164,8 @@ export async function POST(req: Request) {
                       onUpdate={handleUpdateSection}
                       onDelete={handleDeleteSection}
                       onDragChildren={handleDragSectionChildren}
+                    onDragEnd={handleDragSectionChildrenEnd}
+                    onFitToContent={handleFitSectionToContent}
                     />
                   ))}
 
@@ -2319,6 +2359,11 @@ export async function POST(req: Request) {
               onRenameColumn={handleRenameColumn}
               onRenameTable={handleRenameTable}
               sections={sections.filter((s) => s.workspace === "erd")}
+              onUpdateSection={handleUpdateSection}
+              onDeleteSection={handleDeleteSection}
+              onDragSectionChildren={handleDragSectionChildren}
+              onDragSectionChildrenEnd={handleDragSectionChildrenEnd}
+              onFitSectionToContent={handleFitSectionToContent}
             />
           )}
           </main>
