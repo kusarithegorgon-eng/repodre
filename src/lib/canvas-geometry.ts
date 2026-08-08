@@ -599,7 +599,7 @@ export function pickHandles(
 export function bezierPathBetween(
   start: Point,
   end: Point,
-  curvature = 140,
+  curvature = 180,
 ): string {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
@@ -714,7 +714,7 @@ export function routeEdge(
   from: PositionedNode,
   to: PositionedNode,
   obstacles: PositionedNode[] = [],
-  pad = 18,
+  pad = 28,
 ): RoutedEdge {
   const start = anchorBetween(from, to);
   const end = anchorBetween(to, from);
@@ -741,12 +741,12 @@ export function routeEdge(
     const isVertical = Math.abs(dy) > Math.abs(dx);
     if (isVertical) {
       const sign = dy >= 0 ? 1 : -1;
-      c1 = { x: start.x, y: start.y + sign * 140 };
-      c2 = { x: end.x, y: end.y - sign * 140 };
+      c1 = { x: start.x, y: start.y + sign * 180 };
+      c2 = { x: end.x, y: end.y - sign * 180 };
     } else {
       const sign = dx >= 0 ? 1 : -1;
-      c1 = { x: start.x + sign * 140, y: start.y };
-      c2 = { x: end.x - sign * 140, y: end.y };
+      c1 = { x: start.x + sign * 180, y: start.y };
+      c2 = { x: end.x - sign * 180, y: end.y };
     }
   } else {
     detoured = true;
@@ -757,7 +757,7 @@ export function routeEdge(
     const ny = dx / len;
 
     let bestOffset = 0;
-    outer: for (const mag of [60, 100, 150, 210, 280]) {
+    outer: for (const mag of [80, 130, 190, 260, 340]) {
       for (const sign of [1, -1]) {
         const off = mag * sign;
         const bend: Point = { x: mx + nx * off, y: my + ny * off };
@@ -769,7 +769,7 @@ export function routeEdge(
         }
       }
     }
-    if (bestOffset === 0) bestOffset = 140;
+    if (bestOffset === 0) bestOffset = 180;
     const bend: Point = { x: mx + nx * bestOffset, y: my + ny * bestOffset };
     c1 = { x: (start.x + bend.x) / 2, y: (start.y + bend.y) / 2 };
     c2 = { x: (end.x + bend.x) / 2, y: (end.y + bend.y) / 2 };
@@ -800,7 +800,7 @@ export function smoothstepEdgePath(
   from: PositionedNode,
   to: PositionedNode,
   bundleOffset = 0,
-  radius = 12,
+  radius = 16,
 ): string {
   const fw = from.w ?? NODE_W;
   const fh = from.h ?? NODE_H;

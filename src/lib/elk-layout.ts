@@ -38,12 +38,12 @@ export interface ElkLayoutOptions {
 
 const DEFAULT_ELK_OPTIONS: ElkLayoutOptions = {
   direction: "DOWN",
-  nodeNodeSpacing: 70,
-  nodeEdgeSpacing: 40,
-  edgeEdgeSpacing: 20,
-  layerSpacing: 180,
-  decisionSpacing: 100,
-  bridgeSpacing: 120,
+  nodeNodeSpacing: 100,
+  nodeEdgeSpacing: 50,
+  edgeEdgeSpacing: 30,
+  layerSpacing: 240,
+  decisionSpacing: 140,
+  bridgeSpacing: 160,
   startX: 120,
   startY: 100,
 };

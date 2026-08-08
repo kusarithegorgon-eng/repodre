@@ -18,8 +18,8 @@ import type { Cardinality } from "./sql-tokenizer";
 export const ERD_TABLE_WIDTH = 240;
 export const ERD_HEADER_HEIGHT = 36;
 export const ERD_ROW_HEIGHT = 28;
-export const ERD_GRID_GAP_X = 120;
-export const ERD_GRID_GAP_Y = 100;
+export const ERD_GRID_GAP_X = 200;
+export const ERD_GRID_GAP_Y = 160;
 export const ERD_START_X = 60;
 export const ERD_START_Y = 60;
 export const ERD_MAX_COLS = 3; // tables per row before wrapping
@@ -171,7 +171,7 @@ export function layoutErd(
  * (source table, exit side); within each group they are spread symmetrically
  * around zero with a step of `BUNDLE_STEP` px.
  */
-const BUNDLE_STEP = 14;
+const BUNDLE_STEP = 20;
 
 function computeBundleOffsets(
   edges: Array<{ id: string; fromTableId: string; toTableId: string }>,
@@ -266,7 +266,7 @@ function smoothstepPath(
   const fromIsRight = from.x > fromTable.x + fromTable.width / 2;
   const toIsRight = to.x > toTable.x + toTable.width / 2;
 
-  const exitGap = 24;
+  const exitGap = 32;
   const p1x = from.x + (fromIsRight ? exitGap : -exitGap);
   const p2x = to.x + (toIsRight ? exitGap : -exitGap);
   let midX = (p1x + p2x) / 2;
@@ -287,7 +287,7 @@ function smoothstepPath(
     }
   }
 
-  const r = Math.min(12, Math.abs(midX - p1x) / 2, Math.abs(p2x - midX) / 2);
+  const r = Math.min(16, Math.abs(midX - p1x) / 2, Math.abs(p2x - midX) / 2);
   const fromSx = fromIsRight ? 1 : -1;
   const toSx = toIsRight ? 1 : -1;
 

@@ -1116,68 +1116,114 @@ export async function POST(req: Request) {
     try { await deleteEdge(id); } catch { /* ignore */ }
   }, [history, nodes, edges, selected, selectedEdgeId]);
 
-  // ─── Reset to Auto-Layout (ELK) ─────────────────────────────────────────────
-  // Re-runs the ELK layered algorithm on the current nodes/edges and persists
-  // the computed positions back to Supabase. Useful after users have manually
-  // moved nodes and want to restore the clean family-tree layout.
-  const handleResetToAutoLayout = useCallback(async () => {
-    if (nodes.length === 0 || isDemoMode || isDraftMode) return;
+  // ─── Auto-Layout Engine (ELK.js) ──────────────────────────────────────────
+  // Runs the ELK layered algorithm on the current nodes/edges to produce a
+  // clean hierarchical layout. Works in all modes (demo, draft, live project).
+  // In live-project mode the computed positions are also persisted to Supabase.
+  const runElkAutoLayout = useCallback(async (
+    layoutNodes: NodeData[],
+    layoutEdges: EdgeData[],
+    persist: boolean,
+  ): Promise<void> => {
+    if (layoutNodes.length === 0) return;
 
+    const journeyGraph: JourneyGraph = {
+      nodes: layoutNodes.map((n) => ({
+        id: n.id,
+        type: n.shape === "diamond" ? "decision" : n.shape === "pill" ? "page" : n.shape === "cylinder" ? "database" : n.shape === "rectangle" ? "action" : "page",
+        label: n.label,
+        sub: n.sub,
+        shape: n.shape,
+        accent: n.accent,
+        col: 0,
+        row: 0,
+      })),
+      edges: layoutEdges.map((e) => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+        label: undefined,
+      })),
+    };
+
+    const positions = await layoutJourneyGraphWithElk(journeyGraph, {
+      direction: "DOWN",
+      nodeNodeSpacing: 100,
+      nodeEdgeSpacing: 50,
+      edgeEdgeSpacing: 30,
+      layerSpacing: 240,
+      decisionSpacing: 140,
+      startX: 120,
+      startY: 100,
+    });
+
+    const updates: Array<{ id: string; x: number; y: number }> = [];
+    setNodes((prev) =>
+      prev.map((n) => {
+        const pos = positions.get(n.id);
+        if (pos) {
+          updates.push({ id: n.id, x: pos.x, y: pos.y });
+          return { ...n, x: pos.x, y: pos.y, isManuallyPositioned: false };
+        }
+        return n;
+      })
+    );
+
+    if (persist) {
+      await batchUpdateNodePositions(updates);
+    }
+  }, []);
+
+  const handleResetToAutoLayout = useCallback(async () => {
+    if (nodes.length === 0) return;
     setIsResettingLayout(true);
     try {
-      // Reconstruct a JourneyGraph from current canvas state
-      const journeyGraph: JourneyGraph = {
-        nodes: nodes.map((n) => ({
-          id: n.id,
-          type: n.shape === "diamond" ? "decision" : n.shape === "pill" ? "page" : n.shape === "cylinder" ? "database" : n.shape === "rectangle" ? "action" : "page",
-          label: n.label,
-          sub: n.sub,
-          shape: n.shape,
-          accent: n.accent,
-          col: 0,
-          row: 0,
-        })),
-        edges: edges.map((e) => ({
-          id: e.id,
-          from: e.from,
-          to: e.to,
-          label: undefined,
-        })),
-      };
-
-      // Run ELK layout
-      const positions = await layoutJourneyGraphWithElk(journeyGraph, {
-        direction: "DOWN",
-        nodeNodeSpacing: 80,
-        nodeEdgeSpacing: 40,
-        edgeEdgeSpacing: 20,
-        layerSpacing: 220,
-        decisionSpacing: 120,
-        startX: 120,
-        startY: 100,
-      });
-
-      // Apply positions to local state
-      const updates: Array<{ id: string; x: number; y: number }> = [];
-      setNodes((prev) =>
-        prev.map((n) => {
-          const pos = positions.get(n.id);
-          if (pos) {
-            updates.push({ id: n.id, x: pos.x, y: pos.y });
-            return { ...n, x: pos.x, y: pos.y, isManuallyPositioned: false };
-          }
-          return n;
-        })
-      );
-
-      // Persist to database
-      await batchUpdateNodePositions(updates);
+      await runElkAutoLayout(nodes, edges, !isDemoMode && !isDraftMode);
     } catch (error) {
       console.error("Failed to reset layout:", error);
     } finally {
       setIsResettingLayout(false);
     }
-  }, [nodes, edges, isDemoMode, isDraftMode, history, selected]);
+  }, [nodes, edges, isDemoMode, isDraftMode, runElkAutoLayout]);
+
+  // ─── Auto-arrange on load ──────────────────────────────────────────────────
+  // When a project loads (or demo/draft mode starts), check if nodes have
+  // overlapping or uninitialised positions. If so, automatically run the ELK
+  // layout engine so the diagram is clean from the first frame rather than
+  // showing a messy pile of stacked nodes.
+  const [hasAutoArranged, setHasAutoArranged] = useState(false);
+  useEffect(() => {
+    if (hasAutoArranged || isLoading || nodes.length < 2) return;
+
+    // Detect overlap: two nodes share the same (x, y) or are stacked at origin
+    const nodeW = NODE_W;
+    const nodeH = NODE_H;
+    const rectsOverlap = (a: NodeData, b: NodeData) =>
+      a.x < b.x + nodeW && a.x + nodeW > b.x && a.y < b.y + nodeH && a.y + nodeH > b.y;
+
+    let hasOverlap = false;
+    const atOrigin = nodes.filter((n) => n.x === 0 && n.y === 0);
+    if (atOrigin.length >= 2) {
+      hasOverlap = true;
+    } else {
+      for (let i = 0; i < nodes.length && !hasOverlap; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          if (rectsOverlap(nodes[i], nodes[j])) {
+            hasOverlap = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!hasOverlap) {
+      setHasAutoArranged(true);
+      return;
+    }
+
+    setHasAutoArranged(true);
+    runElkAutoLayout(nodes, edges, !isDemoMode && !isDraftMode).catch(() => {});
+  }, [hasAutoArranged, isLoading, nodes, edges, isDemoMode, isDraftMode, runElkAutoLayout]);
 
   // ─── localStorage auto-save ───────────────────────────────────────────────
   useEffect(() => {
@@ -1661,7 +1707,7 @@ export async function POST(req: Request) {
     for (const edgeIds of byTarget.values()) {
       if (edgeIds.length < 2) continue;
       const n = edgeIds.length;
-      const spread = Math.min((n - 1) * 10, 36);
+      const spread = Math.min((n - 1) * 14, 56);
       const step = n > 1 ? spread / (n - 1) : 0;
       edgeIds.forEach((id, i) => {
         offsets.set(id, -spread / 2 + i * step);
