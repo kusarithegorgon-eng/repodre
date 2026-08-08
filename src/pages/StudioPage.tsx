@@ -484,6 +484,29 @@ export function StudioPage() {
   const [blastRadiusOpen, setBlastRadiusOpen] = useState(false);
   const [dimmedNodeIds, setDimmedNodeIds] = useState<Set<string>>(new Set());
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set());
+
+  // Memoize the node/edge subsets passed to BlastRadiusOverlay so they have
+  // stable identity across renders. Without this, fresh arrays each render
+  // make the overlay's effect re-fire, calling setState, which re-renders,
+  // which re-allocates the arrays — an infinite update loop (React #185).
+  const blastRadiusNodes = useMemo(
+    () =>
+      nodes
+        .filter((n) => n.shape !== "circle")
+        .map((n) => ({ id: n.id, label: n.label, sub: n.sub, shape: n.shape, x: n.x, y: n.y })),
+    [nodes],
+  );
+  const blastRadiusEdges = useMemo(
+    () =>
+      edges
+        .filter((e) => {
+          const from = nodes.find((n) => n.id === e.from);
+          const to = nodes.find((n) => n.id === e.to);
+          return from?.shape !== "circle" && to?.shape !== "circle";
+        })
+        .map((e) => ({ id: e.id, from: e.from, to: e.to })),
+    [nodes, edges],
+  );
   const [codeSyncOpen, setCodeSyncOpen] = useState(false);
   const [pendingCodeChanges, setPendingCodeChanges] = useState<CodeChange[]>([]);
   const [sections, setSections] = useState<SectionData[]>([]);
@@ -2356,19 +2379,8 @@ export async function POST(req: Request) {
           setHighlightedNodeIds(new Set());
         }}
         originId={selected}
-        nodes={nodes.filter((n) => n.shape !== "circle").map((n) => ({
-          id: n.id,
-          label: n.label,
-          sub: n.sub,
-          shape: n.shape,
-          x: n.x,
-          y: n.y,
-        }))}
-        edges={edges.filter((e) => {
-          const from = nodes.find((n) => n.id === e.from);
-          const to = nodes.find((n) => n.id === e.to);
-          return from?.shape !== "circle" && to?.shape !== "circle";
-        }).map((e) => ({ id: e.id, from: e.from, to: e.to }))}
+        nodes={blastRadiusNodes}
+        edges={blastRadiusEdges}
         onDimNodes={setDimmedNodeIds}
         onHighlightNodes={setHighlightedNodeIds}
       />

@@ -8,8 +8,8 @@
  *   - shows a "Simulate Deletion" toggle that previews broken connections
  */
 
-import { useMemo, useState } from "react";
-import { Crosshair, X, AlertTriangle, Route, Server, Trash2, Eye } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Crosshair, X, TriangleAlert as AlertTriangle, Route, Server, Trash2, Eye } from "lucide-react";
 import { computeBlastRadius, simulateDeletion, type ImpactCategory } from "@/lib/blast-radius";
 
 interface BlastRadiusOverlayProps {
@@ -52,8 +52,8 @@ export function BlastRadiusOverlay({
     return simulateDeletion(originId, nodes, edges);
   }, [isOpen, originId, simulateDelete, nodes, edges]);
 
-  // Notify parent of dim/highlight sets whenever the result changes
-  useMemo(() => {
+  // Notify parent of dim/highlight sets whenever the result changes.
+  useEffect(() => {
     if (!result) {
       onDimNodes?.(new Set());
       onHighlightNodes?.(new Set());
