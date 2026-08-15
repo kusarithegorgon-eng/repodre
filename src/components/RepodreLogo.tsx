@@ -11,7 +11,7 @@ export function RepodreLogo(props: ImgHTMLAttributes<HTMLImageElement>) {
 
   return (
     <img
-      src="/image.png"
+      src="/repodre-logo.png"
       alt="Repodre"
       width={defaultWidth}
       height={defaultHeight}
