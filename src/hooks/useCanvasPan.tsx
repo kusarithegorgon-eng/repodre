@@ -2,12 +2,13 @@
  * useCanvasPan — Infinite Viewport Pan & Drag Engine
  *
  * Supports three pan modes:
- * 1. Left-click-drag on empty canvas (the canvas div's onMouseDown calls handleMouseDown)
+ * 1. Left-click/touch-drag on empty canvas (the canvas div's onPointerDown calls handlePointerDown)
  * 2. Spacebar + left-click-drag anywhere
  * 3. Middle-click-drag anywhere
  *
- * Node elements call e.stopPropagation() on their own mousedown, so the
- * canvas-level handler only fires when clicking empty space.
+ * Uses Pointer Events for unified mouse + touch input.
+ * Node elements call e.stopPropagation() on their own pointerdown, so the
+ * canvas-level handler only fires when touching empty space.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -89,9 +90,9 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
     };
   }, [enableSpacebar]);
 
-  // Global capture-phase mousedown for middle-mouse and spacebar+click
+  // Global capture-phase pointerdown for middle-mouse and spacebar+click
   useEffect(() => {
-    const handleCaptureMouseDown = (e: MouseEvent) => {
+    const handleCapturePointerDown = (e: PointerEvent) => {
       const shouldPan =
         (stateRef.current.isSpaceHeld && e.button === 0) ||
         (enableMiddleMouse && e.button === 1);
@@ -103,25 +104,26 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
       }
     };
 
-    window.addEventListener("mousedown", handleCaptureMouseDown, true);
-    return () => window.removeEventListener("mousedown", handleCaptureMouseDown, true);
+    window.addEventListener("pointerdown", handleCapturePointerDown, true);
+    return () => window.removeEventListener("pointerdown", handleCapturePointerDown, true);
   }, [enableMiddleMouse, startPan]);
 
-  // React onMouseDown handler for the canvas div — starts left-click-drag pan.
+  // React onPointerDown handler for the canvas div — starts left-click/touch-drag pan.
   // Node elements call e.stopPropagation() so this only fires on empty canvas.
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (!enableLeftClickDrag) return;
-    if (e.button !== 0) return;
+    if (e.button !== 0 && e.pointerType === "mouse") return;
     // Don't pan if spacebar is held (the capture-phase listener handles that)
     if (stateRef.current.isSpaceHeld) return;
     e.preventDefault();
     startPan(e.clientX, e.clientY);
   }, [enableLeftClickDrag, startPan]);
 
-  // Global mousemove + mouseup for active panning
+  // Global pointermove + pointerup for active panning
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (!stateRef.current.isPanning || !panStartRef.current) return;
+      e.preventDefault();
       const dx = e.clientX - panStartRef.current.x;
       const dy = e.clientY - panStartRef.current.y;
       const nx = panStartRef.current.panX + dx;
@@ -133,18 +135,20 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
       onPanChange?.(nx, ny);
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       if (!stateRef.current.isPanning) return;
       panStartRef.current = null;
       setIsPanning(false);
       stateRef.current.isPanning = false;
     };
 
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [onPanChange]);
 
@@ -166,7 +170,7 @@ export function useCanvasPan(options: UseCanvasPanOptions = {}) {
     isPanning,
     isSpaceHeld,
     cursor,
-    handleMouseDown,
+    handlePointerDown,
     resetPan,
     setPan,
     transform: `translate3d(${panX}px, ${panY}px, 0)`,

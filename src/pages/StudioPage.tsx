@@ -1960,7 +1960,7 @@ export async function POST(req: Request) {
                 ref={canvasRef}
                 className="grid-canvas absolute inset-0 overflow-hidden"
                 onClick={() => { setSelected(null); setSelectedAnnotationNode(null); setShowLayoutPopover(false); }}
-                onMouseDown={canvasPan.handleMouseDown}
+                onPointerDown={canvasPan.handlePointerDown}
                 style={{ cursor: canvasPan.cursor }}
               >
                 <div
@@ -2354,7 +2354,7 @@ export async function POST(req: Request) {
               zoom={zoom}
               panX={canvasPan.panX}
               panY={canvasPan.panY}
-              onCanvasMouseDown={canvasPan.handleMouseDown}
+              onCanvasMouseDown={canvasPan.handlePointerDown}
               cursor={canvasPan.cursor}
               onRenameColumn={handleRenameColumn}
               onRenameTable={handleRenameTable}
@@ -2756,8 +2756,8 @@ function CanvasNode({
     if (!isDragging) setTempPos({ x: node.x, y: node.y });
   }, [node.x, node.y, isDragging]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return;
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -2769,7 +2769,8 @@ function CanvasNode({
 
     setIsDragging(true);
 
-    const onMove = (mv: MouseEvent) => {
+    const onMove = (mv: PointerEvent) => {
+      mv.preventDefault();
       latestPos = {
         x: originX + (mv.clientX - startCX) / zoom,
         y: originY + (mv.clientY - startCY) / zoom,
@@ -2780,12 +2781,14 @@ function CanvasNode({
     const onUp = () => {
       setIsDragging(false);
       onDragEnd(latestPos.x, latestPos.y);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
 
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }, [node.x, node.y, zoom, onDragEnd]);
 
   const handles = anchorHandles({ shape: node.shape, x: 0, y: 0 });
@@ -2824,7 +2827,7 @@ function CanvasNode({
       }}
       title={isBridge ? "Go to Next Section" : undefined}
       onClick={onSelect}
-      onMouseDown={handleMouseDown}
+      onPointerDown={handlePointerDown}
     >
       {/* ── SVG shape background ── */}
       <NodeShapeSVG

@@ -219,6 +219,8 @@ body {
   /* Subtle dotted grid pattern */
   background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1px);
   background-size: 24px 24px;
+  /* Prevent browser from intercepting touch gestures (native scrolling, pinch-zoom) */
+  touch-action: none;
 }
 
 /* ─── High-Contrast Node Styles ────────────────────────────────────────── */

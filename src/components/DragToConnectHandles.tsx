@@ -69,11 +69,12 @@ export function DragToConnectHandle({
               cursor: "crosshair",
               zIndex: 30,
             }}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-            onMouseDown={(e) => {
+            onPointerEnter={() => setIsHovered(true)}
+            onPointerLeave={() => setIsHovered(false)}
+            onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
               const canvasPos = {
                 x: x + portX,
@@ -289,24 +290,27 @@ export function useDragToConnect({
     });
   }, [state, onConnect]);
 
-  // Set up global mouse event listeners during drag
+  // Set up global pointer event listeners during drag
   useEffect(() => {
     if (!state.isDragging) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
+      e.preventDefault();
       updateMousePos(e.clientX, e.clientY);
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       endDrag();
     };
 
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
 
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [state.isDragging, updateMousePos, endDrag]);
 

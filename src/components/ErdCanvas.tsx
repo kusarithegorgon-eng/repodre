@@ -71,7 +71,7 @@ interface ErdCanvasProps {
   zoom: number;
   panX?: number;
   panY?: number;
-  onCanvasMouseDown?: (e: React.MouseEvent) => void;
+  onCanvasMouseDown?: (e: React.PointerEvent) => void;
   cursor?: string;
   /** Called when user renames a column in-place (for SQL sync) */
   onRenameColumn?: (nodeId: string, oldName: string, newName: string) => void;
@@ -198,9 +198,9 @@ export function ErdCanvas({
   const [dragId, setDragId] = useState<string | null>(null);
   const dragOrigin = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent, table: ErdTableNode) => {
-      if (e.button !== 0) return;
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent, table: ErdTableNode) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
       onSelect(table.id);
@@ -217,7 +217,8 @@ export function ErdCanvas({
 
   useEffect(() => {
     if (!dragId) return;
-    const onMove = (mv: MouseEvent) => {
+    const onMove = (mv: PointerEvent) => {
+      mv.preventDefault();
       const origin = dragOrigin.current;
       if (!origin) return;
       const newX = origin.originX + (mv.clientX - origin.startX) / (zoom / 100);
@@ -228,11 +229,13 @@ export function ErdCanvas({
       setDragId(null);
       dragOrigin.current = null;
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
   }, [dragId, zoom, onDragEnd]);
 
@@ -347,7 +350,7 @@ export function ErdCanvas({
       <div
         className="grid-canvas absolute inset-0 overflow-hidden"
         onClick={() => { onSelect(null); setSelectedEdgeId(null); setConstraintTooltip(null); }}
-        onMouseDown={onCanvasMouseDown}
+        onPointerDown={onCanvasMouseDown}
         style={{ cursor }}
       >
         <div
@@ -487,7 +490,7 @@ export function ErdCanvas({
             return (
               <div
                 key={table.id}
-                onMouseDown={(e) => handleMouseDown(e, table)}
+                onPointerDown={(e) => handlePointerDown(e, table)}
                 style={{
                   opacity: isDimmed ? 0.35 : 1,
                   transition: "opacity 200ms",
